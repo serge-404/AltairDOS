@@ -1,0 +1,56 @@
+TTY 9600 POLL	; 4800/9600/19200/38400  POLL/INT
+IOBYTE 149	; 149 - console CRT(TV); 148 - console TTY(RS232)
+INT 0		; 0/1=no/yes interrupts while IO
+VMEM 1		; 0/1=reserve RAM segments starting upper/lower
+autoformat_vdisk
+ASSIGN DRIVE E=vdisk 32 ; in-memory disk 32kb (4..255,'inkey')
+fix_ramtop
+USE E:CONFIG.SYS	; select another config file if exists (cancels current)
+ASSIGN DRIVE A = FDD0		; floppy A
+ASSIGN DRIVE B = FDD1		; floppy B
+REM ASSIGN DRIVE C = SDCARD 0	; mount SD-card 1-st partition
+ASSIGN DRIVE C = MASTER 0	; mount IDE-Master 1-st partition
+ASSIGN DRIVE F = ROM		; mount ROM
+REM ASSIGN DRIVE G = SLAVE 3	; mount IDE-Slave 4-th partition
+COLOR 15 1
+ECHO 27,'D',0,27,'S',0	; keyboard input delay (0..9), sound tone (0/1=off/on)
+REM ECHO 27,'Z',5,26,0      ; onscreen clock position
+ECHO 27,'Z',3,11	; onscreen clock mode, draw clock 
+ECHO 27,'R',4		; cursor type (cursor width)
+ECHO 12,10,10,10,10,10	; cls, linefeeds
+WIDTH 8
+ECHO 'BBBBB                    T       DDDDDD                tm'
+ECHO 'B    B   EEEE    SSSS    T        D    D    OOOO    SSSS '
+ECHO 'B    B  E    E  S      TTTTT      D    DD  O    O  S     '
+ECHO 'BBBBB   EEEEEE  SSSSS    T        D    DD  O    O  SSSSS '
+ECHO 'B    B  E            S   T        D    DD  O    O       S'
+ECHO 'B    B  E    E  S    S   T        D    D   O    O  S    S'
+ECHO 'BBBBB    EEEE    SSSS     TT     DDDDDD     OOOO    SSSS '
+PATH 15			; default catalog for binaries
+REM device = mshell30	; install driver (activate: ctl+shft+J)
+;
+; CCP autoreplaces:
+; commands:
+SET @ = WIDTH		
+SET / = ECHO OFF & USER 0
+SET CD = ECHO OFF & USER
+SET LS = ECHO OFF & DIR
+SET RM = ECHO OFF & ERA
+SET CAT = ECHO OFF & TYPE
+SET VI = ECHO OFF & SED
+;
+; on/off screen clock:
+SET CON = ECHO 27,"Z",3,11
+SET COFF = ECHO 27,"Z",3,0
+;
+LPT F500
+cls
+echo '+-------------------------+'
+echo '|   Best-Dos version 2.0  |'
+echo '|   CP/M V2.2 compatible  |'
+echo '+-------------------------+'
+echo '| (c) Black Cat inc. 1996 |'
+echo '+-------------------------+'
+color 0 0
+width 6
+rem nc	; run command cancels config.sys
