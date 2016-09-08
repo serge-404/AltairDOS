@@ -1,0 +1,460 @@
+	N8VEM	equ	1	; 0=MSX scheme, 1=N8VEM scheme
+;
+;============= SD-card procedures ====================================
+;
+CMD0   equ 040h +  0 ; resets the card
+CMD9   equ 040h +  9 ; read CSD
+CMD10  equ 040h + 10 ; read CID
+CMD16  equ 040h + 16 ; set R/W block
+CMD17  equ 040h + 17 ; read block
+CMD24  equ 040h + 24 ; write block
+CMD55  equ 040h + 55 ; next command is ACMDxx
+CMD58  equ 040h + 58 ; READ_OCR
+ACMD41 equ 040h + 41 ; send host capacity support, init card
+;
+SD_ADDR	equ	0F762h
+SD_ADR2	equ	0F763h
+SD_PWR	equ	08h	; POWER OFF/ON=0/1 (positive logic)
+SD_CS	equ 	04h 	; NPN inverter, positive logic.
+SD_CLK	equ 	02h
+SD_DOUT	equ 	01h
+SD_DIN	equ	80h 
+FTimeout equ	20000
+;
+; керналь для двух вариантов схем SD card
+;
+sd_tab0:
+sd_wiggle:
+	jp	sd_wiggle_msx
+sd_fini:
+	jp	sd_fini_msx
+sd_put:
+	jp	sd_put_msx
+sd_get:
+	jp	sd_get_msx
+;
+; --------------------------
+;
+; PowerOFF SD-card
+;
+SD_POWER_DOWN:
+	call	sd_setup	; select, wait busy
+	call	sd_done		; /CS high, clock and dout low
+	xor	a
+	jr	sdsel2
+;
+; Select SD-card
+;
+sd_select:
+	call	sd_fini		;
+	or 	SD_PWR + SD_CS	; select, still idle data
+sdsel2:	
+@@SD1:	ld	(SD_ADDR), a
+	ret			; af bc de trashed, de=SD_ADDR
+;
+; Wakeup card
+;
+sd_wiggle_n8vem:
+	ld	bc, 255*256 + SD_CLK
+	jr	sd_wig_n8vem
+;
+; sd_fini return: DE=SD_ADDR
+;
+sd_fini_n8vem:
+	ld 	bc, 17*256 + SD_CLK	; clock low high low high ... low, 8 pulses
+sd_wig_n8vem:
+@@SD2:	ld	de, SD_ADDR 
+	ld 	a, SD_DOUT + SD_PWR	; unselected, idle data
+L1:	ld	(de), a
+	xor	c		; c=SD_CLK
+	djnz	L1
+	ret			; af bc de trashed
+;
+sd_put_n8vem:
+	push	hl              ; byte from a,  saves HL !
+	ld	c, a
+	ld 	b, 8
+@@SD3:	ld	hl, SD_ADDR 
+L3:	ld 	a, 6		; (SD_PWR+SD_CS)/2  	
+	rl 	c
+	rla			; SD_DOUT is RTC.0
+	ld	(hl), a		; clock is low
+	or 	SD_CLK
+	ld	(hl), a		; rising clock edge
+	djnz	L3
+	xor	SD_CLK		; and	NOT SD_CLK
+	ld	(hl), a		; leave with clock low
+	pop	hl
+	ret			; af bc trashed
+;
+sd_get_n8vem:
+	push	hl             	; byte to a
+	ld	d, 8
+@@SD4:	ld	hl, SD_ADDR 
+L2:	ld	a, (hl)
+	rla			; SD_DIN is RTC.7
+	rl	e
+	ld	a, SD_PWR + SD_CS + SD_DOUT + SD_CLK
+	ld	(hl), a
+	and	NOT SD_CLK
+	ld	(hl), a
+	dec	d
+	jr	nz, L2
+	ld	a, e
+	pop	hl
+	ret			; af de trashed
+;
+sd_wiggle_msx:
+	ld	b, 70h
+	jr	sd_wig_msx
+;
+; sd_fini return: DE=SD_ADDR
+;
+sd_fini_msx:
+	ld	b, 8
+sd_wig_msx:
+	ld	a, SD_PWR
+@@SD5:	ld	de, SD_ADDR
+	ld	(de), a
+	ld	a, 0FFh
+	inc	de		; DE=SD_ADR2
+LL0:	ld	(de), a		; out & /CLK		 
+	djnz	LL0
+	dec	de		; DE=SD_ADDR
+	xor	a		; for MSX<->NVEM compability!
+	ret			; af b de trashed, de=SD_ADDR
+;
+sd_put_msx:
+@@SD6:	ld	bc, SD_ADR2	; byte from a,  saves HL !
+	ld	(bc), a		 
+	rlca	
+	ld	(bc), a
+	rlca	
+	ld	(bc), a
+	rlca	
+	ld	(bc), a
+	rlca	
+	ld	(bc), a
+	rlca	
+	ld	(bc), a
+	rlca	
+	ld	(bc), a
+	rlca	
+	ld	(bc), a		; 84 tstates
+	ret			; af bc trashed
+;
+sd_get_msx:
+@@SD7:	ld	de, SD_ADR2
+	ld	a, d		; A.D7=1
+	ld	(de), a
+	ld	(de), a
+	ld	(de), a
+	ld	(de), a
+	ld	(de), a
+	ld	(de), a
+	ld	(de), a
+	ld	(de), a		; 7*9=63 tstates
+	ld	a, (de)
+	ret			; a=result,  de trashed  
+;
+; command in a, includes fixed msbits
+; arg32 in dehl
+; z return, if R1 (in a) is 0
+; saves BC !
+;
+sd_command_no_arg:
+	ld	hl, 0
+;
+sd_command_word_arg:  ; fits in HL
+	ld	de, 0
+;
+sd_command:		; command in a, dword arg in dehl
+	push	bc
+	call	sd_put	; command includes fixed 01 startbits
+	ld	a, d	; arg highest (D31..D24) - Xhi
+	call	sd_put
+	ld	a, e	;             (D23..D16) - Xlo
+	call	sd_put
+	ld	a, h	;             (D15..D08) - Yhi 
+	call	sd_put
+	ld	a, l	; arg lowest  (D07..D00) - Ylo
+	call	sd_put
+
+	ld	a, 095h	; crc7 only valid for initial CMD0
+	call	sd_put	; DOUT ends up idle because of the stopbit
+	ld hl,FTimeout	; XXX timeout XTAL dependent
+	pop	bc
+L4:
+	call	sd_get	; R1 response, when msbit is clear
+	or	a	; zero and sign valid
+	ret	p	; R1 in a. z if ok
+	dec	hl
+	bit	7, h	; until HL wraps negative
+	jr	z, L4
+	ret		; 0x80 | ? in a, nz
+;
+; command response R1
+; 0x00 ok
+; or bitfield
+; 0x01 idle state
+; 0x02 erase reset
+; 0x04 illegal command
+; 0x08 command crc error
+; 0x10 erase sequence error
+; 0x20 address error
+; 0x40 parameter error
+; 0x80 timeout (other bits meaningless)
+;
+; packet token
+; 0xFF none yet
+; 0xFE ok
+; or bitfield
+; 0x01 error
+; 0x02 controller error
+; 0x04 media ecc failed
+; 0x08 out of range
+; 0x10 card is locked
+
+sd_wait_token:
+	ld hl, FTimeout	; XXX timeout XTAL dependent
+L5:	call	sd_get	; token is first non-FF
+	cp	0FFh
+	ret	nz	; token in a
+	dec	hl
+	bit	7, h	; until HL wraps negative
+	jr	z, L5
+	ret		; FF in a
+;
+; INP: DEHL=data position,   BC: buffer address 
+;      byte offset in dehl
+; OUT: z return if ok, or error code in a
+;
+sd_write_block:
+	ld	a, CMD24	; WRITE_BLOCK
+	call	sd_command	; dehl byteaddress, saves BC
+	ret	nz		; not "ok"
+	ld	h, b	
+	ld	l, c		; HL=buffer address
+	ld	a, 0FEh		; packet start token
+	call	sd_put		; saves HL
+	ld	d, 0		; loop counter
+WRLOOP:	ld	a, (hl)		; data
+	inc	hl
+	call	sd_put
+	ld	a, (hl)		; data
+	inc	hl
+	call	sd_put
+	dec	d
+	jr	nz, WRLOOP	; do the sector (512 bytes)
+
+	ld	a, 0FFh		; 020b
+	call	sd_put		; crc16
+	ld	a, 0FFh
+	call	sd_put		; crcs are not used
+
+	; xxx0___1
+	;     010   accepted
+	;     101   crc error
+	;     110   write error XXX is not reporting _this_ block.
+
+	call	sd_wait_token	; data response or FF if timed out
+	and	01Fh
+	cp	005h		; "data accepted" ?
+	ret
+
+	; write will (?) really start only after 8 more clocks.
+	; unselect does an extra get, so not a problem.
+
+;	cp  00Bh              ; "transmission crc error" ?
+;	jr z, retry           ; do it again
+;
+; INP: DEHL=data position,   BC: buffer address 
+;      byte offset in dehl
+; OUT: z return if ok
+;
+sd_read_block:
+	ld	a, CMD17	; READ_SINGLE_BLOCK
+	call	sd_command	; dehl byteaddress, saves BC
+	ret	nz		; not "ok"
+	call	sd_wait_token	; packet start or FF if timed out, saves BC
+	cp	0FEh
+	ret	nz		;  or error
+	ld	d, b	
+	ld	e, c		; DE=buffer address
+	ld	b, 0		; loop counter
+@@SD8:	ld	hl, SD_ADR2
+RDLOOP:	ld	(hl), h		; D7=1
+	ld	(hl), h
+	ld	(hl), h
+	ld	(hl), h
+	ld	(hl), h
+	ld	(hl), h
+	ld	(hl), h
+	ld	(hl), h		; 7*9=63 tstates
+	ld	a, (hl)		; sd_get
+	ld	(de), a
+	inc	de
+	ld	(hl), h
+	ld	(hl), h
+	ld	(hl), h
+	ld	(hl), h
+	ld	(hl), h
+	ld	(hl), h
+	ld	(hl), h
+	ld	(hl), h		; 7*9=63 tstates
+	ld	a, (hl)		; sd_get
+RDJNZ:	ld	(de), a
+	inc	de		; 
+	djnz	RDLOOP	; do the sector (512 bytes)
+	call	sd_get  ; crc16
+;	ld	h, a
+	call	sd_get  ;  in HL
+;	ld	l, a	; crcs are not used
+	xor	a	; zero, no carry
+	ret
+;
+; Check SD-card for busy, then set DEHL to data position 
+; (SDC:Byte-address, SDHC:sector number in LBA notation)
+;   Input: HL=DriveInfo_array+8,  d: 1=SDC, 3=SDHC
+;  Output: DEHL=data position,   BC: buffer address 
+;
+sd_setup:
+	call	sd_select	; saves HL
+sd_wait_busy:
+	ld bc, FTimeout	; XXX timeout XTAL dependent
+L6:	call	sd_get	; 8 clocks. data output activates after 1 clock
+	inc	a	; FF is not busy
+	jr	z, LL6	; z, ok. a=0
+	dec	bc	; else busy or something
+	bit	7, b	; until HL wraps negative
+	jr	z, L6
+	ret		; nz, timeout
+LL6:
+	ld	bc, 0FFFBh      ; -5
+	add	hl, bc
+	ld	c, (hl)
+	inc	hl
+	ld	b, (hl)		; bc=buffer adress
+        inc	hl	
+	ld	e, (hl)		; lba+0
+	inc	hl
+        ld      d, (hl)		; lba+1
+	inc     hl
+        ld      a, (hl)		; lba+2
+	inc	hl
+        ld      h, (hl)		; lba+3
+        ld      l, a
+	ex	de, hl
+;	jr	nz, skiplba	; SDHC - skip LBA*512
+;
+; DEHL (D31..D00) * 512 = DEHL*2*256 
+;
+	add	hl,hl
+	ex	de,hl
+	adc	hl,hl
+	ex	de,hl	; DEHL=DEHL*2
+	ld	d,e
+	ld	e,h
+	ld	h,l
+	ld	l,0	; DEHL=DEHL*256
+skiplba:xor	a
+	ret
+;
+;   Input: HL=DriveInfo_array+8,  d: 1=SDC, 3=SDHC
+;
+sd_write:			; 02a3
+	call	sd_setup	; select, wait busy, calculate byte offset
+	call	z, sd_write_block
+	jr	sd_done
+;
+;   Input: HL=DriveInfo_array+8,  d: 1=SDC, 3=SDHC
+;
+sd_read:
+	call	sd_setup
+	call	z, sd_read_block
+;
+sd_done:			; 02b1
+	push	af
+	call	sd_fini		; return de=SD_ADDR
+	ld	a, SD_PWR
+	ld	(DE), a		; unselect : /CS high, clock and dout low
+	pop	af
+	ld	c, 1		; only SDC allways
+	ret	nz		; rw_fail
+	xor	a
+	ret 
+;
+; SD probe, disappears on mount
+;
+sd_init:xor	a
+@@SD9:	ld	(SD_ADDR), a	; power off
+	ld	b, a
+	ld	c, a
+delay0:	dec	bc		
+	ld	a, b
+	or	c
+	jr	nz, delay0	; delay (6+4+4+12=26)*65536 tstates (~0.4s at 5MHz)
+delay1:	ld	a, SD_PWR
+@@SD10:	ld	(SD_ADDR), a	; power on
+	djnz	delay1		; delay (7+12+13=32)*256 tstates (~50ms at 5MHz)
+sdinit:	call	sd_wiggle	; power on, wiggle
+	call	sd_select	; ignore busy condition
+	call	sd_init_1
+	jr	sd_done		
+;
+; z return if ok
+; idle, ready, size, set block size
+
+sd_init_1:			; 02f0
+	ld	a, CMD0		; GO_IDLE_STATE
+	call	sd_command_no_arg
+	cp	001h
+	ret	nz		; not "idle"
+
+sd_notready:
+	ld	a, CMD55	; APP_CMD
+	call	sd_command_no_arg
+	and	11111110b	; ~001h
+	ret	nz		; not "idle" nor "ok"
+
+	ld	a, ACMD41	; SD_SEND_OP_COND. arg 0x40000000 is HCS
+	call	sd_command_no_arg
+	cp	001h
+	jr	z, sd_notready	; wait, while idle
+	or	a
+	ret	nz		; not ok
+
+	ld	a, CMD9		; SEND_CSD
+	call	sd_command_no_arg
+	ret	nz		; not ok
+
+	call	sd_wait_token	; packet start or FF if timed out
+	cp	0FEh
+	ret	nz		;  or error
+
+;	ld	hl, csdbuf	; XXX
+	ld	b, 16+2         ; including crc16
+L7:
+	call	sd_get
+;	ld	(hl), a		; temporary read CSD to /dev/null :)
+;	inc	hl
+	djnz	L7		; do 16+2 bytes
+;
+; CSD in csdbuf. calculate something
+;
+;
+;=================================================
+;
+	ld	a, CMD58	; READ_OCR
+	call	sd_command_no_arg
+	ret	nz		; not ok
+	call	sd_get
+	push	af
+	call	sd_get
+	call	sd_get
+	call	sd_get
+	pop	af
+	and	040h    	; NZ if SDHC
+;	ld	(ISLBA0),a	; 0 (SCD-nonLBA) or 40h (SDHC-LBA) 
+	ret
+

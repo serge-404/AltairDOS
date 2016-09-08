@@ -1,0 +1,315 @@
+	.Z80
+;
+m_outa	equ	0f80fh
+m_prhex	equ	0f815h
+m_inkey	equ	0f81bh
+m_rdide equ	0F834h		; read 512b sector from ide, inp: HL=DriveInfo_array+8, 
+				;           e=command_mode (ide_cmd_read,ide_cmd_id)
+				; Return: acc=zero on success, non-zero for an error
+ide_cmd_none	equ 0
+ide_cmd_read	equ 20h
+ide_cmd_id	equ 0ECh
+;
+intinchl equ	1800h       	; 1 second delay at 5MHz
+;
+parttab	equ	1BEh		; partitions table offset
+partcpm equ	052h		; cpm type partition
+bootadr	equ	0F200h		; bootloader working address	
+buffer1	equ	0EE00h		; initial 512b record buffer
+FORLBA	equ	3		; address inside bootsector where starting LBA placed
+DPBSize	equ	31		; DBP size
+;
+devlen	equ	40
+labellen equ	16
+devname	equ	endmenu			; device name (from identify record)
+b_array	equ 	devname+devlen+1	; bootloader partition records array (label, lba_beg)
+ItemSize equ	25
+;
+	.phase	0
+;
+MI:
+MasterInfo equ	MI-1
+	jp	BEGIN
+;
+	DEFB	HIGH buffer1 
+	DEFB	000H	; LBA0 or sec
+	DEFB	000H	; LBA1 or cyl_low
+	DEFB	000H	; LBA2 or cyl_high
+	DEFB	000H	; LBA3 or head
+;
+BEGIN:					; return address for error conditions is on stack
+;
+; Get cpm partitions info 
+;  (check if bootable, fill bootloader array with labels, lba_beg, lba_size)
+;	
+	ld	c, 0FFh			
+	ld	de, b_array		; destination array (for bootloader menu)
+nextrec:xor	a
+	ld	(de), a			; initially mark record as empty
+	inc	c
+	ld	a, c
+	cp	4			; CY=0
+	jr 	z, arr_ok		; max 4 records in partitions table
+	rlca
+	rlca
+	rlca
+	rlca				; a=a*16
+	add	a, 0C2h			; 0BEh+4h - operating system indicator (052h=CPM)
+	ld	h, 1
+	ld	l, a			
+	ld	a, partcpm
+	cp	(hl)
+	jr 	nz, nextrec		; not a CPM partition	
+	inc	hl
+	inc	hl
+	inc	hl
+	inc	hl		
+	push	hl			; (hl)=lba_beg
+	exx
+	pop	hl
+	ld	de, MasterInfo+5
+	NOP
+	NOP				; DO NOT MOVE NOPs: FOR ORION-PRO BOOTLOADER - (02Fh)=01="ld bc,.." - work page
+	ld	bc, 8
+	ldir				; get lba_beg, lba_size		
+	ld	hl, MasterInfo+8
+	ld	e, ide_cmd_read		; d=0 (Master)
+	call	m_rdide			; read partition boot sector to buffer1
+	ret	nz			; if error - return to Monitor
+	exx
+;
+; check for valid CP/M bootsector (DPB crc)
+;
+	ld	hl, buffer1
+	ld	a, 0C3h			; "jp" opcode
+	cp	(hl)
+	jr	nz, nextrec		; not a CPM bootsector
+	ld	a, 066h
+	ld	b, DPBSize
+calccrc:add 	a, (hl)
+	inc	hl
+	djnz	calccrc	
+	cp	(hl)
+	jr	nz, nextrec		; CRC failed - not a CPM bootsector
+	inc	hl			; hl=buffer1+20h=label_addr
+	ld	a, (buffer1 + 1)
+	cp	20h
+	jr 	nz, copylabel		; if label exists
+	ld	hl, unkn
+copylabel:				; (de)=partition_array[0]
+	push	bc
+	ld	b, 16
+upper0:	call	upcase
+	inc	hl
+	djnz 	upper0
+	ld	hl, MasterInfo+5
+	ld	c, 8
+	ldir				; lba_beg, lba_size
+	pop	bc
+;
+	ld	a, c			; 20100315
+	ld	(de), a			; partition_number (0..3) 
+	inc	de
+;
+	ld	hl, bootbeg+Itemcount-begmenu
+	inc	(hl)				; inc (ItemCount)
+	jr 	nextrec
+arr_ok:
+	ld	a,(b_array)
+	or	a
+;	ld	a, 0FCh 		; return error code
+	ret	z			; if no bootable partitions - return to Monitor
+;
+; Get drive identify information
+;
+	ld	hl, MasterInfo+8
+	ld	de, ide_cmd_id
+	call	m_rdide
+	ret	nz			; if error - return to Monitor
+;
+; move bootloader to destination address, goto bootloader menu
+;
+	ld	hl, bootbeg
+	ld	de, bootadr
+	push	de			; jump address
+	ld	bc, endmenu-begmenu
+	ldir
+;
+; copy and normalize byteswapped string (drive identify: model)
+;
+        ld      hl, buffer1+54 
+	ld	de, devname
+	ld	b, devlen / 2
+upper1: inc	hl
+	call	upcase
+	dec	hl
+	call	upcase
+	inc	hl
+	inc	hl
+	djnz	upper1
+	xor	a
+	ld	(de),a
+	ret				; jp bootadr
+;
+upcase:	ld	a, (hl)
+	cp	60h
+	jr 	c, upcase1
+	and	05Fh
+upcase1:ld	(de),a			; uppercase, to_latin
+	inc	de
+	ret
+;
+unkn:	db	'CP/M 80 NO LABEL'
+;
+bootbeg:
+	.dephase
+;
+	.phase	bootadr
+;
+begmenu:
+	out	(0F9h), a
+menu:	ld	b, devlen+msgboote-msgboot
+	ld	hl, msgboot
+	call	prmsg
+	ld	(hl), 0ch		; msgboot[0]=\home\
+;	ld      hl, devname
+;	ld      b, devlen
+;	call	prmsg
+	call 	crlf
+	ld	a, (timeout)
+	call	m_prhex
+	call	crlf
+	ld	hl, b_array
+	ld	c, 1			
+printmenu:				; repeat
+	ld	a, (hl)
+	or	a
+	jr	z, endprintmenu		; Items[c][0]=0 - end of array
+	call	crlf
+	ld	a, (ItemIndex)		; a = selected ItemIndex
+	cp	c 			; current drawed menu item (1..ItemCount)
+	ld	a, 7Fh			; trigger inverse on
+	push	af
+	call	z, cout
+	call	space
+	ld	b, labellen
+	call	prmsg
+	call	space
+	pop	af			; a=7Fh	; if Z (if selected) trigger inverse off
+	call	z, cout
+	ld	de, ItemSize		; 20100315  
+	add	hl, de			; next item
+	inc	c
+	ld	a, (ItemCount)
+	cp	c
+	jr	nc, printmenu		; until c>ItemCount
+endprintmenu:
+	ld      de, intinchl
+keyloop:push	de
+	call	m_inkey
+	pop	de
+	ld	hl, timeout
+	inc	a
+	jr	nz, keypressed		; 12 tstates
+	dec	de			; 4
+        ld      a, d			; 4
+        or      e			; 4
+        jr      nz, keyloop		; 12 tstates
+	dec	(hl)
+	ld	a, 14			; "Enter" pressed
+	jr 	nz, xmenu
+keypressed:
+	ld	(hl), 5			; set timeout again if any key pressed
+	ld	hl, ItemIndex
+	cp	26			; up
+	jr	nz, key2
+	ld	a, 1
+	cp	(hl)
+	jr	nc, xmenu		; if ItemIndex<=1
+	dec	(hl)
+xmenu:	jp	menu	
+key2:	cp	27			; down
+	jr	nz, key3
+	ld	a, (ItemCount)
+	cp	(hl)
+	jr	z, xmenu		; if ItemIndex<>ItemCount
+	inc	(hl)
+	jr	xmenu	
+key3:	cp	14			; enter
+	jr	nz, xmenu
+EnterPressed:
+	ld	b, (hl)			; ItemIndex (1..itemcount)
+	ld	hl, b_array+14-ItemSize 
+	ld	de, ItemSize
+add1:	add	hl, de
+	djnz	add1
+	ld	(hl), d
+	inc	hl
+	ld	(hl), d 		; d=0, b_array[15..16]=buffer_addr=0
+	ld	e, 4
+	add	hl, de			; hl=MasterInfo+8=@b_array[20]
+	ld	e, ide_cmd_read		; d=0 (Master)
+	ld	a,1
+	out	(0F9h), a
+	push	hl
+	call	m_rdide			; return c=drive_sign (0=IdeMaster, 10h=IdeSlave, 1=SDC, 3=SDHC)
+	pop	hl
+	ret	nz			; if error - return to Monitor
+	ld	de, 5
+	add	hl,de			; hl=MasterInfo+13=@b_array[24]
+	ld	a, (hl)			; a=partition N (0..3)
+	rrca
+	rrca
+	rrca				; shift partition_N to [d6:d5]
+	or	c			; a=partition_hash (part & drv_sign)
+	ld	(hl), a			; partition_hash ([d6:d5]=partition_N, [d4:d0]=drv_sign)
+	ld	de, FORLBA+9		 
+	ld	bc, 966h		; copy 8 bytes and calc its crc starting with 66h
+copy1:	ld	a, (hl)
+	ld	(de), a			; put lba_beg, lab_size to 1:0004h..000Bh
+	add	a, c
+	ld	c, a
+	dec	hl
+	dec	de
+	djnz	copy1
+	ld	(de), a			; put crc to 1:0003h
+	rst	0			; call partition bootsector
+	ret				; Return to Monitior if partition bootsector fail
+;
+crlf:	ld	a, 13
+	call	cout
+	ld	a, 10
+	jr	cout
+space:	ld	a, ' '
+cout:   push    bc
+	push	hl
+        call    m_outa
+cret:	pop	hl
+        pop     bc
+        ret
+;
+; print string form (hl), max (b) symbols
+;
+prmsg:	push	hl
+prmsg1:	ld	a, (hl)
+	or	a
+	jr 	z, prmsg2
+	call	cout
+	inc	hl
+	djnz	prmsg1
+prmsg2: pop	hl
+	ret
+;
+ItemIndex:db	1			; selected menu item number (1..ItemCount)
+ItemCount:db	0
+timeout:db	5
+msgboot:db	1fh, 'SELECT BOOT PARTITION:',13,10
+msgboote:
+endmenu:
+;
+	.dephase
+;
+	END
+;
+
+
