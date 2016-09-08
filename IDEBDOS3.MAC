@@ -1,0 +1,1142 @@
+;
+; IDE Status Register:
+;  bit 7: Busy  1=busy, 0=not busy
+;  bit 6: Ready 1=ready for command, 0=not ready yet
+;  bit 5: DF    1=fault occured inside drive
+;  bit 4: DSC   1=seek complete
+;  bit 3: DRQ   1=data request ready, 0=not ready to xfer yet
+;  bit 2: CORR  1=correctable error occured
+;  bit 1: IDX   vendor specific
+;  bit 0: ERR   1=error occured
+;
+; Read a block of 512 bytes (one sector) from the drive
+; and store it in memory (hl)
+;
+; Wait for READY and NOT_BUSY. if Z at exit => error(timeout), NZ=OK
+;
+ide_wait_ready:
+        xor     a
+        ld      (ix+20), a              ; set flag to not ready
+        ld      bc, rdy_repeat
+ide_wrdy:
+;        ld      a, ide_status           ; wait for RDY bit to be set
+;@@56:   call    ide_rd_8                ; dirt A,L
+;        ld      a, l          ;should probably check for a timeout here
+		in	a,(portIdeStatus)
+		and     01000000b
+        jr      nz, ide_wait_not_busy
+        ex      de,hl
+@@57:   call    delay10                 ; dirt A,HL
+        ld      a,b
+        or      c
+        ld      a,e             ; drive status
+        ret     z
+        dec     bc
+        jr      ide_wrdy
+;
+; Wait for NOT_BUSY.  if Z at exit => error(timeout), NZ=OK
+;
+ide_wait_not_busy:
+        xor     a
+        ld      (ix+20), a              ; set flag to not ready
+        ld      bc, rdy_repeat
+ide_wbsy:
+;        ld      a, ide_status           ; wait for RDY bit to be set
+;@@58:   call    ide_rd_8
+;        ld      a, l          ;should probably check for a timeout here
+		in	a,(portIdeStatus)
+        cpl
+        and     10000000b
+        ld      (ix+20), a
+        ld      a, l
+        ret     nz
+        ex      de,hl
+@@59:   call    delay10
+        ld      a,b
+        or      c
+        ld      a,e             ; drive status
+        ret     z
+        dec     bc
+        jr      ide_wbsy
+;
+; Wait for the drive to be ready to transfer data.
+; Returns the drive's status in Acc.  if Z at exit => error(timeout), NZ=OK
+;
+ide_wait_drq:
+        ld      bc, rdy_repeat
+ide_wdrq:
+;        ld      a, ide_status          ;wait for DRQ bit to be set
+;@@60:   call   ide_rd_8
+;        ld      a, l
+		in	a,(portIdeStatus)
+		ld	l,a
+		;should probably check for a timeout here
+        and     10000000b
+        jr      nz, ide_wdrq1      ;wait for BSY to be clear
+        ld      a, l
+        and     00001000b          ;wait for DRQ to be set
+        ld      a, l
+        ret     nz
+ide_wdrq1:
+        ex      de,hl
+@@61:   call    delay10
+        ld      a,b
+        or      c
+        ld      a,e             ; drive status
+        ret     z
+        dec     bc
+        jr      ide_wdrq
+
+;
+; Read byte from IDE register
+; input  a = ide regsiter address
+; output l = byte readed from ide drive
+;
+;ide_rd_8:
+;@@P15:	ld      (ide_8255_ctl), a       ;drive address onto control lines
+;        or      ide_rd_line 
+;@@P16:	ld      (ide_8255_ctl), a       ;assert read pin
+;@@P17:	ld      a, (ide_8255_lsb)       ;read the lower byte
+;        ld      l, a
+;       xor     a
+;@@P18:	ld      (ide_8255_ctl), a       ;deassert all control pins
+;        ret
+;
+; Load position registers (sector number in LBA or CHS notation)
+;
+wr_lba:
+        ld      a, (ix+1)       ; LBA mode supported if a<>0
+        or      a
+        jr      z, LBA2CHS
+;
+;write the logical block address to the drive's registers
+;
+        ld      a, (ix)         ; Master or Slave device flag (0/16)
+        and     ide_dev_slave
+        or      (ix+8)          ; lba+3
+        or      0E0h            ; 11100000b - LBA mode 
+;        ld      l, a
+;        ld      a, ide_head
+;@@62:   call    ide_wr_8
+;        ld      a, ide_cyl_msb
+;        ld      l, (ix+7)       ; lba+2
+;@@63:   call    ide_wr_8
+;        ld      a, ide_cyl_lsb
+;       ld      l, (ix+6)       ; lba+1
+;@@64:   call    ide_wr_8
+;        ld      a, ide_sector
+;       ld      l, (ix+5)       ; lba+0
+;@@65:   call    ide_wr_8
+;        ld      a, ide_sec_cnt
+;        ld      l, 1
+;        jr      ide_wr_8
+		out	(portIdeHead),a
+		ld	a,(ix+7)
+		out	(portIdeCylHB),a
+		ld	a,(ix+6)
+		out	(portIdeCylLB),a
+		ld	a,(ix+5)
+		out	(portIdeSector),a
+		ld	a,1
+		out	(portIdeSeccen),a
+		ret
+;
+; LBA2CHS: converts LBA sector address representation (input IX)
+;          longint 0..28=(ix+5)0..7_(ix+6)0..7_(ix+7)0..7_(ix+8)0..3
+;          to cyl/head/sec (CHS) representation and load
+;          corresponding registers with converted values
+; The equations to convert from LBA to CHS follow:
+;     CYL = LBA / (HPC * SPT)
+;    TEMP = LBA % (HPC * SPT)
+;    HEAD = TEMP / SPT
+;    SECT = TEMP % SPT + 1
+; Where:
+;     LBA: linear base address of the block
+;     CYL: value of the cylinder CHS coordinate
+;     HPC: number of heads per cylinder for the disk
+;    HEAD: value of the head CHS coordinate
+;     SPT: number of sectors per track for the disk
+;    SECT: value of the sector CHS coordinate
+;    TEMP: buffer to hold a temporary value
+;
+LBA2CHS:ld      a, (ix+8)       ; lba+3
+        and     0Fh
+        ld      d,a
+        ld      e, (ix+7)       ; lba+2
+        ld      h, (ix+6)       ; lba+1
+        ld      l, (ix+5)       ; lba+0
+        ld      c, (ix+18)
+        ld      b, (ix+19)      ; HmulS=HPT*SPT
+@@66:   call    DIV32B          ; bc=TEMP=LBA % (HPC * SPT)
+        push    hl              ; hl=cylinder_N
+        ld      l, c
+        ld      h, b
+        ld      c, (ix+12)
+        ld      b, (ix+13)      ; SPT
+@@67:   call    DIV32B          ; hl=head_N
+        inc     bc              ; bc=sector_N
+        pop     de              ; de=cylinder_N 
+        push    bc
+        push    de
+        ld      a, (ix)         ; Master or Slave device flag (0/16)
+        and     ide_dev_slave
+        or      l               ; head_N
+        and     1Fh
+        or      0A0h            ; 10100000b - CHS mode 
+;        ld      l, a
+;        ld      a, ide_head
+;@@68:   call    ide_wr_8
+		out	(portIdeHead),a
+        pop     hl
+;        push    hl              ; cylinder_N
+;	ld	l,h
+;        ld      a, ide_cyl_msb
+;@@69:   call    ide_wr_8
+;        pop     hl              ; l=cylinder_N (low)
+		ld      a, h            ; l=cylinder_N (high)
+		out	(portIdeCylHB),a
+		ld	a,l
+		out	(portIdeCylLB),a	
+;		ld      a, ide_cyl_lsb
+;@@70:   call    ide_wr_8
+        pop     hl              ; l=sector_N
+	ld	a,l
+	out	(portIdeSector),a
+;        ld      a, ide_sector
+;@@71:   call    ide_wr_8
+;        ld      a, ide_sec_cnt
+;        ld      l, 1
+		ld	a,1
+		out	(portIdeSeccen),a
+		ret
+		
+;
+; Write byte to IDE register
+; input  a = ide regsiter address
+;        l = byte to write to ide drive
+;
+;ide_wr_8:
+;        ld      c, a                    ;address in  c
+;        ld      a, wr_ide_8255
+;@@P19:	ld      (ide_8255_cfg), a           ;config 8255 chip, write mode
+;        ld      a, l
+;@@P20:	ld      (ide_8255_lsb), a       ;drive lower lines with lsb (r2)
+;        ld      a, c
+;@@P21:	ld      hl, ide_8255_ctl
+;        ld      (hl), a                 ;drive address onto control lines
+;        or      ide_wr_line 
+;        ld      (hl), a                 ;assert write pin
+;        ld      a, rd_ide_8255          ; delay 7 tstates  7+7=14= 3 mks
+;        ld      (hl), c                 ; delay 7 tstates. deassert write pin
+;@@P22:	ld      (ide_8255_cfg), a       ;config 8255 chip, read mode
+;        ret
+;
+; XIOCTL=8+BASE   - get drive params into DMA 512b-sector  (inp:nothing; out:A=0->ok)
+;
+XIOCTLTAB:
+@XX1:   dw      XGETPARAMS_A	; for future functional
+
+XIOCTL: 
+@@72:   call	CheckDisk       ; l=lastdsk not (FF or FE) - continue chain
+        push    ix
+        push    bc
+        push    de
+		inc		l
+@@@75:  ld      ix, MasterInfo  ; master descriptor
+        jr      z, xioctl0
+@@@76:  ld      ix, SlaveInfo   ; slave descriptor
+xioctl0:ld	a,e
+@@77:   ld      hl,XIOCTLTAB
+	rlca			; a:=a*2
+	add	a,l
+	ld	l,a
+	jr	nc, xioctl1
+        inc	h
+xioctl1:ld	a,(hl)
+	inc	hl
+	ld	h,(hl)
+	ld	l,a
+	ld	bc, SlaveInfo-MasterInfo	; Drive parameters block size
+        jp      (hl)
+;
+XGETPARAMS_A:				; ACPM version
+@@78:   call	StoreFBUF
+@@79:   ld      hl, ioblk
+        ld      de, FBUFCOD
+        ld      c, ioblkend-ioblk
+        ldir                            ; routine to put Drive parameters block
+	push	ix
+	pop	hl			; hl = address of Drive parameters block
+        ld      e, (ix+3)
+        ld      d, (ix+4)		; destination address
+        ld      a, (ix+2)		; destination bank
+	ld	c, SlaveInfo-MasterInfo	; DriveInfo size
+	ex	af,af'			
+	push	af
+;@X80:	
+	call    doFBUFcode              ; send the data
+	pop	af
+	ex	af, af'
+@@80:   call	RestoreFBUF
+	xor     a
+	pop     de
+        pop     bc
+        pop     ix
+        RET                    		; break chain
+;
+ioblk:	ld	a,(hl)
+	ex	af,af'			; destination bank in a'
+	out	(PF9),a
+	ex	af,af'
+	ld	(de),a	
+@@B3:	ld	a, 0			; source bank (where dirver resides)
+	out	(PF9),a
+	inc	hl
+	inc	de
+	dec	bc
+	ld	a,b
+	or	c
+	ret	z
+	jr	ioblk
+ioblkend:
+;
+XGETPARAMS_B:			; BEST-DOS version, placed over XGETPARAMS_A
+	push	ix
+	pop	hl		; hl = address of Drive parameters block
+	ld	a, (MARKER)	; a = bank N where driver resides
+	exx
+	ex	af,af'
+	push	af
+	push	hl
+        ld      l, (ix+3)
+        ld      h, (ix+4)	; destination address
+        ld      a, (ix+2)	; destination bank
+	ex	af,af'
+	exx
+	call	BLDIR		; copy Drive parameters block
+	exx
+	ex	af,af'
+	pop	hl
+	pop	af
+	ex	af,af'
+	exx
+	xor     a
+	pop     de
+        pop     bc
+        pop     ix
+        RET 
+XGETPARAMS_E:
+;
+;
+; XGETDT=9+BASE   - get current system date at HL in MS-DOS FAT format:
+;      bit 15:9  Year from 1980 (0..127) 
+;      bit 8:5   Month (1..12) 
+;      bit 4:0   Date (1..31) 
+;
+; (inp:nothing; out:HL=date)
+;
+XGETDT:	push	bc
+        push    ix
+        push    iy
+	ld	c, 27
+@@81:	call	BCONOUT
+	ld	c, 'Z'
+@@82:	call	BCONOUT
+	ld	c, 6
+@@83:	call	BCONOUT
+@@84:	call	BCONIN		; day
+	push	af
+@@85:	call	BCONIN		; month
+	push	af
+@@86:	call	BCONIN		; year: 96=1996, 07=2007
+	sub	80
+	jr	nc, XGETDT1
+	add	a,100           ; year from 1980
+XGETDT1:pop	bc		; b=month
+	rl	b
+	rl	b
+	rl	b
+	rl	b
+	rl	b
+	rla			; A.0 := older bit from month
+	ld	h, a
+	ld	a, b
+	and	011100000b	
+	ld	b, a
+	pop	af		; a=day (date)
+	and	000011111b	
+	or	b
+	jr	XGETTM1
+;
+; XGETTM=10+BASE   - get current system time at HL in MS-DOS FAT format:
+;       bit 15:11  Hour (0..23) 
+;       bit 10:5   Minute (0..59) 
+;       bit  4:0   Second/2 (0..29)  
+;
+; (inp:nothing; out:HL=time)
+;
+XGETTM:	push	bc
+        push    ix
+        push    iy
+	ld	c, 27
+@@87:	call	BCONOUT
+	ld	c, 'Z'
+@@88:	call	BCONOUT
+	ld	c, 0
+@@89:	call	BCONOUT
+@@90:	call	BCONIN		; hour
+	push	af
+@@91:	call	BCONIN		; a=minute
+	pop	hl		; h=hour
+        rl	a
+	rl	a
+	rl	a
+	rl	h
+	rl	a
+	rl	h
+	rl	a
+	rl	h
+	and	011100000b	
+	ld	l, a
+	push	hl
+@@92:	call	BCONIN		; a=second
+	rra
+	and	000011111b	; a=second/2
+	pop	hl	
+	or	l
+XGETTM1:ld	l, a
+	xor	a
+        pop     iy
+        pop     ix
+	pop	bc
+	ret
+;
+bconout:push    de
+CONO1:	ld	a, 0
+CONO2:	ld	hl, 0
+	call	BCALL
+        pop     de
+        ret
+;
+bconin: push    de
+CONI1:	ld	a, 0
+CONI2:	ld	hl, 0
+	call	BCALL
+        pop     de
+        ret
+;
+; ACPM has not date/time functions - return 01.01.1980
+;
+XSETDTA:	
+XSETTMA:	
+XGETDTA:	
+XGETTMA:xor	a
+	ld	h,a
+	ld	l,a
+	ret
+;
+;==================================================
+;MULTIPLY ROUTINE 16*16bit=32bit
+;DEHL=DE*BC 457usec
+MULT32A: LD     A,16
+         LD     HL,0000
+MULT32B: ADD    HL,HL       ;LSB OF MULTIPLIER
+         EX     DE,HL
+         ADC    HL,HL       ;PROPAGATE CY TO MSB
+         EX     DE,HL
+         JR     NC,MULT32C
+         ADD    HL,BC       ;ADD MULTIPLICAND
+         JR     NC,MULT32C  ;NO CY THEN NEXT
+         INC    DE          ;CY THEN PROPAGATE TO MSB
+MULT32C: DEC    A
+         JR     NZ,MULT32B  ;REPEAT
+         RET
+;
+;==================================================
+;DIVISION ROUTINE 32bit/16bit 39 bytes app1000usec
+;DEHL=INT(DE,HL/BC)      D15..E0.H15..L0 
+; BC=FRAC(DE,HL/BC)       32..17.16..1
+;DIV 4 BYTE DIVIDEND BY 2 BYTE DIVISOR HL SP DA / BC
+;
+DIV32B:  PUSH   DE        ;SP=LOW WORD
+         LD     D,H
+         LD     A,L       ;DA=HL
+         LD     HL,0000
+         LD     E,32      ;LOOP COUNTER
+DIV1:    ADD    A,A       ;HLSPDA/BC DIVIDEND LEFT
+         RL     D         ;WITH CARRY
+         EX     (SP),HL
+         ADC    HL,HL
+         EX     (SP),HL
+         ADC    HL,HL
+         JR     C,DIV4
+         SBC    HL,BC     ;SUB DIVISOR
+         JR     NC,DIV2   ;OK IF HL>=BC
+         ADD    HL,BC     ;ELSE RESTORE HL
+         DEC    A
+DIV2:    INC    A
+DIV3:    DEC    E         ;DEC LOOP COUNTER
+         JR     NZ,DIV1
+         LD     E,A       ;PUT QUOTIENT BYTE IN E
+         LD     C,L       ;FRACTION IN BC
+         LD     B,H
+         POP    HL
+         EX     DE,HL     ;DEHL=RESULT
+         RET
+; OVERFLOW
+DIV4:    OR     01        ;CY INTO A,CY=0
+         SBC    HL,BC     ;SUB DIVISOR
+         JR     DIV3
+;
+; DI -> IFF:=0  ;  EI -> IFF:=1  ;  LD  A,I -> P/V:=IFF
+; JP PO,XXX (IF P/V=0 - IF DI) ;  JP PE,XXX (IF P/V=1 - EI)
+;
+MDI:    PUSH    AF
+NO_INT:	LD	A, 1
+	or	a
+	jr	nz, MDI4
+	PUSH    BC
+	LD      A,I
+	LD      B,0FBH          ; EI
+@@93:	JP      PE,MDI1
+	LD      B,0F3H          ; DI
+MDI1:   LD      A,I
+	LD      A,0FBH          ; EI
+@@94:	JP      PE,MDI2
+	LD      A,0F3H          ; DI
+MDI2:   OR      B
+MDI3:   DI
+@@95:	LD      (MEI),A
+	POP     BC
+MDI4:	POP     AF
+	RET
+;
+;=================================  S D   C A R D  =======================================
+;
+;
+sd_tab0:
+sd_wiggle:
+@@122:	jp	sd_wiggle_msx
+sd_fini:
+@@123:	jp	sd_fini_msx
+sd_put:
+@@124:	jp	sd_put_msx
+sd_get:
+@@125:	jp	sd_get_msx
+;
+;
+; Select SD-card
+;
+sd_select:
+@@126:	call	sd_fini		;
+	or 	SD_PWR + SD_CS	; select, still idle data
+sdsel2:	
+@@SD3:	ld	(SD_ADDR), a
+	ret			; af bc de trashed, de=SD_ADDR
+;
+; Wakeup card
+;
+sd_wiggle_n8vem:
+	ld	bc, 255*256 + SD_CLK
+	jr	sd_wig_n8vem
+;
+; sd_fini return: DE=SD_ADDR
+;
+sd_fini_n8vem:
+	ld 	bc, 17*256 + SD_CLK	; clock low high low high ... low, 8 pulses
+sd_wig_n8vem:
+@@SD4:	ld	de, SD_ADDR 
+	ld 	a, SD_DOUT + SD_PWR	; unselected, idle data
+L1:	ld	(de), a
+	xor	c		; c=SD_CLK
+	djnz	L1
+	ret			; af bc de trashed
+;
+sd_put_n8vem:
+	push	hl              ; byte from a,  saves HL !
+	ld	c, a
+	ld 	b, 8
+@@SD5:	ld	hl, SD_ADDR 
+L3:	ld 	a, 6		; (SD_PWR+SD_CS)/2  	
+	rl 	c
+	rla			; SD_DOUT is RTC.0
+	ld	(hl), a		; clock is low
+	or 	SD_CLK
+	ld	(hl), a		; rising clock edge
+	djnz	L3
+	xor	SD_CLK		; and	NOT SD_CLK
+	ld	(hl), a		; leave with clock low
+	pop	hl
+	ret			; af bc trashed
+;
+sd_get_n8vem:
+	push	hl             	; byte to a
+	ld	d, 8
+@@SD6:	ld	hl, SD_ADDR 
+L2:	ld	a, (hl)
+	rla			; SD_DIN is RTC.7
+	rl	e
+	ld	a, SD_PWR + SD_CS + SD_DOUT + SD_CLK
+	ld	(hl), a
+	and	NOT SD_CLK
+	ld	(hl), a
+	dec	d
+	jr	nz, L2
+	ld	a, e
+	pop	hl
+	ret			; af de trashed
+;
+sd_wiggle_msx:
+	ld	b, 70h
+	jr	sd_wig_msx
+;
+; sd_fini return: DE=SD_ADDR
+;
+sd_fini_msx:
+	ld	b, 8
+sd_wig_msx:
+	ld	a, SD_PWR
+@@SD7:	ld	de, SD_ADDR
+	ld	(de), a
+	ld	a, 0FFh
+	inc	de		; DE=SD_ADR2
+LL0:	ld	(de), a		; out & /CLK		 
+	djnz	LL0
+	dec	de		; DE=SD_ADDR
+	xor	a		; for MSX<->NVEM compability!
+	ret			; af b de trashed, de=SD_ADDR
+;
+sd_put_msx:
+@@SD8:	ld	bc, SD_ADR2	; byte from a,  saves HL !
+	ld	(bc), a		 
+	rlca	
+	ld	(bc), a
+	rlca	
+	ld	(bc), a
+	rlca	
+	ld	(bc), a
+	rlca	
+	ld	(bc), a
+	rlca	
+	ld	(bc), a
+	rlca	
+	ld	(bc), a
+	rlca	
+	ld	(bc), a		; 84 tstates
+	ret			; af bc trashed
+;
+sd_get_msx:
+@@SD9:	ld	de, SD_ADR2
+	ld	a, d		; A.D7=1
+	ld	(de), a
+	ld	(de), a
+	ld	(de), a
+	ld	(de), a
+	ld	(de), a
+	ld	(de), a
+	ld	(de), a
+	ld	(de), a		; 7*9=63 tstates
+	ld	a, (de)
+	ret			; a=result,  de trashed  
+;
+; command in a, includes fixed msbits
+; arg32 in dehl
+; z return, if R1 (in a) is 0
+; saves BC !
+;
+sd_command_no_arg:
+	ld	hl, 0
+;
+sd_command_word_arg:  ; fits in HL
+	ld	de, 0
+;
+sd_command:		; command in a, dword arg in dehl
+	push	bc
+@X126:	call	sd_put	; command includes fixed 01 startbits
+	ld	a, d	; arg highest (D31..D24) - Xhi
+@@127:	call	sd_put
+	ld	a, e	;             (D23..D16) - Xlo
+@@128:	call	sd_put
+	ld	a, h	;             (D15..D08) - Yhi 
+@@129:	call	sd_put
+	ld	a, l	; arg lowest  (D07..D00) - Ylo
+@@130:	call	sd_put
+
+	ld	a, 095h	; crc7 only valid for initial CMD0
+@@131:	call	sd_put	; DOUT ends up idle because of the stopbit
+	ld hl,FTimeout	; XXX timeout XTAL dependent
+	pop	bc
+L4:
+@@132:	call	sd_get	; R1 response, when msbit is clear
+	or	a	; zero and sign valid
+	ret	p	; R1 in a. z if ok
+	dec	hl
+	bit	7, h	; until HL wraps negative
+	jr	z, L4
+	ret		; 0x80 | ? in a, nz
+;
+; command response R1
+; 0x00 ok
+; or bitfield
+; 0x01 idle state
+; 0x02 erase reset
+; 0x04 illegal command
+; 0x08 command crc error
+; 0x10 erase sequence error
+; 0x20 address error
+; 0x40 parameter error
+; 0x80 timeout (other bits meaningless)
+;
+; packet token
+; 0xFF none yet
+; 0xFE ok
+; or bitfield
+; 0x01 error
+; 0x02 controller error
+; 0x04 media ecc failed
+; 0x08 out of range
+; 0x10 card is locked
+
+sd_wait_token:
+	ld hl, FTimeout	; XXX timeout XTAL dependent
+L5:
+@@133:	call	sd_get	; token is first non-FF
+	cp	0FFh
+	ret	nz	; token in a
+	dec	hl
+	bit	7, h	; until HL wraps negative
+	jr	z, L5
+	ret		; FF in a
+;
+; INP: DEHL=data position,   BC: buffer address 
+;      byte offset in dehl
+; OUT: z return if ok, or error code in a
+;
+sd_write_block:
+	ld	a, CMD24	; WRITE_BLOCK
+@@105:	call	sd_command	; dehl byteaddress, saves BC
+	ret	nz		; not "ok"
+	push	bc
+	ld	a, 0FEh		; packet start token
+@@106:	call	sd_put		; saves HL
+
+@@107:  ld      hl, wrsdblk
+        ld      de, FBUFCOD
+        ld      bc, wrsdblkend-wrsdblk
+        ldir                            ; routine to put Drive parameters block
+	pop	hl			; HL=buffer address
+@SD0:	
+@@SD10:	ld	de, SD_ADR2
+	ld	c, 2			; b=0, c=2 -> write 2*256 bytes
+	ld	a, (ix+2)		; mempage where buffer resides
+;@@108:	
+	call    doFBUFcode              ; write the data
+
+	ld	a, 0FFh		; 020b
+@@109:	call	sd_put		; crc16
+	ld	a, 0FFh
+@@110:	call	sd_put		; crcs are not used
+
+	; xxx0___1
+	;     010   accepted
+	;     101   crc error
+	;     110   write error XXX is not reporting _this_ block.
+
+@@111:	call	sd_wait_token	; data response or FF if timed out
+	and	01Fh
+	cp	005h		; "data accepted" ?
+	ret
+
+	; write will (?) really start only after 8 more clocks.
+	; unselect does an extra get, so not a problem.
+
+;	cp  00Bh              ; "transmission crc error" ?
+;	jr z, retry           ; do it again
+;
+; INP: DEHL=data position,   BC: buffer address 
+;      byte offset in dehl
+; OUT: z return if ok
+;
+sd_read_block:
+	ld	a, CMD17	; READ_SINGLE_BLOCK
+@@114:	call	sd_command	; dehl byteaddress, saves BC
+	ret	nz		; not "ok"
+@@115:	call	sd_wait_token	; packet start or FF if timed out, saves BC
+	cp	0FEh
+	ret	nz		;  or error
+	push	bc
+
+@@116:  ld      hl, rdsdblk
+        ld      de, FBUFCOD
+        ld      bc, rdsdblkend-rdsdblk
+        ldir                            ; routine to put Drive parameters block
+	pop	hl			; HL=buffer address
+@SD1:	
+@@SD11:	ld	de, SD_ADR2
+	ld	c, 2			; b=0, c=2 -> write 2*256 bytes
+	ld	a, (ix+2)		; mempage where buffer resides
+;@@117:	
+	call    doFBUFcode              ; write the data
+
+@@118:	call	sd_get  ; crc16
+;	ld	h, a
+@@119:	call	sd_get  ;  in HL
+;	ld	l, a	; crcs are not used
+	xor	a	; zero, no carry
+	ret
+;
+; Check SD-card for busy, then set DEHL to data position 
+; (SDC:Byte-address, SDHC:sector number in LBA notation)
+;   Input: HL=DriveInfo_array+8,  d: 1=SDC, 3=SDHC
+;  Output: DEHL=data position,   BC: buffer address 
+;
+sd_setup:
+@@134:	call	sd_select	; saves HL
+sd_wait_busy:
+	ld bc, FTimeout	; XXX timeout XTAL dependent
+L6:	
+@@135:	call	sd_get	; 8 clocks. data output activates after 1 clock
+	inc	a	; FF is not busy
+	jr	z, LL6	; z, ok. a=0
+	dec	bc	; else busy or something
+	bit	7, b	; until HL wraps negative
+	jr	z, L6
+	ret		; nz, timeout
+LL6:
+	ld	bc, 0FFFBh      ; -5
+	add	hl, bc
+	ld	c, (hl)
+	inc	hl
+	ld	b, (hl)		; bc=buffer adress
+        inc	hl	
+	ld	e, (hl)		; lba+0
+	inc	hl
+        ld      d, (hl)		; lba+1
+	inc     hl
+        ld      a, (hl)		; lba+2
+	inc	hl
+        ld      h, (hl)		; lba+3
+        ld      l, a
+	ex	de, hl
+;	jr	nz, skiplba	; SDHC - skip LBA*512
+;
+; DEHL (D31..D00) * 512 = DEHL*2*256 
+;
+	add	hl,hl
+	ex	de,hl
+	adc	hl,hl
+	ex	de,hl	; DEHL=DEHL*2
+	ld	d,e
+	ld	e,h
+	ld	h,l
+	ld	l,0	; DEHL=DEHL*256
+skiplba:xor	a
+	ret
+;
+sd_writesec:
+	push	ix
+	pop	hl		; hl=MInfo
+	ld	de, 8
+	add	hl,de		; HL=DriveInfo_array+8
+	ld	d, a		; a=1
+;
+;   Input: HL=DriveInfo_array+8,  d: 1=SDC, 3=SDHC
+;
+sd_write:			; 02a3
+@@136:	call	sd_setup	; select, wait busy, calculate byte offset
+@@137:	call	z, sd_write_block
+	jr	sd_done
+;
+sd_readsec:
+	push	ix
+	pop	hl		; hl=MInfo
+	ld	de, 8
+	add	hl,de		; HL=DriveInfo_array+8
+	ld	d, a		; a=1
+;
+;   Input: HL=DriveInfo_array+8,  d: 1=SDC, 3=SDHC
+;
+sd_read:
+@@138:	call	sd_setup
+@@139:	call	z, sd_read_block
+;
+sd_done:			; 02b1
+	push	af
+@@140:	call	sd_fini		; return de=SD_ADDR
+	ld	a, SD_PWR
+	ld	(DE), a		; unselect : /CS high, clock and dout low
+	pop	af
+	ret	nz		; rw_fail
+	xor	a
+	ret 
+;
+; subroutine for sd_read_block.  
+;   inp:A=tobank,HL=toaddress,B=wordcount,C=2,DE=SD_ADDR(N8VEM) or SD_ADR2(MSX)
+;   out:nothing
+;
+rdsdblk:out     (PF9), a
+;
+rdsd:	ld	a, d		;	push	bc
+	ld	(de), a		;	ld	b, 8
+	ld	(de), a		;  
+	ld	(de), a		;  L22:	ld	a, (de)
+	ld	(de), a		;	rla
+	ld	(de), a		;	rl	(hl)
+	ld	(de), a		;	ld	a, SD_PWR + SD_CS + SD_DOUT + SD_CLK
+	ld	(de), a		;
+	ld	(de), a		; 	ld	(de), a
+	ld	a, (de)		;	and	NOT SD_CLK
+	ld	(hl), a		;
+	jr	rdsd1		;	ld	(de), a
+	nop			;	djnz	L22
+	nop			;
+	nop			;	pop	bc
+rdsd1:	inc	hl
+	djnz	rdsd
+	dec	c
+	jr	nz, rdsd
+rdblkAA:ld      a, 0
+        out     (PF9), a
+        ret			; 28 bytes
+rdsdblkend:
+;
+; subroutine for sd_write_block.  
+;   inp:A=frombank,HL=fromaddress,B=wordcount,C=2,DE=SD_ADDR(N8VEM) or SD_ADR2(MSX)
+;   out:nothing
+;
+wrsdblk:out     (PF9), a
+;
+wrsd:	ld	a, (hl)		;	push	bc
+	ld	(de), a		;	ld	c, (hl)
+	rlca			;	ld 	b, 8
+	ld	(de), a		;	
+	rlca			; L33:	ld 	a, 6
+	ld	(de), a		;	
+	rlca			;	rl 	c
+	ld	(de), a		;	
+	rlca			;	rla
+	ld	(de), a		;	ld	(de), a
+	rlca			;	or 	SD_CLK
+	ld	(de), a		;	
+	rlca			;	ld	(de), a
+	ld	(de), a		;	djnz	L33
+	rlca			;	
+	ld	(de), a		;	xor	SD_CLK
+	rlca			;	
+	nop			;	ld	(de), a
+	nop			;	pop	bc
+wrsd1:	inc	hl
+	djnz	wrsd
+	dec	c
+	jr	nz, wrsd
+wrblkAA:ld      a, 0
+        out     (PF9), a
+        ret			; 32 bytes
+wrsdblkend:
+;
+;===================================== IDEBDOS 2.0 functions ==============================
+;
+; XSETDT=10+BASE   - set current system date from DE in MS-DOS FAT format:
+;      bit 15:9  Year from 1980 (0..127)	l     16->96, 27->07
+;      bit 8:5   Month (1..12) 				c
+;      bit 4:0   Day (1..31) 				a
+;
+; (inp:DE)		esc,'Z',7,d,m,y
+;
+XSETDT:	
+	push	bc
+	push    ix
+	push    iy
+	ld	a,d
+	ld	c,e
+	srl	a
+	rr	c
+	sub	20
+	jr	nc,XSETDT1
+	add	a,100
+XSETDT1:
+	ld	l,a
+	push hl		; l=year
+	srl	c
+	srl	c
+	srl	c
+	srl	c		; c=month
+	push bc
+	ld	a,11111b
+	and	e
+	ld c,a
+	push bc		; day
+	ld	c, 27
+@@141:call	BCONOUT
+	ld	c, 'Z'
+@@142:call	BCONOUT
+	ld	c, 7
+@@143:call	BCONOUT
+	pop	bc
+@@144:call	BCONOUT
+	pop	bc
+@@145:call	BCONOUT
+	pop	bc
+@@146:call	BCONOUT
+	jr	XSETTM1
+;
+; XSETTM=11+BASE   - set current system time from DE in MS-DOS FAT format:
+;       bit 15:11  Hour (0..23) 
+;       bit 10:5   Minute (0..59) 
+;       bit  4:0   Second/2 (0..29)  
+;
+; (inp:DE)			esc,'Z',1,h,m,s
+;
+XSETTM:	
+	push	bc
+	push    ix
+	push    iy
+	ld	a,11111b
+	and	e
+	add	a,a
+	ld	l,a
+	push	hl		; l=seconds
+	ld	l,d
+	rrc	d
+	rr	e
+	rrc	d
+	rr	e
+	rrc	d
+	rr	e
+	srl	e	
+	srl	e	
+	push	de		; e=minutes
+	srl	l
+	srl	l	
+	srl	l	
+	push	hl		; l=hours
+	ld	c, 27
+@@147:	call	BCONOUT
+	ld	c, 'Z'
+@@148:	call	BCONOUT
+	ld	c, 1
+@@149:	call	BCONOUT
+	pop	bc
+@@150:call	BCONOUT
+	pop	bc
+@@151:call	BCONOUT
+	pop	bc
+@@152:call	BCONOUT
+XSETTM1:
+	xor	a
+	ld	h,a
+@@153:jp XGETTM1
+;
+;
+; XMREAD=12+BASE   - read D 512b-sectors to page E (inp:D=count,E=dest_bank; out:A=0->ok)
+;
+XMRW_COMMON:   
+@@40:	call	MDI
+		inc		l
+@@73:	ld      hl, bbank0		; in master descriptor
+        jr      z, xmr1
+@@19:	ld      hl, bbank1   	; in slave descriptor
+xmr1:	ld		(hl),e			; store destination page
+		push	de
+@@23:	call	StoreFBUF
+		pop		bc				; b=sectors count
+		ret
+;
+XMREAD:
+@@98:	call	CheckDisk       ; l=lastdsk not (FF or FE) - continue chain
+        push    ix
+        push    bc
+        push    de
+@@154:	call	XMRW_COMMON
+xmr2:	push	bc
+@@74:	call	read_sec
+		pop		bc
+		or	a
+		jr		nz,xmr4
+@@155:	call	IncLbaBuf
+		djnz	xmr2
+xmr3:	xor		a				; A=0  - ok
+xmr4:							; A<>0 - fail
+@@156:	jp		RestoreFBUF
+;
+; XMWRITE=13+BASE   write D 512b-sectors to page E  (inp:D=count,E=dest_bank; out:A=0->ok)
+;
+XMWRITE:
+@@157:	call	CheckDisk       ; l=lastdsk not (FF or FE) - continue chain
+        push    ix
+        push    bc
+        push    de
+@@158:	call	XMRW_COMMON
+xmw1:	push	bc
+@@159:	call	write_sec
+		pop		bc
+		or	a
+		jr		nz,xmr4
+@@160:	call	IncLbaBuf
+		djnz	xmw1
+		jr		xmr3
+;
+IncLbaBuf:
+        inc		(ix+4)		; ++high(buffer address)
+        inc		(ix+4)		; buffer address += 512
+		inc		(ix+5)
+		ret		nz
+		inc		(ix+6)
+		ret		nz
+		inc		(ix+7)
+		ret		nz
+		inc		(ix+8)		; ++(long)LBA
+		ret
+		
+;
+;===============================================================================================
+;
+intinchl:dw     1792    ; initial constant for 10ms timing loop
+drv_sign:db	0
+;
+var_beg:
+
+MasterInfo:
+DevMsk0:ds      1       ; 0 for Master device
+ISLBA0: ds      1       ; 0=work in CHS mode, !0(2)=Work in LBA mode  
+bbank0: ds      1       ; caller (buffer) bank
+Buffer0:dw      buffer  ; 512bytes buffer address
+lba0:   ds      1       ;   sec        28bit Logical Block Address  
+        ds      1       ;   cyl_low
+        ds      1       ;   cyl_high    
+        ds      1       ;   head
+MaxC0:  ds      2       ; Max cylinder value
+MaxH0:  ds      1       ; Max head (<=16) - number of heads per cylinder for the disk
+MaxS0:  ds      2       ; Max sector value - number of sectors per track for the disk
+MaxLBA0:ds	4	; Max number of sectors (drive size) in LBA mode        ix+14
+HmulS0: ds      2       ; MaxH * MaxS                                           ix+18
+Ready0: ds      1       ; 1=drive Ready, 0=Drive NotReady                       ix+20
+ro0:    ds	1	; ro=0 if read_write, ro=0FFh if read_only              ix+21
+recal0: ds      1       ; recalibrate flag (for very old HDDs)                  ix+22
+
+SlaveInfo:
+DevMsk1:ds      1       ; !0 (16) for Slave device
+ISLBA1: ds      1       ; 0=work in CHS mode, !0(2)=Work in LBA mode  
+bbank1: ds      1       ; caller (buffer) bank
+Buffer1:dw      buffer+512
+lba1:   ds      4       ; 28bit Logical Block Address (sec, cyl_low, cyl_high, head)
+MaxC1:  ds      2
+MaxH1:  ds      1
+MaxS1:  ds      2
+MaxLBA1:ds	4	; Max number of sectors (drive size) in LBA mode        ix+14
+HmulS1: ds      2	; MaxH * MaxS                                           ix+18
+Ready1: ds      1       ; 1=drive Ready, 0=Drive NotReady                       ix+20
+ro1:    ds	1	; ro=0 if read_write, ro=0FFh if read_only              ix+21
+recal1: ds      1       ; recalibrate flag (for very old HDDs)                  ix+22
+
+lastdsk:ds      1	; last used drive index
+
+var_end:
+
+buffer:
+
+DEND:
+  end     BEGIN
+TMA:	
+XGETDTA:	
+XGETT

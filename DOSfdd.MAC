@@ -1,0 +1,22 @@
+			.Z80
+BOOTFDD	equ	1
+IDEPRO	equ	1
+			ASEG
+		;
+INCLUDE BOOT    ; BOOT - boot FDD (native) or boot IDE/SD (via Monitor F834h sobroutine)
+INCLUDE BDOS0   ; BDOS - Extended Memory Manager functions
+INCLUDE BDOS1   ; BDOS - standard
+INCLUDE BDOS2   ; BDOS - extended disk functions (filedates, label, usernames)
+INCLUDE BIOSSD  ; BIOS - SD card (N8VEM JuhaSD & MSX SDcard V1 schemes)
+INCLUDE BIOSIDE ; BIOS - IDE drives (8255 PPA scheme)
+INCLUDE BIOS0   ; BIOS - devices low level access routines
+INCLUDE BIOS1   ; BIOS - SYSTEM COLD STARTUP (memory test, config.sys)
+		; ENDCOLD:DEFS    801H+MMTEST-ENDCOLD
+INCLUDE CCP0    ; console command processor 
+INCLUDE CCP1    ; console command processor - extensions
+INCLUDE BIOS2   ; BDOS & BIOS wrapper, TTY, interbank (multiple memory pages) service routines
+INCLUDE DEBUG	; values for debug
+
+	END
+
+

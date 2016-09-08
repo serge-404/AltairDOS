@@ -1,0 +1,823 @@
+;
+;
+; Print drive information. Input: IX=DriveInfo_array
+; Buffer (ix+3,ix+4) must contain drive identify info.
+;
+drive_info:
+        ld      de, msg_mdl
+        call    msg
+        ld      l, (ix+3)
+        ld      h, (ix+4)
+        push    hl
+        ld      de, 54          ; ld      hl, buffer + 54
+        add     hl, de
+        ld      b, 20
+        call    print_name	; print the drive's model number
+        ld      de, msg_sn
+        call    msg
+        pop     hl
+        push    hl
+        ld      de, 20
+        add     hl, de          ; ld      hl, buffer + 20
+        ld      b, 10
+        call    print_name	; print the drive's serial number
+        ld      de, msg_rev
+        call    msg
+        pop     hl
+        ld      de, 46
+        add     hl, de          ; ld      hl, buffer + 46
+        ld      b, 4
+        call    print_name	; print the drive's firmware revision string
+        ld      de, msg_cy
+        call    msg
+        ld      c, (ix+9)
+        ld      b, (ix+10) 
+	call	printp		; print the drive's cylinder
+        ld      de, msg_hd
+        call    msg
+	ld	b, 0
+	ld	c, (ix+11)
+        call    printp		; print the drive's head
+        ld      de, msg_sc
+        call    msg
+        ld      c, (ix+12)
+        ld      b, (ix+13)
+        call    printp		; print the drive's sector
+	call	showtot
+        ld      a, (ix+1)		; capabilities
+        or	a
+	ld	de, msg_ly
+	jr	nz, di_exit		; LBA -> yes (nz)
+	ld	de, msg_ln
+di_exit:call	MSG			; LBA mode
+        ld      a, (ix+21)		; RO
+	or	a
+	ret	z			; return if zero (Read-Write)
+	ld	de, msg_ro
+	jp	MSG
+;
+rdy_err:ld      de, msg_rdy
+        call    msg
+        dec     a
+        ret
+;
+get_err:push    af
+        ld      de, msg_stat
+        call    msg
+        pop     af
+        call    phex
+        ld      de, msg_err
+        call    msg
+;        ld      a, ide_err		; read reg. Error
+;        call    ide_rd_8
+;        ld      a, l
+		in	a,(portIdeErr)
+		push    af
+        call    phex
+        ld      a, (ix+1)       ; 0=CHS, !0=LBA
+        or      a
+        jr      nz, lba_pos
+;
+        ld      de, msg_chs     ; Error position in CHS format
+        call    msg
+;       ld      a, ide_cyl_msb  ; read reg. Cyl
+;        call    ide_rd_8
+;        ld      a, l
+		in	a,(portIdeCylHB)
+        call    phex
+;        ld      a, ide_cyl_lsb
+;        call    ide_rd_8
+;        ld      a, l
+		in	a,(portIdeCylLB)
+        call    phex
+        ld      a, ':'
+        call    cout
+;       ld      a, ide_head		; read	and print reg. Head
+;        call    ide_rd_8
+;       ld      a, l
+		in	a,(portIdeHead)
+		call    phex
+        ld      a, ':'
+        call    cout
+;        ld      a, ide_sector	; read and prin reg. sectors
+;        call    ide_rd_8
+;        ld      a, l
+		in	a,(portIdeSector)
+        call    phex
+        ld      a, ','
+        call    cout
+        jr      ge_comm
+;
+lba_pos:ld      de, msg_l       ; Error position in LBA format
+        call    msg
+        ld      a, (ix+8)       ; lba+3
+        call    phex
+        ld      a, (ix+7)       ; lba+2
+        call    phex
+        ld      a, (ix+6)       ; lba+1
+        call    phex
+        ld      a, (ix+5)       ; lba+0
+        call    phex
+;
+ge_comm:pop     af
+        or      a
+        ret     nz
+        dec     a               ; A:=255
+        ret
+;
+; print null-terminated string on (hl), no more than
+; <reg B> words long the IDE string are byte swapped.
+; Fetch each word and swap so the names print correctly
+;
+print_name:     
+        ld    c, (hl)
+        inc   hl
+        ld    a, (hl)
+        or    a
+        ret   z
+        inc   hl
+        call  cout
+        ld    a, c
+        or    a
+        ret   z
+        call  cout
+        djnz  print_name
+pn_end: ret
+;
+;------------------------------------------------------------------
+;
+phex:   PUSH    AF
+        RRCA
+        RRCA
+        RRCA
+        RRCA
+        CALL    PRHEX0
+        POP     AF
+PRHEX0: AND     0FH
+        OR      30H
+        cp      3AH
+        jr      c, cout
+        add     a, 7 
+;
+cout:   push    bc
+        ld      c,a
+        call    conout
+        pop     bc
+        ret
+;
+conout: push    hl
+        push    de
+        push    af
+        push    ix
+        DB      0CDH    ; call 
+CON0:   DS      2       ; BIOS CONOUT
+        pop     ix
+        pop     af
+        pop     de
+        pop     hl
+        ret
+;
+correction:
+        push    ix
+        push    af
+        push    bc
+        push    bc
+        pop     ix
+        ld      c,a
+        xor     a
+        ld      d,a
+        ld      e,a
+        ld      h,a
+        ld      l,a
+        ld      b,24
+cycl:   ld      a,c
+        add     ix,ix
+        adc     a,c
+        ld      c,a
+
+        ld      a,l
+        adc     a,l
+        daa
+        ld      l,a
+
+        ld      a,h
+        adc     a,h
+        daa
+        ld      h,a
+
+        ld      a,e
+        adc     a,e
+        daa
+        ld      e,a
+
+        ld      a,d
+        adc     a,d
+        daa
+        ld      d,a
+	djnz    cycl
+
+        pop     bc
+        pop     af
+        pop     ix
+        ret
+;
+;print a 16 bit number, located at (hl)
+print_parm:
+        ld      c, (hl)
+        inc     hl
+        ld      b, (hl)
+printp: xor     a
+	call    correction
+        call    dellead
+        jr      scbcd1
+
+;  a,b,c
+wrdata: call    correction
+        call    dellead
+scbcd:  ld      a,d
+        call    wrbcd
+scbcd1: ld      a,e
+        call    wrbcd
+scbcd0: ld      a,h
+        call    wrbcd
+        ld      a,l
+
+wrbcd:  push    af          ;
+        rrca
+        rrca
+        rrca
+        rrca
+        call    xprbcd
+        pop     af
+xprbcd: and     0fh
+;
+prbcd:  add     a,30h       ;
+        cp      3ah
+        jr      c,prbcd0
+        ld      a,20h
+prbcd0: jp      cout
+
+;
+pint8u:
+wrquant:ld      c,a
+        xor     a
+        ld      b,a
+        call    correction
+        call    dellead
+        jr      scbcd0
+dellead:
+;
+        push    af
+        push    bc
+        ld      b,d
+        call    delb
+        ld      d,b
+        jr      nz,exitdel
+        ld      b,e
+        call    delb
+        ld      e,b
+        jr      nz,exitdel
+        ld      b,h
+        call    delb
+        ld      h,b
+        jr      nz,exitdel
+        ld      b,l
+        call    delb
+        ld      l,b
+        cp      0ffh
+        jr      nz,exitdel
+        ld      l,0f0h
+exitdel:pop     bc
+        pop     af
+        ret
+
+delb:
+;
+        ld      a,b
+        and     0f0h
+        ret     nz
+        ld      a,0f0h
+        or      b
+        ld      b,a
+        and     0fh
+        ret     nz
+        ld      a,0fh
+        or      b
+        ld      b,a
+        xor     a
+        ld      a,b
+        ret
+
+;
+
+;
+DRVSTR: db      DRVBANK
+DRVNAME:db      'IDEBDOS',0
+        dw      DBEG
+        dw      DEND-DBEG
+        dw      INSTALL-OFFSET
+        dw      FORKILL-OFFSET
+        dw      DRVADDR
+        DB      0
+;
+DBEG:
+OFFSET:
+;
+HLATTAB:dw      EXLINK+1, Buffer0, Buffer1
+		dw		@X1, @X2, @X3, @X4, @X5, @X6, @X7, @X8, @X9, @X10, @XX1, @X11, @X12, @X13, @X14
+        dw      @@1+1,  @@2+1,  @@3+1,  @@4+1,  @@5+1,  @@6+1,  @@7+1,  @@8+1,  @@9+1,  @@10+1
+        dw      @@11+1, @@12+1, @@13+1, @@14+1, @@15+1, @@16+1, @@17+1, @@18+1, @@19+1, @@20+1
+        dw      @@21+1, @@22+1, @@23+1, @@24+1, @@25+1, @@26+1, @@27+1,@@@28+2,@@@29+2, @@30+1
+        dw      @@31+1, @@32+1, @@33+1, @@34+1, @@35+1, @@36+1, @@37+1, @@38+1, @@39+1, @@40+1
+        dw      @@41+1,@@@42+2,@@@43+2, @@44+1, @@45+1, @@46+1, @@48+1, @@49+1, @@50+1
+        dw      @@51+1, @@52+1, @@53+1, @@54+1, @@55+1, @@57+1, @@59+1
+        dw      @@61+1, @@66+1, @@67+1
+        dw      @@72+1, @@73+1, @@74+1,@@@75+2,@@@76+2, @@77+1, @@78+1, @@79+1, @@80+1
+        dw      @@81+1, @@82+1, @@83+1, @@84+1, @@85+1, @@86+1, @@87+1, @@88+1, @@89+1, @@90+1
+        dw      @@91+1, @@92+1, @@93+1, @@94+1, @@95+1, @@96+1, @@97+1, @@98+1, @@99+1, @@100+1
+;	dw	@@@36+2
+	dw	@X35+1,                         @X126+1
+; SD card
+	dw	@@101+1,@@102+1,@@103+1,@@104+1,@@105+1,@@106+1,@@107+1,        @@109+1,@@110+1 
+	dw	@@111+1,                @@114+1,@@115+1,@@116+1,        @@118+1,@@119+1 
+	dw	        @@122+1,@@123+1,@@124+1,@@125+1,@@126+1,@@127+1,@@128+1,@@129+1,@@130+1 
+	dw	@@131+1,@@132+1,@@133+1,@@134+1,@@135+1,@@136+1,@@137+1,@@138+1,@@139+1,@@140+1 
+	dw	@@141+1,@@142+1,@@143+1,@@144+1,@@145+1,@@146+1,@@147+1,@@148+1,@@149+1,@@150+1 
+	dw	@@151+1,@@152+1,@@153+1,@@154+1,@@155+1,@@156+1,@@157+1,@@158+1,@@159+1,@@160+1
+	dw	0
+;
+INSTALL:db      3Eh             ; 
+INSFLAG:db      0               ; 
+        or      a               ; 
+        jr      nz,EXLINK       ; 
+        ld      h,b             ; 
+        ld      l,a             ; 
+        add     hl,hl
+        add     hl,hl
+        add     hl,hl
+        add     hl,hl           ; hl = real address of DBEG where driver resides
+INSTA:  LD      BC,OFFSET
+        or      a		; carry flag := 0
+        sbc     HL,BC
+        ld      b,h
+        ld      c,l             ; hl=bc=install
+ALINK0:	ld      de,HLATTAB	; ld hl,HLATTAB  - in ACPM mode  
+ALINK1:	add     hl,de           ; hl=hlattab     - do not this in ACMP mode
+LINK:   ld      e,(hl)
+        inc     hl
+        ld      d,(hl)
+        inc     hl
+        ld      a,e
+        or      d
+        jr      z,EXLINK
+	ex      de,hl	
+ALINK2: add     hl,bc		; - do not this in ACMP mode
+	ex      de,hl           ; de:=de+bc (de+offset) 
+        ld      a,(de)
+        add     a,c
+        ld      (de),a
+        inc     de
+        ld      a,(de)
+        adc     a,b
+        ld      (de),a
+        jr      LINK
+EXLINK:
+RET1:	ld      hl,INSFLAG      ; -+іT+L іі+LіT. і+T+Lі+L+
+        ld      (hl),1
+	ld      a,(MARKER)
+@@1:    ld      (wrblkA+1), a   ; for return from FBUF
+@@2:    ld      (rdblkA+1), a
+@@53:	ld      (wrblkAA+1), a	; for return from FBUF
+@@54:	ld      (rdblkAA+1), a
+	ld      (YBDOS),a       ; remap BDOS vector
+@@3:    LD      HL,XBDOS
+        LD      (YBDOS+1),HL
+        ret
+;
+FORKILL:
+@@4:    ld      a, (XBDOS1+1)
+        ld      (YBDOS), a       ; restore BDOS vector
+@@5:    ld      hl, (XBDOS2+1)
+        LD      (YBDOS+1),HL
+        ret             
+;
+ACPMSTACK:		; over one-time executed code (if ACPM)
+;              
+XJMPTAB:
+@X1:    dw      XHOME
+@X2:    dw      XSETDSK
+@X3:    dw      XSETTRK
+@X4:    dw      XSETSEC
+@X5:    dw      XSETDMA
+@X6:    dw      XREAD
+@X7:    dw      XWRITE
+@X8:    dw      XIOCTL
+@X9:    dw      XGETDT
+@X10:   dw      XGETTM
+@X11:	dw		XSETDT
+@X12:	dw		XSETTM
+@X13:   dw      XMREAD
+@X14:   dw      XMWRITE
+;
+; XBDOS - bdos extension entry point
+;
+XXBDOS:	ld	b, YSEG		; caller segment = 10h -> caller page = 1
+XBDOS:  ld      a,c
+        sub     BBEGIN          ; check for diapazon BBEGIN..BEND
+        jr      c, XCONT
+        cp      BEND-BBEGIN+1
+        jr      nc, XCONT
+X2BDOS:
+@@6:    ld      hl,XJMPTAB
+	rlca			; a:=a*2
+	add	a,l
+	ld	l,a
+	jr	nc, xbdos0
+        inc	h
+xbdos0: ld	a,(hl)
+	inc	hl
+	ld	h,(hl)
+	ld	l,a
+        jp      (hl)
+;
+;
+; XHOME=1+BASE  - set LBA=0    (inp:nothing;          out:nothing)
+;
+XHOME:
+@@7:    ld      a, (lastdsk)
+        or      1
+        inc     a
+        jr      nz, XCONT       ; lastdsk not (FF or FE) - continue chain
+@@8:    ld      a, (lastdsk)
+@@9:    ld      hl, lba0        ; master lba
+        inc     a
+        jr      z, home0
+@@10:   ld      hl, lba1        ; slave lba
+home0:  xor     a
+        ld      (hl), a
+        inc     hl
+        ld      (hl), a
+        inc     hl
+        ld      (hl), a
+        inc     hl
+        ld      (hl), a
+        ret                     ; break chain because processed
+;
+; XSETDSK=2+BASE  - set drive - 0FFh=master or 0FEh=slave
+;  (inp:E=drive; out:HL=0->err, hl=0FFFFh->ReadOnly, hl=0FFFEh->ReadWrite)
+;
+XSETDSK: 
+        ld      a, e
+@@11:   ld      (lastdsk), a
+        or      1
+        inc     a
+        jr      nz, XCONT       ; lastdsk not (FF or FE) - continue chain
+        ld      a, e
+        inc     a
+@@12:   ld      hl, MasterInfo+20  ; drive exist (Ready) flag
+        jr      z, setds0
+@@13:   ld      hl, SlaveInfo+20
+setds0: ld	a, (hl)		; a=Ready Flag
+        inc	hl
+        or      a               ; Z=NotReady, NZ=Ready
+        ld	a, (hl)         ; a=ReadOnly Flag
+	ld      hl, 0           ; hl=0 : disk not exists
+        ret     z               ; drive not ready (in case IDE - not exists)
+        dec     hl              ; hl=FFFF : disk exists, ReadOnly, DPH virtual
+        or	a
+	jr	nz, sdRet       ; NZ=ReadOnly
+	dec	hl		; hl=FFFE : disk exists, ReadWrite, DPH virtual
+sdRet:  xor     a
+        ret                     ; break chain because processed
+;
+;
+; XSETTRK=3+BASE (cyl) - set LBA[1] from reg.E, LBA[2] from reg.D;  out:nothing
+;
+XSETTRK: 
+@@14:   ld      a, (lastdsk)
+        or      1
+        inc     a
+        jr      nz, XCONT       ; lastdsk not (FF or FE) - continue chain
+@@15:   ld      a, (lastdsk)
+@@16:   ld      hl, lba0+1      ; master lba
+        inc     a
+        jr      z, settr0
+@@17:   ld      hl, lba1+1      ; slave lba
+settr0: ld      (hl), e
+        inc     hl
+        ld      (hl), d
+        xor     a
+	ret                     ; break chain because processed
+;
+CheckDisk:
+@@51:	ld      a,(lastdsk)
+		ld		l,a
+        or      1
+        inc     a
+		ret		z
+		pop		hl				; lastdsk not (FF or FE) - continue interbank chain
+RET2:
+XCONT:
+XBDOS1: ld      a,0
+XBDOS2: ld      hl,0
+        jp      BJMP            ; continue BDOS-handlers chain
+;
+; XSETSEC=4+BASE (sec, head) - set LBA[0] from reg.E, LBA[3] from reg.D;  out:nothing
+;
+XSETSEC: 
+@@18:   call	CheckDisk       ; l=lastdsk not (FF or FE) - continue chain
+		inc		l
+@@20:   ld      hl, lba0        ; master lba
+        jr      z, setsc0
+@@21:   ld      hl, lba1        ; slave lba
+setsc0: ld      (hl), e
+        inc     hl
+        inc     hl
+        inc     hl
+        ld      (hl), d
+        xor     a
+        ret                     ; break chain because processed
+;
+;
+; XSETDMA=5+BASE   - set 512b-DMA address from reg.DE. Bank calculated by segment
+; number (passed in reg.B);    (out:nothing)
+;
+XSETDMA: 
+@@22:   call	CheckDisk       ; l=lastdsk not (FF or FE) - continue chain
+		inc		l
+@@24:   ld      hl, buffer0+1   ; master buffer address
+        jr      z, setdm0
+@@25:   ld      hl, buffer1+1   ; slave buffer address
+setdm0: ld      (hl), d
+        dec     hl
+        ld      (hl), e
+        dec     hl
+        ld      a,b             ; caller segment
+        rrca    
+        rrca    
+        rrca
+        rrca
+        and     0Fh             ; a=caller bank
+        ld      (hl), a         ; buffer bank
+        xor     a
+        ret                     ; break chain because processed
+;
+StoreFBUF:
+        ld      hl, FBUF
+@@35:   ld      de, HLATTAB
+        ld      bc, FBUFSZ
+        ldir                            ; store old FBUF content
+	ret
+;
+;doFBUFcode:
+;@@@36:	ld	(rdsp+1), sp
+;	ld	sp, FBUFCOD
+;        call    FBUFCOD                 ;grab the data
+;rdsp:	ld	sp, FBUFCOD	
+;	ret
+;
+; subroutine for XREAD.  
+;   inp:A=tobank,HL=toaddress,C=ide_cmd_read,B=wordcount,DE=ppa_ctl_addr
+;   out:nothing
+;
+rdblk:  out     (PF9), a
+rdblk0: 
+;		ld      a, c
+;        ld      (de), a                 ; drive address onto control lines
+;        or      ide_rd_line 
+;        ld      (de), a                 ; assert read pin on control lines
+;       ld      a, (hl)                 ; delay 7 tstates ~2 mks at 3.5MHz
+;@@P7:	ld      a, (ide_8255_lsb)       ; read the lower byte
+;        ld      (hl), a
+;        inc     hl
+;@@P8:	ld      a, (ide_8255_msb)       ; read the upper byte
+;        ld      (hl), a
+;        inc     hl
+;       xor     a
+;        ld      (de), a                 ; deassert all control pins
+		in	a,(portIdeDataL)
+		ld	(hl),a
+		inc	hl
+		in	a,(portIdeDataH)
+		ld	(hl),a
+		inc	hl	
+        djnz    rdblk0
+rdblkA: ld      a, 0
+        out     (PF9), a
+        ret				; 27 bytes
+rdblkend:
+;
+read_sec:
+@@27:   ld      a, (lastdsk)
+@@@28:  ld      ix, MasterInfo  ; master descriptor
+        inc     a
+        jr      z, rd_sector
+@@@29:  ld      ix, SlaveInfo   ; slave descriptor
+;            
+; read a sector, specified by the 4 bytes in "lba",
+; Return, acc is zero on success, non-zero for an error
+;
+rd_sector:
+	ld      a, (ix+20)              ; 1=Ready, 0=NotReady
+        or      a
+        jr      z, rdy_err1
+@@101:	ld	a, (drv_sign)
+	and	1
+@@102:	jp nz,sd_readsec	
+;
+rdsec:  
+@@30:   call    ide_wait_not_busy       ;make sure drive is ready
+        jr      z, rdy_err1
+@@31:   call    wr_lba                  ;tell it which sector we want
+@@32:   call    ide_wait_not_busy       ;make sure drive is ready
+        jr      z, get_err1
+        rrca
+        jr      c, get_err1
+;        ld      a, ide_command
+;        ld      l, ide_cmd_read
+;@@33:   call    ide_wr_8                ;ask the drive to read it
+		ld	a,ide_cmd_read
+		out	(portIdeCom),a
+@@34:   call    ide_wait_drq            ;wait until it's got the data
+        rrca
+        jr      c, get_err1
+@@36:   ld      hl, rdblk
+        ld      de, FBUFCOD
+        ld      bc, rdblkend-rdblk
+        ldir                            ; routine to get 512bytes from IDE
+        ld      a, (ix+2)		; mempage where buffer resides
+        ld      l, (ix+3)
+        ld      h, (ix+4)		; buffer address
+;        ld      c, ide_data             ; b=0,  c = ide register address
+;@@P9:	ld      de, ide_8255_ctl
+;@X36:	
+		call	doFBUFcode
+        xor     a
+		ret
+@@33:	ds	3
+		
+;
+; when an error occurs, we get acc.0 set from a call to ide_drq
+; or ide_wait_not_busy (which read the drive's status register).  If
+; that error bit is set, we should jump here to read the drive's
+; explaination of the error, to be returned to the user.  If for
+; some reason the error code is zero (shouldn't happen), we'll
+; return 255, so that the main program can always depend on a
+; return of zero to indicate success.
+get_err1:
+;        ld      a, ide_err
+;@@38:   call    ide_rd_8
+;        ld      a, l
+	      in	a,(portIdeErr)
+        or      a
+        jr      nz,rw_ret
+rdy_err1:
+        ld      a,0FFh
+        or      a
+        jr      rw_ret
+@@38:	ds	3
+; XREAD=6+BASE   - read 512b-sector  (inp:nothing; out:A=0->ok)
+;
+XREAD:   
+@@26:   call	CheckDisk
+@@99:	call	MDI
+        push    ix
+        push    bc
+        push    de
+@X35:	call	StoreFBUF
+@@100:	call	read_sec
+;
+RestoreFBUF:
+		ld      de, FBUF
+@@37:   ld      hl, HLATTAB
+        ld      bc, FBUFSZ
+        ldir                            ; restore old FBUF content
+wsRet:
+rw_ret: pop     de
+        pop     bc
+        pop     ix
+MEI:    NOP
+        RET                    			; break chain
+;
+;
+; XWRITE=7+BASE   - write 512b-sector    (inp:nothing; out:A=0->ok)
+;
+XWRITE:
+@@39:   call	CheckDisk       ; lastdsk not (FF or FE) - continue chain
+@@96:	call	MDI
+        push    ix
+        push    bc
+        push    de
+@@49:   call	StoreFBUF
+@@97:	call	write_sec
+		jr		RestoreFBUF		; also MEI
+;
+write_sec:
+@@41:   ld      a, (lastdsk)
+@@@42:  ld      ix, MasterInfo  ; master descriptor
+        inc     a
+        jr      z, wr_sector
+@@@43:  ld      ix, SlaveInfo   ; slave descriptor
+;
+; write a sector, specified by the 4 bytes in "lba",
+; whatever is in the buffer gets written to the drive!
+; Return, acc is zero on success, non-zero for an error
+;
+wr_sector:
+	ld      a, (ix+20)              ; 1=Ready, 0=NotReady
+        or      a
+        jr      z, rdy_err1
+	ld	a, (ix+21)		; 0FFh=ReadOnly, 0=ReadWrite
+	or	a
+	jr	nz, wsRet
+@@103:	ld	a, (drv_sign)
+		and	1
+@@104:	jp	nz, sd_writesec	
+;
+wrsec:	
+@@44:   call    ide_wait_not_busy       ; make sure drive is ready
+        jr      z, rdy_err1
+@@45:   call    wr_lba                  ; tell it which sector we want
+@@46:   call    ide_wait_not_busy       ; make sure drive is ready
+        jr      z, get_err1
+        rrca
+ gerr11:jr      c, get_err1
+;        ld      a, ide_command
+;        ld      l, ide_cmd_write
+;@@47:   call    ide_wr_8                ;tell drive to write a sector
+		ld	a,ide_cmd_write
+		out	(portIdeCom),a
+@@48:   call    ide_wait_drq            ;wait unit it wants the data
+        rrca
+        jr      c, gerr11
+@@50:   ld      hl, wrblk
+        ld      de, FBUFCOD
+        ld      bc, wrblkend-wrblk      
+        ldir                            ; routine to get 512bytes from IDE
+        ld      l, (ix+3)
+        ld      h, (ix+4)               ; buffer address
+;
+; Write a block of 512 bytes [from buffer at (hl)] to the drive
+;
+write_data:
+;        ld      a, wr_ide_8255
+;@@P10:	ld      (ide_8255_cfg), a           ; config 8255 chip, write mode
+;        ld      c, ide_data             ; b=0,  c = ide register address
+;@@P11:	ld      de, ide_8255_ctl
+        ld      a, (ix+2) 		; buffer bank
+		ld	b,0
+;@X52:	
+	call    doFBUFcode              ; write the data
+;        ld      a, rd_ide_8255
+;@@P12:	ld      (ide_8255_cfg), a	; config 8255 chip, read mode
+;
+@@52:   call    ide_wait_not_busy       ; wait until the write is complete
+	ld	l, a
+	ld	a, 0FFh
+	ret z				; get_err1
+    rrc	l
+	ret c				; get_err1
+	xor     a
+	ret
+wrblk:  out     (PF9), a
+wrblk2: 
+;@@P13:	ld      (ide_8255_lsb), a       ; drive lower lines with lsb
+;		inc     hl
+;        ld      a, (hl)
+;@@P14:	ld      (ide_8255_msb), a       ; drive upper lines with msb
+;        ld      a, c
+;        ld      (de), a                 ; drive address onto control lines
+;        or      ide_wr_line 
+;        ld      (de), a                 ; assert write pin
+;        inc     hl                      ; delay 6 tstates
+;        ld      a, c                    ; delay 4 tstates, total ~2.5 mks
+;        ld      (de), a                 ; deassert write pin
+		ld      c, (hl)
+		inc	hl
+		ld	a,(hl)
+		out	(portIdeDataH),a
+		ld	a,c
+		out	(portIdeDataL),a
+		inc	hl
+        djnz    wrblk2
+wrblkA: ld      a, 0
+        out     (PF9), a
+        ret				; 26 bytes
+wrblkend:
+;
+;------------------------------------------------------------------
+; 10 ms delay routine. Based on value, calculated by int20 routine
+;
+delay10:
+@@55:   ld      hl, (intinchl)
+delayx: ld      a, (0)                              ; 13 tstates
+        dec     hl                                  ; 6
+        ld      a, h                                ; 4
+        or      l                                   ; 4
+        jr      nz, delayx                          ; 12  total=39 tstates
+        ret
+;
+
+        ret
+
+delb

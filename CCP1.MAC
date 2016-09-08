@@ -1,0 +1,1275 @@
+DSKREG	equ	36h
+;
+; Compare strings (limited by length in reg B)
+;
+CPSTRB: ld	a,(de)
+	cp	(hl)
+	ret	nz
+	inc	hl
+	inc	de
+	djnz    CPSTRB
+	xor	a
+	ret
+;
+; Compare strings (ended by  ' ')
+;
+CPSTR:  LD      A,(DE)
+	CP      ' '
+	JR      Z,SPASPA
+	XOR     (HL)
+	AND     5FH
+	RET     NZ
+	INC     HL
+	INC     DE
+	DJNZ    CPSTR
+	jr	RETA0FF
+SPASPA: LD      A,(HL)
+CPSPTB:	CP      9
+	RET     Z
+	CP      ' '
+	RET
+;
+; П/П ИЩЕТ В ТАБЛИЦЕ КЛЮЧЕВЫХ СЛОВ СЛОВО , СОВПАДАЮЩЕЕ СО СЛОВОМ В BUFWORD
+; ВЫХОД: ЕСЛИ НАЙДЕНО , ТО ВОЗВРАЩ. А=0FFH, Z=FALSE, HL=АДРЕС ПОДПРОГРАММЫ
+;        ИНАЧЕ ВОЗВРАЩАЕТ  А=0, Z=TRUE
+;
+CMPSTR: LD      HL,BUFWORD
+	LD      A,(DE)          ; A= ДЛИНА ТАБЛИЧНОГО ОБРАЗЦА
+	OR	A
+	RET     Z               ; A=0 ЕСЛИ КОНЕЦ ТАБЛИЦЫ
+	INC     DE
+	CP      C               ; C= ДЛИНА СЛОВА В BUFWORD
+	LD      B,A
+	JR      NZ,NEXT
+ABF56:  LD      A,(DE)
+	CP	(HL)
+	JR      NZ,NEXT
+	INC	DE
+	INC	HL
+	DJNZ    ABF56
+	LD	A,(DE)
+	LD	L,A
+	INC	DE
+	LD	A,(DE)
+	LD	H,A
+RETA0FF:xor	a		;	LD      A,0FFH
+	dec	a		;	OR	A
+	RET
+;
+NEXT:   INC     DE              ; СЛЕДУЩЕЕ СЛОВО ИЗ ТАБЛИЦЫ
+	DJNZ    NEXT
+	INC	DE
+	INC	DE 
+	JR      CMPSTR
+;
+FIRSTCHILD:
+	LD      C,0
+	JR      NEXTCH
+NEXTCHILD:
+	LD      C,A             ; A=CURRENT
+	LD      B,0
+	LD      HL,K_ARR
+	ADD     HL,BC
+	LD      C,(HL)          ; C=OFFSET ПО ВЛОЖЕННОСТИ
+NEXTCH: CP      10H
+	JR      NC,NOCHILD
+	LD      HL,FCB+16
+	LD      B,0
+	ADD     HL,BC
+	LD      E,A             ; E=CURRENT
+	LD      A,10H
+	SUB     C
+	LD      B,A
+NCHILD: INC     HL
+	INC     C
+	LD      A,(HL)
+	CP      E
+	JR      Z,ICHILD
+	DJNZ    NCHILD
+NOCHILD:jr	RETA0FF
+ICHILD: LD      D,0
+	LD      HL,K_ARR
+	ADD     HL,DE
+	LD      (HL),C
+	XOR     A
+	LD      A,C
+	RET
+;
+DEVICES:DB      4,'FDD0'
+	DB	'$', 0
+	DB      4,'FDD1'
+	DB      '$', 1
+	DB      5,'VDISK'
+	DB      '$', 2
+STIDE0:	DB      6,'MASTER'
+	DB      '$', 3
+STIDE1: DB      5,'SLAVE'
+	DB      '$', 4
+STSD:	DB	6,'SDCARD'
+	DB      '$', 5
+	DB      3,'ROM'
+	DB      '$', 6
+STNONE:	DB      4,'NONE'
+	DB      '$', 0FFH
+	DB      0
+;
+INSTE:  DB      0	; <>0 if VDISK defined and exists in XTPA mem (ready for mount)
+;
+; PRINT IDE/SD 'DEVICE.PARTITION' name
+; INP:  C=partition_hash (part & drv)
+;
+PRNDEVNAME:
+	ld	de, STIDE0+1
+	ld	a, c
+	push	af
+	and	1Fh
+	jr	z, PDN0
+	dec	a
+	ld	de, STSD+1
+	jr	z, PDN0
+	ld	de, STIDE1+1
+PDN0:	call	STRING
+	ld	c, '.'
+	call	conout
+	pop	af
+	rlca
+	rlca
+	rlca
+	and	3
+	jp	HOUT0F	; print (A+'0')
+;
+; MNT DRIVE:DEVICE[.PARTITION] 
+;  - mount device   { FDD0 | FDD1 | MASTER | SLAVE | SDCARD | VDISK | NONE } // NONE=unmount
+;       if device = { MASTER | SLAVE | SDCARD } then also specify PARTITION NUMBER (1,2,3,4)
+;   to drive letter { DRIVE }
+;
+; MNT DRIVE:
+;  - show device, mounted to this drive letter
+;
+; MNT
+;  - show all devices, mounted to all drive letters
+;
+; EXAMPLE:  MNT C:MASTER.1
+;
+MNT:	LD      A,(DE)		; DE=FCB1 (5Ch)
+	or	a
+	jr	z,LISTZ
+	inc	de
+	ld	b,a
+	ld	a,(de)
+	CP      '?'
+ 	ld	a,b
+LISTZ:	jp      Z, LISTMNT
+;				; de=FCB1.name (5Dh)
+	LD      C, 0FFh
+	ld	HL, BUFWORD
+mnt0:	LD      A,(DE)
+	LD	(HL),A
+	INC	HL
+	INC	DE
+	INC	C
+	CP      21H
+	jr	nc, mnt0
+	ld	de,DEVICES
+	call	CMPSTR		; h=device index		
+ERRZ:	jp      z, INV_REP
+	ld	a,1		; A:=1 - call sd_init for SD-cards (flag for CCP MNT)
+	ex	af, af'
+	ld	a, h
+;
+	ld	b, a
+	inc	a
+	jr	nz, NOTNONE
+	ld	hl, FCB1	; check for unmount self
+	ld	a, (ACTDSK)
+	inc	a
+	cp	(hl)
+	jr	z, listz	; can not unmount self - show mounts list and exit
+	jr	REGI0		; IF NONE   (b=0ffh)
+NOTNONE:
+	ld	hl, FCB1+9	; hl=FCB1.ext
+	cp	7
+	jr	z, REGI0	; Device=6(ROM)
+	sub	3
+	JR      c, REGI0        ; IF FLOPPY (b=0,1)
+	JR      nz, _IFIDE      
+DOVDISK:			; else VDISK  (b=2) 
+	LD      A,(INSTE)       ; INSTE<>0 if VDISK ready for mount
+	OR      A
+	jr	z, ERRZ
+	JR      REGI0
+;
+; else b=3(IDE_MASTER),4(IDE_SLAVE),5(SDCARD) 
+;
+_IFIDE:	push	bc		; b=3,4,5 (device index)
+	CALL    GETNUM		; saves DE
+	pop	hl		; h=3,4,5 (device index)
+	jp	C, INV_REP
+	LD      A,B		; B=partition_N (0..3)
+	CP      4		; only 4 IDE partitions allowed (0,1,2,3 - FDISK scheme)
+	jp	NC, INV_REP
+_IFIDE2:
+;
+; Compose partition hash ( [d6:d5]=partition_N, [d4:d0]=device_sign)
+; device_sign={ 0=ide_master, 10h=ide_slave, 1=SDCARD }
+;  INP: a=partition_N
+;       h=device index ( 3=ide_master, 4=ide_slave, 5=SDCARD )
+;  OUT: a=partition_hash
+;
+	rrca
+	rrca
+	rrca			; shift partition_N to [d6:d5]
+	ld	c,a
+	ld	a,h
+	sub	3
+	jr	z, _IFIDE1	; IDE_MASTER	
+	dec	a
+	ld	a, 10h	
+	jr	z, _IFIDE1	; IDE_SLAVE
+	ld	a, 1		; SDCARD
+_IFIDE1:or	c		
+;
+; TODO -search if this PARTITION_HASH allready mounted
+;      -if allready mounted -> just map drive letter   
+;        -else search free IDE slot (PARIDEx.BORDERx^.master/slave=0FFh)
+;         if free slot found -> register partition to this slot & map drive letter 
+;
+	ld	c, a
+	ld	hl, SEARCH_SLOT	; INP: c=hash, return A=0=found, B=ide slot index (0,1,2), saves C 
+	call	BCALL_1
+	or	a
+	jr	z, REGIDE
+	push	bc
+	ld	hl, SEARCH_FREE	; return Z=found, DE=PARIDEx, B=free ide slot index (0,1,2)
+	call	BCALL_1
+	or	a
+	pop	hl		; L=partition_hash
+	ld	c, l
+	ex	de, hl		; HL=PARIDEx
+	LD	DE, IDESLOT
+	jp	NZ, HLNOTFND
+	ex	de, hl		; DE=PARIDEx, C=partition_hash	
+	ld	hl, idereg	; Inp: DE=PARIDEx, 
+				;      B=free ide slot index (0,1,2), 
+				;      C=partition_hash (part & drv_sign)
+				;      A'=0 - do not call sd_init, A'=1 - sd_init for SD-cards 
+				; Out: A=0=ok, else error
+        push	bc
+	call	BCALL_1
+	pop	bc		; b=0,1 (ide slot index), C=partition_hash
+	or	a
+	jr	z, REGIDE	; ok - register device in drive table
+	ld	de, CPMSTR
+	cp	partcpm
+	jr	z, toNFND
+	ld	de, DPBSTR
+	cp	66h
+	jr	z, toNFND
+	ld	de, ALVSTR
+	or	1Fh		; 0Exh or 1Fh = 0FFh
+	inc	a
+toNFND:	jp	z, HLNOTFND
+	call	PRNDEVNAME	; print device alias
+	ld	de, NOTFOUND
+	jp	string		; do not register drive if access error
+;
+REGIDE: inc	b
+	inc	b
+	inc	b
+REGI0:	ex	af,af'
+	or	a		; Z=call from BIOS1, NZ=call from CCP1
+	LD      A,(FCB1)
+	jr	z, REGI1
+	dec	a
+	ld	hl,ACTDSK
+	cp	(hl)
+	jr	nz, REGI1
+	ld	hl, RES_ND
+	push	hl
+;
+; п/п регистрации дискового привода в системе.
+; вход: A = номер регистрируемого логическ. привода (0..15)
+;       B = номер ставимого ему в соответ. физич. привода
+; в таблицу лог. дисков записывается номер физич. привода
+;
+; -if NONE (0FFh=unmount) free IDE slot (PARIDEx.BORDERx^.master/slave:=0FFh)
+;       for device 5(SDCARD) do powerdown 
+;
+REGI1:  LD      E,A
+	LD      D,0
+	LD      HL,DRVTAB
+	push	hl
+	ADD     HL,DE
+	ld	a, (hl)
+	ld	(hl), b
+	inc	b		; test for B=0FFh (device=NONE)
+	pop	hl
+	jp	nz, resdsk	; if mount (not unmount) - reset mounted disk and exit
+	push	af
+	ld	b, 15
+REGI8:  ld	a, (hl)
+	inc	a
+	jr	nz, regi10	; a<>0FFh 
+	inc	d		; warmdisk value
+	inc	hl
+	djnz	regi8
+regi10: ld	hl, MOD_REG_DISKS
+        call	BCALL_1		; correct REG_DISKS & VECT_RO. Inp: E: unmounting disk N, D: new WARMDISK
+	pop	af
+	sub	3
+	ret	c		; if unmount fdd, vdisk - do nothing
+	ld	b, a
+	ld	hl, RELEASE_SLOT ; INP: B=ide slot index (0,1,...)
+				 ; OUT: c=partition hash
+				 ; saves B
+	call	BCALL_1		; if unmount ide, sd
+	bit	0,c
+	ret	z		; if not SD-card
+;
+; here search DRVTAB for any SD-card entries, and do SD powerdown if not found
+;
+	ld	b, 16
+	ld	hl,DRVTAB
+regi11: ld	a, (hl)	
+	inc	a
+	jr	z, regi12	; if NONE
+	sub	4
+	jr	c, regi12	; if FDD or VDISK
+	push	hl
+	ld	b, a
+	ld	hl, SEARCH_HASH	; INP: B=ide slot index (0,1,2)
+	call	BCALL_1		; OUT: C=(HL)=partition_hash (part & drv),  saves B
+	pop	hl
+	bit	0,c		; bit D0=1 if SDC or SDHC
+	ret	nz		; if found - not last entry -> no powerdown
+regi12: inc	hl
+	djnz	regi11
+	ld	hl, SD_POWER_DOWN
+	jp	BCALL_1
+;
+; Inp.  A=0 list all drive letters, A=1..16 list specified drive letter
+;
+LISTMNT:push	af
+	ld	c, DSKREG
+	ld	de,DMAMEM 
+	call	XBDOS		; get drive letters array to DMAMEM=80h
+	ex	de,hl		; hl=dmamem
+	pop	af
+	ld	b, 10h
+	or	a
+	jr	z, LSTALL
+	dec	a
+	ld	b, 1
+	add	a, l
+	ld	l, a		; h=0 -> hl=hl+a
+lstall: push	bc
+	ld	a, 'A' - LOW DMAMEM
+	add	a, l
+	call	conouta		; saves hl
+	ld	a, ':'
+	call	conouta
+;
+; Find device name by index in reg. C.  
+; Return DE=device name if found, or DE=STNONE if not found
+;
+fnddev: ld	bc, DEVICES
+fnddev1:ld	a, (hl)
+	inc	a
+	jr	z, fnddev2	; if 0FFh
+	ld	de, DRIVR
+	inc	a
+	jr	z, fnddevv	; if 0FEh
+	cp	8
+	jr	nc, fnddev2	; if ROM
+	sub	5
+	jr	nc, fnddev5	; if 3,4,5,...
+fnddev2:ld	a, (bc)
+	or	a
+	ld	de, STNONE+1
+	jr	z, fnddev3
+	inc	bc
+ 	ld	e, c
+	ld	d, b		; de=bc=device name
+	inc	bc
+fnddev3:inc	bc
+	dec	a
+	jr	nz, fnddev3	; bc=bc+a
+	ld	a, (bc)
+	inc	bc
+	cp	(hl)
+	jr	nz, fnddev1
+fnddevv:
+	call	string
+fnddev4:ld	a, (ACTDSK)
+	add	a, LOW DMAMEM
+	cp	l
+	LD      DE, MSG_EXCL
+	CALL    z, STRING
+	CALL	CRLF
+	inc	hl
+	pop	bc
+	djnz	lstall
+	ret 
+;
+fnddev5:push	hl
+	ld	b, a
+	ld	hl, SEARCH_HASH	; INP: B=ide slot index (0,1,2), OUT: C=partition_hash (part & drv)
+	call	BCALL_1
+	call	PRNDEVNAME	; INP: C=partition_hash (part & drv)
+	pop	hl
+	jr	fnddev4
+;
+;  ПРОДОЛЖЕНИЕ ССР - ПОДПРОГРАММЫ.
+;
+MOVEVAR:INC     HL
+	PUSH    BC
+	CALL    GETNUM
+	PUSH    AF
+	LD      A,(HL)
+	EX      AF,AF'
+	DEC     HL
+	POP     AF
+	LD      A,B
+	POP     BC
+	RET     C
+	EX      AF,AF'
+	OR      A
+	JR      Z,NODEC
+	DEC     HL
+NODEC:  LD      IY,COPYBUF+100H
+	LD      A,(IY)
+	OR      A
+	RET     Z
+MVAR1:  INC     IY
+	LD      A,(IY)
+	OR      A
+	RET     Z
+	CP      ' '+1
+	JR      C,MVAR1
+	EX      AF,AF'
+	DEC     A
+	JR      Z,MVAR2
+	EX      AF,AF'
+MVAR3:  INC     IY
+	LD      A,(IY)
+	OR      A
+	RET     Z
+	CP      ' '+1
+	JR      C,MVAR1
+	JR      MVAR3
+MVAR2:  LD      A,(IY)
+	LD      (DE),A
+	CP      ' '+1
+	JR      C,EXMVAR
+	INC     IY
+	INC     DE
+	DJNZ    MVAR2
+EXMVAR: INC     B
+	DEC     DE
+	RET
+;
+SETFLG: LD      D,A
+	LD      A,1
+	LD      (ECHOFL),A
+	LD      A,D
+	RET
+;
+; П/П ДЛЯ PROCBAT
+;
+IFCRLF: INC     HL
+	DEC	BC
+	LD	A,B
+	OR	C
+	JR      Z,IFEOF
+	LD      A,(HL)
+	CALL    EOF
+	JR      Z,IFEOF
+	CALL    EOSTR
+	JR      Z,IFCRLF
+	JR      ABF78
+;
+; ОБРАБОТКА BAT-ФАЙЛА(4К) В БУФЕРЕ. HL-BUFFER IX-BUFER 128b
+;
+PROCBAT:PUSH    HL
+	LD      BC,0FFFH        ; ПОИСК РАЗДЕЛИТЕЛЕЙ С НА-
+ABF78:  LD      D,H
+	LD      E,L
+ABF7A:  LD      A,(HL)
+	CALL    EOF
+	JR      Z,IFEOF
+	CALL    EOSTR
+	JR      Z,IFCRLF
+	INC     HL
+	DEC	BC
+	LD	A,B
+	OR	C
+	JR	NZ,ABF7A
+IFEOF:  EX      DE,HL
+
+	POP     DE
+	LD      A,(DE)
+	CP      1AH
+	RET     Z
+	PUSH    DE
+	PUSH    HL
+	LD      B,80H
+	PUSH    IX
+	POP     DE
+	INC     DE
+	DEC     HL
+AUTO0:  INC     HL
+	LD      A,(HL)
+	CP      ' '
+	JR      Z,AUTO0
+	CP      ';'
+	JR      Z,COMMENT
+AUTO1:  INC     DE
+	LD      A,(HL)
+	LD      (DE),A
+	CALL    EOSTR
+	JR      Z,ISEOSTR
+	INC     HL
+	DJNZ    AUTO1
+ISEOSTR:LD      A,80H
+	LD      (IX),A          ;MAX STRING LENGTH
+	SUB     B
+	LD      (IX+1),A        ;STRING LENGTH
+	LD      C,33H           ;BDOSAPPEND
+	PUSH    IX
+	POP     DE
+	PUSH    DE
+	CALL    BDOS
+	POP     IX
+COMMENT:POP     HL
+	LD      (HL),1AH
+	POP     HL
+	JR      PROCBAT
+;
+EOSTR:  CP      10
+	RET     Z
+	CP      13
+	RET     Z
+EOF:    CP      1AH
+	RET     Z
+	OR      A
+	RET
+;
+ECHO:   LD      A,(HL)
+	AND     5Fh
+	CP      'O'             ;6
+	JR      NZ,ECHO2
+	INC     HL
+	LD      A,(HL)
+	AND     5Fh
+	CP      'N'             ;10
+	LD      HL,VALUE
+	RES     2,(HL)
+	RET     NZ
+	SET     2,(HL)
+	RET                     ;16
+ECHO3:  INC     HL
+ECHO2:  LD      A,(HL)
+	CALL    EOSTR
+	RET     Z
+	CP      34              ; '
+	JR      Z,WRSTR
+	CP      39              ; "
+	JR      Z,WRSTR
+	CP      37              ; %
+	JR      Z,ISPARM
+	CP      ','
+	JR      Z,ECHO3
+	CALL    GETNUM
+	RET     C
+	LD      A,B
+	CALL    CONOUTA
+	JR      ECHO2
+ISPARM: LD      DE,COPYBUF+200H
+	PUSH    DE
+	CALL    MOVEVAR
+	POP     DE
+	PUSH    HL
+	LD      B,100
+	CALL    NZ,WRTOSP
+	POP     HL
+	JR      ECHO2
+WRSTR:  INC     HL
+	LD      A,(HL)
+	CALL    EOSTR
+	RET     Z
+	CP      34
+	JR      Z,ECHO3
+	CP      39
+	JR      Z,ECHO3
+	CALL    CONOUTA
+	JR      WRSTR
+;
+VOLCOMM:PUSH    DE
+VOL01:  LD      A,(HL)
+	INC     HL
+	CP      ' '
+	JR      Z,VOL01
+	CP      9
+	JR      Z,VOL01
+	LD      B,16
+VOL1:   CP      ' '+1
+	JR      C,VOL3
+	CP      '='
+	JR      Z,VOL3
+	LD      (DE),A
+	LD      A,(HL)
+	INC     HL
+	INC     DE
+	DJNZ    VOL1
+	JR      VOLRET
+VOL3:   EX      DE,HL
+VOL4:   LD      (HL),' '
+	INC     HL
+	DJNZ    VOL4
+	EX      DE,HL
+VOLRET: DEC     HL
+	POP     DE
+	RET
+
+WRTOSP: LD      A,(DE)
+	CP      ' '+1
+	RET     C
+	PUSH    DE
+	LD      E,A
+	CALL    OUTSYM
+	POP     DE
+	INC     DE
+	DJNZ    WRTOSP
+	RET
+
+USRNAME:PUSH    AF
+	LD      DE,FCB
+	LD      C,2BH
+	CALL    XBDOS
+	OR      A
+	POP     HL
+	LD      B,16
+	JR      Z,WRTOSP
+
+	LD      A,H
+	cp      0Ah
+	jr      c,WR_N_0
+	ld      A,'1'
+	call    CONOUTA
+	LD      A,H
+	sub     0Ah
+WR_N_0: add     a,'0'
+;	JP      CONOUTA
+;
+;LFCR:   LD      C,13
+;	CALL    CONOUT
+;	LD      A,10
+CONOUTA:PUSH    HL
+	LD      C,A
+	CALL    CONOUT
+	POP     HL
+	RET
+;
+K_ARR   EQU     BEGCCP-16
+
+NMUSR:  PUSH    HL
+	CALL    GETNUM
+	POP     HL
+	LD      E,B
+	JR      C,NMUSR1
+	CALL    SETUSR
+	XOR     A
+	RET
+NMUSR1: LD      DE,FCB
+	CALL    VOLCOMM
+	LD      C,2DH
+	jr	CBDOS
+;
+; INP: e=disk_N
+;
+resdsk:	
+;	LD      C,14		; set disk
+;	CALL    BDOS
+resetdsk:
+	LD      C,13		; reset disk
+	CALL    BDOS
+	ld      a,(ACTDSK)
+	ld      e,a
+	ld      c,14		; set disk
+	jr	CBDOS
+;
+; Change subdirectory
+USER:   JR      C,LISTUSR
+;	INC     DE
+;	LD      A,(DE)
+;	CP      '?'
+;	JR      Z,LISTUSR
+;	CP      ' '+1
+USER0:  CALL    NMUSR
+	OR      A
+	JR      NZ,LISTUSR
+	LD      A,(HL)
+	CP      '='
+	RET     NZ
+	INC     HL
+	LD      DE,FCB
+	CALL    VOLCOMM
+	LD      C,2CH
+CBDOS:	JP      XBDOS
+LISTUSR:
+	LD      E,0FFH
+	CALL    SETUSR
+	PUSH    AF
+	LD      (LUSTACK),SP
+	LD      E,0
+	CALL    SETUSR
+	LD      C,2BH
+	LD      DE,FCB+16
+	CALL    BDOS            ; FCB+16 - 16б ВЛОЖЕННОСТЬ
+	OR      A
+	JR      NZ,EXLSTUS
+	LD      C,'\'
+	CALL    CONOUT
+	LD      A,15
+	LD      (USRCNT),A
+	XOR     A
+	LD      (LEV),A
+	LD      (CURRENT),A
+LSTUS1: LD      A,(CURRENT)
+	CALL    FIRSTCHILD      ; ZERO-НАЙДЕН, NONZERO-НЕТ
+LSTUS2: JR      NZ,NOTFIND
+	LD      B,A
+	LD      A,(CURRENT)
+	PUSH    AF
+	LD      A,B
+	LD      (CURRENT),A
+	PUSH    AF
+	LD      E,A
+	CALL    SETUSR
+	CALL    CRLF		; LFCR
+	LD      HL,LEV
+	INC     (HL)
+	LD      A,(HL)
+	CALL    TAB
+	POP     AF
+	CALL    USRNAME
+	LD      HL,USRCNT
+	DEC     (HL)
+	JR      Z,EXLSTUS
+	JR      LSTUS1
+NOTFIND:LD      HL,LEV
+	LD      A,(HL)
+	OR      A
+	JR      Z,EXLSTUS
+	DEC     (HL)
+	POP     AF
+	LD      (CURRENT),A
+	CALL    NEXTCHILD
+	JR      LSTUS2
+EXLSTUS:LD      SP,(LUSTACK)
+	POP     AF
+	LD      E,A
+SETUSR: ld      c,32
+	JR      CBDOS
+;
+TAB:    RLCA
+	LD      B,A
+	LD      C,' '
+TAB1:   PUSH    BC
+	CALL    CONOUT
+	POP     BC
+	DJNZ    TAB1
+	RET
+;
+; Color ON/OFF
+COLOR:  CALL    GETNUM
+	LD      DE,COLBYTE
+	JR      C,MONOCHR
+	LD      A,(DE)
+	AND     0F0H
+	OR      B
+	LD      (DE),A
+	CALL    GETNUM          ; НЕ ПОРТИТ DE
+	JR      C,SETCLR
+	LD      A,B
+	RLCA
+	RLCA
+	RLCA
+	RLCA
+	LD      B,A
+	LD      A,(DE)
+	AND     0FH
+	OR      B
+	LD      (DE),A
+SETCLR: LD      DE,COLBYTE
+	LD      A,(DE)
+	OR      A
+	JR      Z,MONOCHR
+	LD      (CON+5),A
+	ld      HL,CON
+	LD      B,8
+WRSTRNG:LD      A,(HL)
+	CALL    CONOUTA
+	INC     HL
+	DJNZ    WRSTRNG
+	RET
+MONOCHR:XOR     A
+	LD      (DE),A
+	ld      de,COFF
+;
+PRINT:  JP	STRING
+;	LD      A,(DE)
+;	CP      '$'
+;	RET     Z
+;	PUSH    DE
+;	LD      C,A
+;	CALL    CONOUT
+;	POP     DE
+;	INC     DE
+;	JR      PRINT
+;
+; Prompt ON/OFF
+PROMPT: LD      A,(HL)
+	INC     HL
+	LD      B,(HL)
+	LD      HL,VALUE        ;*
+	AND     5Fh
+	CP      'O'             ;6
+	JR      NZ,SVALUE2
+	LD      A,B
+	AND     5Fh
+	CP      'N'             ;10
+	RES     1,(HL)
+	RET     NZ
+SVALUE2:ld      a,2             ;*
+SVALUE: xor     (hl)
+	ld      (hl),a
+	ret
+;
+; Set Width 6/8
+WIDTH:  CALL    GETNUM
+	LD      HL,VALUE
+	JR      C,NOPARM
+	LD      A,B
+	CP      6
+	JR      Z,SETW6
+SETW8:  SET     0,(HL)
+	LD      DE,SET8W
+	JR      PRINT
+NOPARM: BIT     0,(HL)
+	JR      Z,SETW8
+SETW6:  RES     0,(HL)
+	LD      DE,SET6W
+	JR      PRINT
+;
+CLS:    LD      C,0CH
+	JP      TDA0C
+;
+; ПОЛУЧИТЬ ЧИСЛО ИЗ СТРОКИ.
+; ВЫХОД : В = ЗНАЧЕНИЕ (0..255)
+;         CY = TRUE(C) - ОШИБКА, CY = FALSE(NC) - НОРМАЛЬНО
+;  saves DE
+;
+GETNUM: LD      A,(HL)
+	INC	HL
+	CALL    EOSTR
+	SCF
+	RET	Z
+	CP      ' '+1
+	JR      C,GETNUM        ; анализ на пустую строку
+	CP      '0'     ; анализ ввода кол-ва блоков
+	RET     C
+	CP      '9'+1
+	CCF
+	RET     C
+;
+AC90E:  SUB     '0'
+	LD	B,A
+	LD	A,(HL)
+	OR      A
+	RET     Z
+	INC     HL
+	CP      '0'
+	CCF
+	RET     NC      ; ВОЗВРАТ ЕСЛИ <'0'
+	CP      '9'+1
+	JR      C,CONTIN ; ПЕРЕХОД ЕСЛИ <'9'+1
+	CP      '@'
+	CCF
+	RET
+CONTIN: LD      C,A
+	LD	A,B
+	ADD	A,A
+	ADD     A,A     ; A=A*4
+	ADD     A,B
+	ADD     A,A     ; A=A*10
+	ADD	A,C
+	JR	AC90E
+;
+NOFILES: DEFB   'No file(s)$'
+SPACE:   DEFB   '   $'
+STBAT:	 DEFB	'BAT'
+DRIVR:   DEFB   'Driver$'
+NOTFOUND:DEFB   ' not found'
+MSG_CRLF:DEFB	13,10,'$'
+MSG_EXCL:DEFB	9,'<-$'
+CCRLF:   DEFB   13,10,9,9,9,'$'
+FILE:    DEFB   'File$'
+ALREADY: DEFB   ' already exists$'
+CONFIRM: DEFB   'Sure(y/n)? $'
+UPSTR:  DEFB    'Name',9,'Address',9,' Size',9
+	DEFB    'Hooked vectors$'
+TOTAL:  DEFB    9,'Total','$'
+FREE:   DEFB    'Free','$'
+MEMORY: DEFB    ' memory:','$'
+SIZE:   DEFB    ' size:','$'
+USRMSG: DEFB    ':\$'
+VOL_MSG:DEFB    'Volume: $'
+NO_LAB: DEFB    'No volume label$'
+VER_TXT:DEFB    'Altair DOS v3.5r'
+CRLF_MSG:DEFB   13,10,'$'
+BADCOMM:DEFB	'Bad command$'
+IDESLOT:DEFB	'HDD slot$'
+ALVSTR: DEFB	'ALV$'
+CPMSTR: DEFB	'CP/M$'
+DPBSTR: DEFB	'DPB$'
+COFF:   DEFB	27,'C',0,'$'
+CON:    DEFB	27,'C',3,27,'P',7Fh,27,'B'
+SET6W:  DEFB	27,'Q',6,'$'
+SET8W:  DEFB	27,'Q',8,'$'
+;
+COMMTABL:
+	DEFB    17              ; кол-во команд
+	DEFB    'DIR '          ; 1
+	DEFW    DIR
+	DEFB    'TYPE '         ; 2
+	DEFW    TYPE
+	DEFB    'ERA '          ; 3
+	DEFW    ERA
+	DEFB    'REN '          ; 4
+	DEFW    REN
+	DEFB    'USER '         ; 5
+	DEFW    USER
+	DEFB    'INSERT '       ; 6
+	DEFW    INSERT
+	DEFB    'VER '          ; 7
+	DEFW    VER
+	DEFB    'VOL '          ; 8
+	DEFW    VOL
+	DEFB    'MEM '          ; 9
+	DEFW    MEM
+	DEFB    'KILL '         ; 10
+	DEFW    KILL
+	DEFB    'CLS '          ; 11
+	DEFW    CLS
+	DEFB    'PROMPT '       ; 12
+	DEFW    PROMPT
+	DEFB    'WIDTH '        ; 13
+	DEFW    WIDTH
+	DEFB    'COLOR '        ; 14
+	DEFW    COLOR
+ECHOSTR:DEFB    'ECHO '         ; 15
+	DEFW    EECHO
+;	DEFB    'SAVE '         ; 16
+;	DEFW    SAVE
+	DEFB    'MNT '          ; 16
+	DEFW    MNT
+	DEFB    '? '            ; 17
+	DEFW    HELP
+;
+LEADF:  DB      0
+RGHL1:  DW      0
+COLCNT: DB      0
+COLMAX: DB      4
+ECHOFL: DB      0
+ISECHO: DB      0
+REPLNUM:DB      0
+TMPBUF:
+LUSTACK:DW      0
+USRCNT: DB      0
+LEV:    DB      0
+CURRENT:DB      0
+;
+FLSIZ	 equ	HIGH SKIPCOM	; size of (loadable area + 100h) in 256b blocks
+;
+COMFILE:LD      HL,FCB+11
+        LD      (HL),'M'
+        DEC     HL
+        LD      (HL),'O'
+        DEC     HL
+        LD      (HL),'C'
+
+SKIPCOM:LD      DE,FCB
+        LD      C,0FH
+        CALL    BDOS
+        INC     A
+        JP      Z,NOTF_REP
+; открыть файл по имени из FCB, если ошибка открытия, то
+; переход на NOTF_REP
+
+	LD      HL,TPA
+        LD      BC, FLSIZ+FLSIZ-2	; size of loadable area in 128b blocks
+	ld	sp, STCKCCP
+	LD      DE,TDA03
+STCKCCP:PUSH    DE		; return address (WARM sTART)
+        LD      DE,FCB
+	CALL    FREAD		; загрузка файла, reg.B счетчик длины
+        Jr      Z,NOSP_REP
+;
+AC6CD:  LD      HL,(TMPBUF)
+        CALL    MKSYSLN
+        LD      DE,TPA		; COM-file start address
+        PUSH    DE
+
+        LD      A,(ACTDSK)
+SETDMADSK:
+        LD      E,A             ; взять акт. диск в reg.E
+        LD      C,14
+        CALL    BDOS            ; выбрать диск через BDOS
+        LD      DE,DMAMEM
+        LD      C,1AH
+        Jr      xBDOS            ; уст. DMA
+;
+;POPNOSP:POP     AF
+NOSP_REP:
+        LD      DE,NOSPACE
+        JR      STRING
+;
+LINE:   LD      B,59
+LINE1:  LD      E,'-'		; 132
+        CALL    OUTSYM
+        DJNZ    LINE1
+
+CRLF:   LD      DE,CRLF_MSG
+STRING: PUSH    BC
+        LD      C,9
+        JR      XBDOS1
+;
+XBDOS:  PUSH    BC
+XBDOS1: PUSH    DE
+	push	hl
+        CALL    BDOS
+	pop	hl
+        POP     DE
+        POP     BC
+        RET
+;
+; ЧИТАЕМ ФАЙЛ , ОПИСАТЕЛЬ КОТОРОГО ЗАДАН В (DE), РАЗМЕЩАЯ
+; ЕГО В ОЗУ , НАЧИНАЯ С АДРЕСА , ЗАДАННОГО В HL , ПОКА НЕ
+; КОНЕЦ ФАЙЛА ИЛИ ПОКА НЕ КОНЧИТСЯ СЧЕТЧИК  ВС.
+;
+FREAD:  PUSH    HL
+	PUSH	BC
+	PUSH	DE
+	EX      DE,HL
+	LD      C,1AH
+	CALL    BDOS            ; УСТ. ПДП
+	POP	DE
+	LD      C,14H
+	CALL    XBDOS		; ПОСЛЕД. ЧТЕНИЕ
+	OR	A
+	POP	BC
+	POP	HL
+	RET     NZ              ; ВОЗВРАТ, ЕСЛИ КОНЕЦ ФАЙЛА
+	PUSH	DE
+	LD      DE,80H
+	ADD	HL,DE
+	DEC	BC
+	POP	DE
+	LD	A,C
+	OR	B
+	JR      NZ,FREAD
+	RET                     ; ВОЗВРАТ, ЕСЛИ
+				; КОНЕЦ СЧЕТЧИКА ВС
+;
+ISEQSP:	CP      ' '+1
+	JR      C,ISEQSP1
+	CP      '='
+	ret
+ISEQSP1:xor	a
+	ret
+;
+MKSYSLN:LD      A,(HL)
+	INC     HL
+	CP      ' '+1
+	JR      NC,MKSYSLN
+	DEC	HL
+; HL указывает на пробел или 0 в буфере (после FileName)
+	PUSH    HL
+	LD      DE,SYSLINE+1
+	LD      BC,0FFH
+AC686:	LD	A,(HL)
+	LDI
+	CALL    EOSTR
+	JR	Z,AC68F
+	INC	B
+	JR	AC686
+;
+AC68F:	LD	A,B
+	LD      (SYSLINE),A
+; сформирована SYSLINE с адреса 80h
+	POP     HL
+
+	LD      DE,FCB1
+	CALL    MAKEFCB ; CY = 1 - нет файла
+	LD      DE,FCB1+1
+	PUSH	HL
+	CALL    CLR_FCB
+	POP     HL
+; сформирован FCB1 с адреса 5Ch
+
+	LD      DE,FCB2
+	CALL    MAKEFCB ; CY = 1 - нет файла
+	LD      DE,FCB2+1
+; сформировать FCB2 с адреса 6Ch
+;
+; Если CY=1, то заполнить память начиная с адреса в DE,
+; 8+3 пробелами (FileName)
+; Заполнить память после FileName 5 нулями.
+CLR_FCB:PUSH    DE
+	LD      A,' '
+	LD      B,11
+	CALL    C,LOOP_DE
+	POP	DE
+	LD      HL,11
+	ADD	HL,DE
+	EX      DE,HL
+	LD      A,0
+	LD      B,5
+	Jr      LOOP_DE
+;
+; hl - строка в буфере
+; de - fcb
+MAKEFCB:PUSH    BC
+	PUSH	AF
+MF_0:   XOR     A               ; записать 0 по DE (в FCB)
+	LD	(DE),A
+	LD      A,(HL)          ; взять байт из буфера
+	LD      (TMPBUF),HL     ; запомнить адрес по буферу
+	OR      A
+	JR      Z,FILLFCB       ; строка кончилась - переход
+				; на FILLFCB
+	INC     HL              ; увеличить адрес по буферу
+	call	ISEQSP
+	JR      Z,MF_0
+; если код из буфера <21h или '=', то цикл на MF_0
+
+	LD      A,(HL)          ; взять след. байт с буфера
+	DEC     HL              ; уменьшить адрес по буферу
+	CP      ':'
+	JR      NZ,SKIP_SD
+; если next байт равен ':', то взять текущий байт мз буфера
+	LD      A,(HL)		; A=041h, a=061h
+	dec	a
+	AND     0FH
+	inc	a
+	LD      (DE),A
+; и занести в FCB как номер диска
+	INC	HL
+	INC	HL
+; пропустить номер диска и ':' в буфере
+
+SKIP_SD:LD      A,(HL)          ; взять байт из буфера
+	call	ISEQSP
+	JR      Z,FILLFCB
+; если код из буфера <21h или '=', то переход на FILLFCB
+
+	LD      BC,8FFh
+	INC	DE
+; переставить DE с номера диска на first байт имени файла
+MF_1:   LD      A,(HL)
+	CP      '*'
+	JR      Z,MF_4
+; Если *, то переход на MF_4
+	CP      '.'
+	JR      Z,MF_2
+; Если ., то забить остальную часть FCB_NAME пробелами
+	call	ISEQSP
+	JR      Z,MF_3
+; Если <21h или =, то забить остальную часть FCB_NAME,
+; включая данную позицию, пробелами
+
+	LDI
+; если байт не равен '*' '.' <21h '=' то занести его в FCB
+	DJNZ    MF_1
+; цикл в пределах 8 байт (имя файла)
+
+	LD      A,(HL)  ; взять след. байт с буфера
+	CP      '.'     ; если '.', то переход на обработку
+	JR      Z,MF_EXT; расширения
+
+; если имя файла длиной более 8 символов, то расширение в
+; FCB заполнить пробелами
+	LD      B,3
+	LD      A,' '
+	CALL    LOOP_DE
+
+MF_EXIT:POP     AF
+	POP	BC
+	OR      A               ; CY = 0
+	RET
+;
+XLOOP_DE:
+	LD      A,'?'
+; заполнить массив длиной reg.B, с адреса DE, кодом reg.A
+LOOP_DE:LD      (DE),A
+	INC     DE
+	DJNZ    LOOP_DE
+	RET
+;
+; заполнить имя и расширение файла в FCB символом '?', CY=1
+FILLFCB:LD      B,11
+	INC	DE
+	CALL    XLOOP_DE
+
+	POP     AF
+	POP     BC
+	SCF                     ; CY = 1
+	RET
+;
+MF_4:   CALL    XLOOP_DE        ; забить остаток FCB_NAME символом ?,
+	INC     HL
+	LD      B,3
+	LD	A,(HL)
+	call	ISEQSP
+	JR      Z,FILLQUE	; was: XFILLEXT ; also fill extension with '?' 
+; Если <21h или =, то заполнить расширение символом ' '
+; и перейти на MF_EXIT, иначе перейтм на MF_EXT
+	JR      MF_EXT
+;
+MF_3:   DEC     HL              ; цб77
+MF_2:   LD      A,' '
+	CALL    LOOP_DE
+
+; DE указывает на начало расширения в FCB
+MF_EXT: LD      BC,3FFH
+	INC	HL
+ACB81:	LD	A,(HL)
+	CP      '*'
+	JR      Z,FILLEXT
+; Если *, то заполнить расширение символом ? и перейти
+; на MF_EXIT, и INC HL (!)
+
+	call	ISEQSP
+	JR      Z,XFILLEXT
+; Если <21h или =, то заполнить расширение символом ' '
+; и перейти на MF_EXIT
+	LDI
+	DJNZ	ACB81
+; если байт не равен '*' <21h '=', то занести его в FCB
+	JR      MF_EXIT
+;
+FILLEXT:INC	HL		; fill the rest with '?'
+FILLQUE:CALL    XLOOP_DE
+	JR      MF_EXIT
+;
+XFILLEXT:			; fill the rest with ' '
+	LD      A,' '
+	CALL    LOOP_DE
+	JR      MF_EXIT
+;
+NOSPACE: DEFB   'No space$'
+;
+ENDCCP:
+
+

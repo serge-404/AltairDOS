@@ -1,0 +1,2045 @@
+SETTRK	EQU	@SELTRK
+SECTRN	EQU	@TRANSSEC
+SETSEC	EQU	@SELSEC
+
+; OVERFLOW
+DIV4:    OR     01        ;CY INTO A,CY=0
+         SBC    HL,BC     ;SUB DIVISOR
+         JP     DIV3
+;
+;   Routine to select the track and sector that the desired
+; block number falls in.
+;
+TRKSEC:	xor	a
+	ld	(BLKNMBRH),a			; ADDED 20160802 - bigfiles
+
+	LD	HL,(FILEPOS)	;get position of last accessed file
+	LD	C,2		;in directory and compute sector #.
+	CALL	SHIFTR		;sector #=file-position/4.
+	LD	(BLKNMBR),HL	;save this as the block number of interest.
+	LD	(CKSUMTBL),HL	;what's it doing here too?
+;
+; if the sector number has already been set (BLKNMBR), enter
+; at this point.
+;
+TRKSEC1:LD	HL,(BLKNMBR)
+	ld	de,(BLKNMBRH)
+	ld	d,0
+	ld	bc,(SECTORS)
+;
+;==================================================
+;DIVISION ROUTINE 32bit/16bit 39 bytes app1000usec
+;DEHL=INT(DE,HL/BC)      D15..E0.H15..L0 
+; BC=FRAC(DE,HL/BC)       32..17.16..1
+;DIV 4 BYTE DIVIDEND BY 2 BYTE DIVISOR HL SP DA / BC
+;
+DIV32B:	PUSH   DE		;SP=LOW WORD
+	LD     D,H
+	LD     A,L		;DA=HL
+	LD     HL,0000
+	LD     E,32		;LOOP COUNTER
+DIV1:	ADD    A,A		;HLSPDA/BC DIVIDEND LEFT
+	RL     D		;WITH CARRY
+	EX     (SP),HL
+	ADC    HL,HL
+	EX     (SP),HL
+	ADC    HL,HL
+	JP     C,DIV4
+	SBC    HL,BC		;SUB DIVISOR
+	JP     NC,DIV2		;OK IF HL>=BC
+	ADD    HL,BC		;ELSE RESTORE HL
+	DEC    A
+DIV2:	INC    A
+DIV3:	DEC    E		;DEC LOOP COUNTER
+	JP     NZ,DIV1
+	LD     E,A		;PUT QUOTIENT BYTE IN E
+	EX     (SP),HL		;	(SP)=FRACTION=SectorN ;  HL=HI(Result), DE=LOW(Result)
+;
+	LD	HL,(OFFSET)	;adjust for first track offset.
+	ADD	HL,DE
+	LD	B,H
+	LD	C,L
+	CALL	SETTRK		;select this track.
+	POP	BC		; BC=SectorN
+	LD	DE,(XLATE)	;translate this sector according to this table.
+	CALL	SECTRN		;let the bios translate it.
+	LD	C,L
+	LD	B,H
+	JP	SETSEC		;and select it.
+
+;
+;   Compute block number from record number (SAVNREC) and
+; extent number (SAVEXT).
+;
+GETBLOCK: LD	HL,BLKSHFT	;get logical to physical conversion.
+	LD	C,(HL)		;note that this is base 2 log of ratio.
+	LD	A,(SAVNREC)	;get record number.
+GETBLK1:OR	A		;compute (A)=(A)/2^BLKSHFT.
+	RRA	
+	DEC	C
+	JP	NZ,GETBLK1
+	LD	B,A		;save result in (B).
+	LD	A,8
+	SUB	(HL)
+	LD	C,A		;compute (C)=8-BLKSHFT.
+	LD	A,(SAVEXT)
+GETBLK2:DEC	C		;compute (A)=SAVEXT*2^(8-BLKSHFT).
+	JP	Z,GETBLK3
+	OR	A
+	RLA	
+	JP	GETBLK2
+GETBLK3:ADD	A,B
+	RET	
+;
+;   Routine to extract the (BC) block byte from the fcb pointed
+; to by (PARAMS). If this is a big-disk, then these are 16 bit
+; block numbers, else they are 8 bit numbers.
+; Number is returned in (HL).
+;
+EXTBLK:	LD	HL,(PARAMS)	;get fcb address.
+	LD	DE,16		;block numbers start 16 bytes into fcb.
+	ADD	HL,DE
+	ADD	HL,BC
+	LD	A,(BIGDISK)	;are we using a big-disk?
+	OR	A
+	JP	Z,EXTBLK1
+	LD	L,(HL)		;no, extract an 8 bit number from the fcb.
+	LD	H,0
+	RET	
+EXTBLK1:ADD	HL,BC		;yes, extract a 16 bit number.
+	LD	E,(HL)
+	INC	HL
+	LD	D,(HL)
+	EX	DE,HL		;return in (HL).
+	RET	
+;
+;   Compute block number.
+;
+COMBLK:	xor	a
+	LD	(BLKNMBRH),a	; filesystem block is 16 bit wide - bigfiles
+	CALL	GETBLOCK
+	LD	C,A
+	LD	B,0
+	CALL	EXTBLK
+	LD	(BLKNMBR),HL
+	RET	
+;
+;   Check for a zero block number (unused).
+;
+CHKBLK:	ld	a,(BLKNMBRH)	; bigfiles
+	LD	HL,(BLKNMBR)
+	or	l		;	LD	A,L		;is it zero?
+	OR	H
+	RET	
+;
+;   Adjust physical block (BLKNMBR) and convert to logical
+; sector (LOGSECT). This is the starting sector of this block.
+; The actual sector of interest is then added to this and the
+; resulting sector number is stored back in (BLKNMBR). This
+; will still have to be adjusted for the track number.
+;
+LOGICAL:LD	A,(BLKSHFT)	;get log2(physical/logical sectors).
+	ld	b,a
+	xor	a
+	LD	HL,(BLKNMBR)	;get physical sector desired.
+LOGICL1:ADD	HL,HL		;compute logical sector number.
+	ADC	A,A		;note logical sectors are 128 bytes long.
+	djNZ	LOGICL1
+	LD	(LOGSECT),HL	;save logical sector.
+	LD	(LOGSECTH),a	;			bigfiles
+	LD	(BLKNMBRH),a	;			bigfiles
+	LD	A,(BLKMASK)	;get block mask.
+	LD	C,A
+	LD	A,(SAVNREC)	;get next sector to access.
+	AND	C		;extract the relative position within physical block.
+	OR	L		;and add it too logical sector.
+	LD	L,A
+	LD	(BLKNMBR),HL	;and store.
+	RET	
+;
+;   Set (HL) to point to extent byte in fcb.
+;
+AFCB_EXT:
+SETEXT:	LD	HL,(PARAMS)
+	LD	DE,12		;it is the twelth byte.
+	ADD	HL,DE
+	RET	
+;
+;   Set (HL) to point to record count byte in fcb and (DE) to
+; next record number byte.
+;
+SETHLDE:LD	HL,(PARAMS)
+	LD	DE,15		;record count byte (#15).
+	ADD	HL,DE
+	EX	DE,HL
+	LD	HL,17		;next record number (#32).
+	ADD	HL,DE
+	RET	
+;
+;   Save current file data from fcb.
+;
+STRDATA:CALL	SETHLDE
+	LD	A,(HL)		;get and store record count byte.
+	LD	(SAVNREC),A
+	EX	DE,HL
+	LD	A,(HL)		;get and store next record number byte.
+	LD	(SAVNXT),A
+	CALL	SETEXT		;point to extent byte.
+	LD	A,(EXTMASK)	;get extent mask.
+	AND	(HL)
+	LD	(SAVEXT),A	;and save extent here.
+	RET	
+;
+;   Set the next record to access. If (MODE) is set to 2, then
+; the last record byte (SAVNREC) has the correct number to access.
+; For sequential access, (MODE) will be equal to 1.
+;
+SETNREC:CALL	SETHLDE
+	LD	A,(MODE)	;get sequential flag (=1).
+	CP	2		;a 2 indicates that no adder is needed.
+	JP	NZ,STNREC1
+	XOR	A		;clear adder (random access?).
+STNREC1:LD	C,A
+	LD	A,(SAVNREC)	;get last record number.
+	ADD	A,C		;increment record count.
+	LD	(HL),A		;and set fcb's next record byte.
+	EX	DE,HL
+	LD	A,(SAVNXT)	;get next record byte from storage.
+	LD	(HL),A		;and put this into fcb as number of records used.
+	RET	
+;
+;   Shift (HL) right (C) bits.
+;
+SHIFTR:	INC	C
+SHIFTR1:DEC	C
+	RET	Z
+	LD	A,H
+	OR	A
+	RRA	
+	LD	H,A
+	LD	A,L
+	RRA	
+	LD	L,A
+	JP	SHIFTR1
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+AD0F7:  LD      C,80H
+	LD      HL,(DIRBPT)
+	XOR     A
+AD0FD:  ADD     A,(HL)
+	INC	HL
+	DEC	C
+	JP      NZ,AD0FD
+	RET
+;
+AD104:	INC	C
+AD105:	DEC	C
+	RET	Z
+	ADD	HL,HL
+	JP	AD105
+;
+AD10B:	PUSH	BC
+	LD      A,(ACTDISK)
+	LD	C,A
+	LD      HL,1
+	CALL	AD104
+	POP	BC
+	LD	A,C
+	OR	L
+	LD	L,A
+	LD	A,B
+	OR	H
+	LD      H,A
+	RET
+;
+AD11E:  LD      HL,(VECT_RO)
+	LD      A,(ACTDISK)
+	LD	C,A
+	CALL    SHIFTR           ; - -
+	LD	A,L
+	AND     1
+	RET
+
+; Ф-ция 28/1Ch - записать ключ защиты диска
+F1C:    LD      HL,VECT_RO
+	LD	C,(HL)
+	INC	HL
+	LD	B,(HL)
+	CALL	AD10B
+	LD      (VECT_RO),HL
+	LD      HL,(DRM)
+	INC	HL
+	EX	DE,HL
+	LD      HL,(SYSW1)
+	LD	(HL),E
+	INC	HL
+	LD	(HL),D
+	RET
+;
+AD144:	CALL	AD15E
+AD147:  LD      DE,9
+	ADD	HL,DE
+	LD      A,(HL)
+	RLA
+	RET	NC
+	JP      P_FLRO
+;
+AD154:	CALL	AD11E
+	RET	Z
+	JP      P_DSKRO
+;
+AD15E:  LD      HL,(DIRBPT)
+	LD      A,(DD9E9)
+AD164:	ADD	A,L
+	LD	L,A
+	RET	NC
+	INC	H
+	RET
+;
+AD169:  LD      HL,(RG_DE)
+	LD      DE,14
+	ADD	HL,DE
+	LD	A,(HL)
+	RET
+;
+AD172:  CALL    AD169
+	LD      (HL),0
+	RET
+;
+AD178:	CALL	AD169
+	OR      80H
+	LD	(HL),A
+	RET
+;
+AD17F:  LD      HL,(FILEPOS)              ; - -
+	EX	DE,HL
+	LD      HL,(SYSW1)
+	LD	A,E
+	SUB	(HL)
+	INC	HL
+	LD	A,D
+	SBC	A,(HL)
+	RET
+;
+AD18C:  CALL    AD17F           ; - -
+	RET	C
+	INC	DE
+	LD	(HL),D
+	DEC	HL
+	LD	(HL),E
+	RET
+;
+AD195:  LD      A,E
+	SUB	L
+	LD	L,A
+	LD	A,D
+	SBC	A,H
+	LD	H,A
+	RET
+;
+AD19C:  LD      C,0FFH
+AD19E:  LD      HL,(CKSUMTBL)
+	EX	DE,HL
+	LD      HL,(CKS)
+	CALL    AD195           ; - -
+	RET	NC
+	PUSH	BC
+	CALL    AD0F7           ; - -
+	LD      HL,(CSVPT)
+	EX	DE,HL
+	LD      HL,(CKSUMTBL)
+	ADD	HL,DE
+	POP	BC
+	INC	C
+	JP      Z,AD1C4         ; - -
+	CP	(HL)
+	RET	Z
+	CALL    AD17F           ; - -
+	RET	NC
+	jp      F1C             ; - -
+;
+AD1C4:  LD      (HL),A          ; - -
+	RET
+;
+AD1C6:  CALL    AD19C           ; - -
+	CALL    SBDS_DMA        ; - -
+	LD      C,1
+	CALL    WRSEC
+	JP      SUSR_DMA
+;
+AD1D4:  CALL    SBDS_DMA        ; - -
+	CALL    RDSEC
+	push    hl
+	ld      hl,CNTREC
+	inc     (hl)
+	pop     hl
+SUSR_DMA:
+	LD      HL,DMA_ADR
+	JP      AD1E3
+;
+SBDS_DMA:
+	LD      HL,DIRBPT
+AD1E3:  LD      C,(HL)
+	INC     HL
+	LD	B,(HL)
+	JP      @SETDMA
+;
+AD1F5:  LD      HL,FILEPOS
+	LD	A,(HL)
+	INC	HL
+	CP	(HL)
+	RET	NZ
+	INC	A
+	RET
+;
+AD1FE:  LD      HL,0FFFFH
+	LD      (FILEPOS),HL
+	RET
+;
+AD205:  LD      HL,(DRM)	; catalog records count - 1
+	EX	DE,HL
+	LD      HL,(FILEPOS)	; current catalog record number
+	INC	HL
+	LD      (FILEPOS),HL
+	CALL    AD195           ; sub de, hl  (=de-hl)
+	JP      C,AD1FE         ; - -
+	LD      A,(FILEPOS)
+	AND     3
+	LD      B,5
+AD220:	ADD	A,A
+				;	DEC     B
+	djnz	AD220		;	JP      NZ,AD220
+	LD      (DD9E9),A	;	A:=A*32 
+	OR	A
+	RET	NZ		; if just offset in allready readed buffer
+	PUSH	BC
+	CALL    TRKSEC           ; - - sec track, set sector
+	CALL    AD1D4           ; - - READ TO DIRBUF, SET DMA=USER_DMA
+	POP	BC
+	JP      AD19E           ; - -
+;
+AD235:	LD	A,C
+	AND     7
+	INC	A
+	LD	E,A
+	LD	D,A
+	LD	A,C
+	RRCA
+	RRCA
+	RRCA
+	AND     1FH
+	LD	C,A
+	LD	A,B
+	ADD	A,A
+	ADD	A,A
+	ADD	A,A
+	ADD	A,A
+	ADD	A,A
+	OR	C
+	LD	C,A
+	LD	A,B
+	RRCA
+	RRCA
+	RRCA
+	AND     1FH
+	LD      B,A
+	LD      HL,(ADR_FAT)
+	ADD	HL,BC
+	LD	A,(HL)
+AD256:	RLCA
+	DEC	E
+	JP	NZ,AD256
+	RET
+;
+AD25C:	PUSH	DE
+	CALL	AD235
+	AND     0FEH
+	POP	BC
+	OR	C
+AD264:	RRCA
+	DEC	D
+	JP	NZ,AD264
+	LD	(HL),A
+	RET
+;
+AD26B:	CALL	AD15E
+	LD      DE,16
+	ADD	HL,DE
+	PUSH	BC
+	LD      C,17
+AD275:  POP     DE
+	DEC	C
+	RET	Z
+	PUSH	DE
+	LD      A,(DSM255)
+	OR	A
+	JP	Z,AD288
+	PUSH	BC
+	PUSH	HL
+	LD	C,(HL)
+	LD      B,0
+	JP	AD28E
+;
+AD288:	DEC	C
+	PUSH	BC
+	LD	C,(HL)
+	INC	HL
+	LD	B,(HL)
+	PUSH	HL
+AD28E:	LD	A,C
+	OR	B
+	JP	Z,AD29D
+	LD      HL,(DSM)
+	LD	A,L
+	SUB	C
+	LD	A,H
+	SBC	A,B
+	CALL    NC,AD25C
+AD29D:	POP	HL
+	INC	HL
+	POP	BC
+	JP	AD275
+;
+AD2A3:  LD      HL,(DSM)
+	LD      C,3
+	CALL    SHIFTR           ; - -
+	INC	HL
+	LD	B,H
+	LD	C,L
+	LD      HL,(ADR_FAT)
+AD2B1:  LD      (HL),0
+	INC	HL
+	DEC	BC
+	LD	A,B
+	OR	C
+	JP	NZ,AD2B1
+	LD      HL,(AL0)
+	EX	DE,HL
+	LD      HL,(ADR_FAT)
+	LD	(HL),E
+	INC	HL
+	LD	(HL),D
+	CALL    HOME
+	LD      HL,(SYSW1)
+	LD      (HL),3
+	INC	HL
+	LD      (HL),0
+	CALL    AD1FE           ; - -
+AD2D2:	LD	C,0FFH
+	CALL    AD205
+	CALL	AD1F5
+	RET	Z
+	CALL	AD15E
+	LD	A,0E5H
+	CP	(HL)
+	JP	Z,AD2D2
+	LD      A,(ACTUSER)
+	CP	(HL)
+	JP	NZ,AD2F6
+	INC	HL
+	LD	A,(HL)
+	SUB     24H
+	JP	NZ,AD2F6
+	DEC	A
+	LD      (EXITRG_A),A
+AD2F6:  LD      C,1
+	CALL	AD26B
+	CALL    AD18C           ; - -
+	JP	AD2D2
+;
+AD301:  LD      A,(DD9D4)
+	JP      SETEXITRG_A
+;
+AD307:	PUSH	BC
+	PUSH	AF
+	LD      A,(EXM)
+	CPL
+	LD	B,A
+	LD	A,C
+	AND	B
+	LD	C,A
+	POP     AF
+	AND	B
+	SUB	C
+	AND     1FH
+	POP	BC
+	RET
+
+; ИСКАТЬ на текущем (C=0) ИЛИ ПО D:FCB (C=0F) ОПИСАТЕЛЬ
+AD318:  LD      A,0FFH
+	ld      (CNTREC),a
+	LD      (DD9D4),A
+	LD      HL,FLAGSR
+	LD	(HL),C
+	LD      HL,(RG_DE)
+	LD      (SYSFCB),HL
+	CALL    AD1FE           ; - -
+	CALL    HOME            ; - -
+SR_NEXT:LD      C,0             ; SEARCH NEXT
+	CALL    AD205           ; - -
+	CALL    AD1F5
+	Jr      Z,SR_NOTF
+	LD      HL,(SYSFCB)
+	EX	DE,HL
+	LD	A,(DE)
+	CP	0E5H
+	Jr	Z,AD34A
+	PUSH	DE
+	CALL    AD17F           ; - -
+	POP	DE
+	Jr      NC,SR_NOTF
+AD34A:	CALL	AD15E
+	LD      A,(FLAGSR)
+	LD	C,A
+	LD      B,0
+AD353:	LD	A,C
+	OR	A
+	Jr      Z,AD383
+	LD	A,(DE)
+	CP      '?'
+	Jr	Z,AD37C
+	LD	A,B
+	CP      0DH
+	Jr	Z,AD37C
+	CP      0CH
+	LD	A,(DE)
+	Jr	Z,AD373
+	SUB	(HL)
+	AND     7FH
+	Jr      NZ,SR_NEXT
+	Jr	AD37C
+;
+AD373:	PUSH	BC
+	LD	C,(HL)
+	CALL	AD307
+	POP	BC
+	Jr      NZ,SR_NEXT
+AD37C:	INC	DE
+	INC	HL
+	INC	B
+	DEC	C
+	Jr	AD353
+;
+AD383:  LD      A,(FILEPOS)
+	AND     3
+	LD      (EXITRG_A),A
+	LD      HL,DD9D4
+	LD	A,(HL)
+	RLA
+	RET	NC
+	XOR	A
+	LD	(HL),A
+	RET
+;
+SR_NOTF:CALL    AD1FE           ; - -
+	LD	A,0FFH
+	JP      SETEXITRG_A
+;
+AD39C:	CALL	AD154
+	LD      C,0CH
+	CALL	AD318
+AD3A4:	CALL	AD1F5
+	RET	Z
+	CALL	AD144
+	CALL	AD15E
+	LD	(HL),0E5H
+	LD      C,0
+	CALL	AD26B
+	CALL	AD1C6
+	CALL    SR_NEXT
+	JP	AD3A4
+;
+AD3BE:	LD	D,B
+	LD	E,C
+AD3C0:	LD	A,C
+	OR	B
+	JP	Z,AD3D1
+	DEC	BC
+	PUSH	DE
+	PUSH	BC
+	CALL	AD235
+	RRA
+	JP	NC,AD3EC
+	POP	BC
+	POP	DE
+AD3D1:  LD      HL,(DSM)
+	LD	A,E
+	SUB	L
+	LD	A,D
+	SBC	A,H
+	JP	NC,AD3F4
+	INC	DE
+	PUSH	BC
+	PUSH	DE
+	LD	B,D
+	LD	C,E
+	CALL	AD235
+	RRA
+	JP	NC,AD3EC
+	POP	DE
+	POP	BC
+	JP	AD3C0
+;
+AD3EC:	RLA
+	INC	A
+	CALL	AD264
+	POP	HL
+	POP	DE
+	RET
+;
+AD3F4:	LD	A,C
+	OR	B
+	JP	NZ,AD3C0
+	LD      HL,0
+	RET
+;
+AD3FD:  LD      C,0
+	LD      E,20H
+AD401:	PUSH	DE
+	LD      B,0
+	LD      HL,(RG_DE)
+	ADD	HL,BC
+	EX	DE,HL
+	CALL	AD15E
+	POP	BC
+	CALL    COPY
+AD410:  CALL    TRKSEC           ; - -
+	JP	AD1C6
+;
+AD416:	CALL	AD154
+	LD      C,0CH
+	CALL	AD318
+	LD      HL,(RG_DE)
+	LD	A,(HL)
+	LD      DE,16
+	ADD	HL,DE
+	LD	(HL),A
+AD427:	CALL	AD1F5
+	RET	Z
+	CALL	AD144
+	LD      C,10H
+	LD      E,0CH
+	CALL	AD401
+	CALL    SR_NEXT
+	JP	AD427
+;
+AD43B:  LD      C,0CH
+	CALL	AD318
+AD440:	CALL	AD1F5
+	RET	Z
+	LD      C,0
+	LD      E,0CH
+	CALL	AD401
+	CALL    SR_NEXT
+	JP	AD440
+
+; OPEN FILE (D451)
+AD451:  LD      C,0FH
+	CALL	AD318
+	CALL	AD1F5
+	RET	Z
+AD45A:  CALL    AFCB_EXT
+	LD	A,(HL)
+	PUSH	AF
+	PUSH    HL
+	CALL	AD15E
+	EX	DE,HL
+	LD      HL,(RG_DE)
+	LD      C,20H
+	PUSH	DE
+	CALL    COPY
+	CALL	AD178
+	POP	DE
+	LD      HL,0CH
+	ADD	HL,DE
+	LD	C,(HL)
+	LD      HL,0FH
+	ADD	HL,DE
+	LD	B,(HL)
+	POP	HL
+	POP	AF
+	LD	(HL),A
+	LD	A,C
+	CP	(HL)
+	LD	A,B
+	JP	Z,AD48B
+	LD      A,0
+	JP	C,AD48B
+	LD      A,80H
+AD48B:  LD      HL,(RG_DE)
+	LD      DE,0FH
+	ADD	HL,DE
+	LD	(HL),A
+	RET
+;
+AD494:	LD	A,(HL)
+	INC	HL
+	OR	(HL)
+	DEC	HL
+	RET	NZ
+	LD	A,(DE)
+	LD	(HL),A
+	INC	DE
+	INC	HL
+	LD	A,(DE)
+	LD	(HL),A
+	DEC	DE
+	DEC	HL
+	RET
+
+; CLOSE FILE (D4A2)
+AD4A2:	XOR	A
+	LD      (EXITRG_A),A
+	ld	h,a		;	LD      (FILEPOS),A
+	ld	l,a		;	LD	(DD9EB),A
+	ld	(FILEPOS),hl
+	CALL	AD11E
+	RET	NZ
+	CALL	AD169
+	AND     80H
+	RET	NZ
+	LD      C,0FH
+	CALL	AD318
+	CALL	AD1F5
+	RET	Z
+	LD      BC,16
+	CALL	AD15E
+	ADD	HL,BC
+	EX	DE,HL
+	LD      HL,(RG_DE)
+	ADD	HL,BC
+	LD      C,10H
+AD4CD:  LD      A,(DSM255)
+	OR	A
+	JP	Z,AD4E8
+	LD	A,(HL)
+	OR	A
+	LD	A,(DE)
+	JP      NZ,AD4DB
+	LD	(HL),A
+AD4DB:  OR      A
+	JP      NZ,AD4E1
+	LD	A,(HL)
+	LD	(DE),A
+AD4E1:	CP	(HL)
+	JP	NZ,AD51F
+	JP      AD4FD
+;
+AD4E8:	CALL	AD494
+	EX	DE,HL
+	CALL	AD494
+	EX	DE,HL
+	LD	A,(DE)
+	CP	(HL)
+	JP	NZ,AD51F
+	INC	DE
+	INC	HL
+	LD	A,(DE)
+	CP	(HL)
+	JP	NZ,AD51F
+	DEC	C
+AD4FD:  INC     DE
+	INC	HL
+	DEC	C
+	JP	NZ,AD4CD
+	LD      BC,-20          ;0FFECH
+	ADD	HL,BC
+	EX	DE,HL
+	ADD	HL,BC
+	LD	A,(DE)
+	CP	(HL)
+	JP	C,AD517
+	LD	(HL),A
+	LD      BC,3
+	ADD	HL,BC
+	EX	DE,HL
+	ADD	HL,BC
+	LD	A,(HL)
+	LD	(DE),A
+AD517:	LD	A,0FFH
+	LD      (DD9D2),A
+	JP	AD410
+;
+AD51F:  LD      HL,EXITRG_A
+	DEC	(HL)
+	RET
+;
+AD524:	CALL	AD154
+	LD      HL,(RG_DE)
+	PUSH	HL
+	LD      HL,DD9AC
+	LD      (RG_DE),HL
+	LD      C,1
+	CALL	AD318
+	CALL	AD1F5
+	POP	HL
+	LD      (RG_DE),HL
+	RET	Z
+	EX	DE,HL
+	LD      HL,0FH
+	ADD	HL,DE
+	LD	C,011H
+	XOR	A
+AD546:	LD	(HL),A
+	INC	HL
+	DEC	C
+	JP	NZ,AD546
+	LD      HL,0DH
+	ADD	HL,DE
+	LD	(HL),A
+	CALL    AD18C           ; - -
+	CALL    AD3FD
+	JP	AD178
+;
+AD55A:	XOR	A
+	LD      (DD9D2),A
+	CALL	AD4A2
+	CALL	AD1F5
+	RET	Z
+	LD      HL,(RG_DE)
+	LD      BC,12
+	ADD	HL,BC
+	LD	A,(HL)
+	INC	A
+	AND     1FH
+	LD	(HL),A
+	JP	Z,AD583
+	LD	B,A
+	LD      A,(EXM)
+	AND	B
+	LD      HL,DD9D2
+	AND	(HL)
+	JP	Z,AD58E
+	JP	AD5AC
+;
+AD583:  LD      BC,2
+	ADD	HL,BC
+	INC	(HL)
+	LD	A,(HL)
+	AND     0FH
+	JP	Z,AD5B6
+AD58E:  LD      C,0FH
+	CALL	AD318
+	CALL	AD1F5
+	JP	NZ,AD5AC
+	LD      A,(DD9D3)
+	INC	A
+	JP	Z,AD5B6
+	CALL	AD524
+	CALL	AD1F5
+	JP	Z,AD5B6
+	JP	AD5AF
+;
+AD5AC:	CALL	AD45A
+AD5AF:	CALL	STRDATA
+	XOR	A
+	JP      SETEXITRG_A
+;
+AD5B6:  CALL    SETEXRGA_1
+	JP	AD178
+;
+F14READ:LD      A,1
+	LD      (MODE),A
+AD5C1:	LD	A,0FFH
+	LD      (DD9D3),A
+	CALL	STRDATA
+	LD      A,(SAVNREC)
+	LD      HL,SAVNXT
+	CP	(HL)
+	JP	C,AD5E6
+	CP      80H
+	JP	NZ,AD5FB
+	CALL	AD55A
+	XOR	A
+	LD      (SAVNREC),A
+	LD      A,(EXITRG_A)
+	OR	A
+	JP	NZ,AD5FB
+AD5E6:	CALL	COMBLK
+	CALL	CHKBLK
+	JP	Z,AD5FB
+	CALL	LOGICAL
+	CALL    TRKSEC1
+	LD      A,1
+	LD      (PDP),A
+	CALL    RDSEC   ; СКОРЕЕ ВСЕГО, ЭТОТ ВЫ-
+	JP      SETNREC   ; ЗОВ ТОЛЬКО ДЛЯ ЧТЕНИЯ
+			; ФАЙЛА В DMA ПОЛЬЗОВАТЕЛЯ
+;
+AD5FB:  JP      SETEXRGA_1
+;
+F15WRITE:LD     A,1
+	LD	(MODE),A
+AD603:  LD      A,0
+	LD      (DD9D3),A
+	CALL	AD154
+	LD      HL,(RG_DE)
+	CALL	AD147
+	CALL	STRDATA
+	LD      A,(SAVNREC)
+	CP      80H
+	JP      NC,SETEXRGA_1
+	CALL	COMBLK
+	CALL	CHKBLK
+	LD      C,0
+	JP	NZ,AD66E
+	CALL	GETBLOCK
+	LD      (DD9D7),A
+	LD      BC,0
+	OR	A
+	JP	Z,AD63B
+	LD	C,A
+	DEC	BC
+	CALL	EXTBLK
+	LD	B,H
+	LD	C,L
+AD63B:	CALL	AD3BE		; FNDSPACE	;find the next empty block nearest number (BC).
+	LD	A,L
+	OR	H
+	JP	NZ,AD648
+	LD      A,2
+	JP      SETEXITRG_A
+;
+AD648:  LD      (BLKNMBR),HL
+	EX	DE,HL
+	LD      HL,(RG_DE)
+	LD      BC,16
+	ADD	HL,BC
+	LD      A,(DSM255)
+	OR	A
+	LD      A,(DD9D7)
+	JP	Z,AD664
+	CALL    AD164		; ADDA2HL		;(HL)=(HL)+(A)
+	LD	(HL),E
+	JP	AD66C
+;
+AD664:	LD	C,A
+	LD      B,0
+	ADD	HL,BC
+	ADD	HL,BC
+	LD	(HL),E
+	INC	HL
+	LD	(HL),D
+AD66C:  LD      C,2
+AD66E:  LD      A,(EXITRG_A)
+	OR	A
+	RET	NZ
+	PUSH	BC
+	CALL	LOGICAL
+	LD      A,(MODE)
+	DEC	A
+	DEC	A
+	JP	NZ,AD6BB
+	POP	BC
+	PUSH	BC
+	LD	A,C
+	DEC	A
+	DEC	A
+	JP	NZ,AD6BB
+	PUSH	HL
+	LD      HL,(DIRBPT)
+	LD	D,A
+AD68C:	LD	(HL),A
+	INC	HL
+	INC	D
+	JP	P,AD68C
+	LD	a,(BLKNMBRH)	;	bigfiles
+	push	af		;	bigfiles
+	CALL    SBDS_DMA        ; - -
+	LD      HL,(LOGSECT)
+	LD      a,(LOGSECTH)	;	bigfiles
+	LD      C,2
+AD69A:  LD      (BLKNMBR),HL
+	ld	(BLKNMBRH),a	;	bigfiles
+	PUSH	BC
+	CALL    TRKSEC1
+	POP	BC
+	CALL    WRSEC
+	LD	HL,(BLKNMBR)
+	ld	bc,1
+	add	hl,bc		; INC	HL
+	LD	a,(BLKNMBRH)
+	adc	a,b		; 
+	LD	(BLKNMBRH),a
+	LD      C,0
+	LD      A,(BLM)
+	LD	B,A
+	AND	L
+	CP	B
+	LD	a,(BLKNMBRH)	;	bigfiles
+	JP	NZ,AD69A
+	pop	af		; 	bigfiles
+	POP	HL
+	LD      (BLKNMBR),HL
+	ld	(BLKNMBRH),a	;	bigfiles
+	CALL    SUSR_DMA
+AD6BB:  CALL    TRKSEC1
+	POP	BC
+	PUSH	BC
+; СКОРЕЕ ВСЕГО, ЭТОТ ВЫЗОВ ТОЛЬКО ДЛЯ ЗАПИСИ
+; ФАЙЛА ИЗ DMA ПОЛЬЗОВАТЕЛЯ
+	LD      A,1
+	LD      (PDP),A
+	CALL    WRSEC
+	POP	BC
+	LD	A,(SAVNREC)
+	LD      HL,SAVNXT
+	CP	(HL)
+	JP      C,AD6D2
+	LD	(HL),A
+	INC	(HL)
+	LD      C,2
+AD6D2: ; NOP
+       ; NOP
+       ; NOP
+       ; NOP
+       ; NOP
+	PUSH	AF
+	CALL	AD169
+	AND     7FH
+	LD	(HL),A
+	POP	AF
+	CP	07FH
+	JP	NZ,AD700
+	LD      A,(MODE)
+	CP	001H
+	JP	NZ,AD700
+	CALL	SETNREC
+	CALL	AD55A
+	LD      HL,EXITRG_A
+	LD	A,(HL)
+	OR	A
+	JP      NZ,AD6FE
+	DEC     A
+	LD	(SAVNREC),A
+AD6FE:  LD      (HL),0
+AD700:	JP	SETNREC
+;
+AD703:	XOR	A
+	LD	(MODE),A
+AD707:	PUSH	BC
+	LD      HL,(RG_DE)
+	EX	DE,HL
+	LD      HL,21H
+	ADD	HL,DE
+	LD	A,(HL)
+	AND     7FH
+	PUSH	AF
+	LD	A,(HL)
+	RLA
+	INC	HL
+	LD	A,(HL)
+	RLA
+	AND     1FH
+	LD	C,A
+	LD	A,(HL)
+	RRA
+	RRA
+	RRA
+	RRA
+	AND     0FH
+	LD	B,A
+	POP	AF
+	INC	HL
+	LD	L,(HL)
+	INC	L
+	DEC	L
+	LD      L,6
+	JP	NZ,AD78B
+	LD      HL,20H
+	ADD	HL,DE
+	LD	(HL),A
+	LD      HL,0CH
+	ADD     HL,DE
+	LD	A,C
+	SUB	(HL)
+	JP	NZ,AD747
+	LD      HL,0EH
+	ADD	HL,DE
+	LD	A,B
+	SUB	(HL)
+	AND     7FH
+	JP	Z,AD77F
+AD747:	PUSH	BC
+	PUSH	DE
+	CALL	AD4A2
+	POP	DE
+	POP	BC
+	LD      L,3
+	LD      A,(EXITRG_A)
+	INC	A
+	JP	Z,AD784
+	LD      HL,0CH
+	ADD	HL,DE
+	LD	(HL),C
+	LD      HL,0EH
+	ADD	HL,DE
+	LD	(HL),B
+	CALL	AD451
+	LD      A,(EXITRG_A)
+	INC	A
+	JP	NZ,AD77F
+	POP	BC
+	PUSH	BC
+	LD      L,4
+	INC	C
+	JP	Z,AD784
+	CALL	AD524
+	LD      L,5
+	LD      A,(EXITRG_A)
+	INC	A
+	JP	Z,AD784
+AD77F:	POP	BC
+	XOR	A
+	JP      SETEXITRG_A
+;
+AD784:	PUSH	HL
+	CALL	AD169
+	LD	(HL),0C0H
+	POP	HL
+AD78B:	POP	BC
+	LD	A,L
+	LD      (EXITRG_A),A
+	JP	AD178
+;
+AD793:  LD      C,0FFH
+	CALL	AD703
+	CALL	Z,AD5C1
+	RET
+;
+AD79C:  LD      C,0
+	CALL	AD703
+	CALL	Z,AD603
+	RET
+
+AD7A5:  EX      DE,HL   ; адрес FCB в DE
+	ADD	HL,DE
+	LD	C,(HL)
+	LD      B,0
+	LD      HL,12
+	ADD	HL,DE
+	LD	A,(HL)
+	RRCA
+	AND     80H
+	ADD	A,C
+	LD      C,A
+	LD      A,0
+	ADC	A,B
+	LD	B,A
+	LD	A,(HL)
+	RRCA
+	AND     0FH
+	ADD	A,B
+	LD	B,A
+	LD      HL,14
+	ADD	HL,DE
+	LD	A,(HL)
+	ADD	A,A
+	ADD	A,A
+	ADD	A,A
+	ADD	A,A
+	PUSH	AF
+	ADD	A,B
+	LD	B,A
+	PUSH	AF
+	POP	HL
+	LD	A,L
+	POP	HL
+	OR      L
+	AND     1
+	RET
+;
+AD7D2:  LD      C,0CH
+	CALL	AD318
+	LD      HL,(RG_DE)
+	LD      DE,21H
+	ADD	HL,DE
+	PUSH	HL
+	LD	(HL),D
+	INC	HL
+	LD	(HL),D
+	INC	HL
+	LD	(HL),D
+AD7E4:	CALL	AD1F5
+	JP	Z,AD80C
+	CALL	AD15E
+	LD      DE,0FH
+	CALL	AD7A5
+	POP	HL
+	PUSH	HL
+	LD	E,A
+	LD	A,C
+	SUB	(HL)
+	INC	HL
+	LD	A,B
+	SBC	A,(HL)
+	INC	HL
+	LD	A,E
+	SBC     A,(HL)
+	JP	C,AD806
+	LD	(HL),E
+	DEC	HL
+	LD	(HL),B
+	DEC	HL
+	LD	(HL),C
+AD806:  CALL    SR_NEXT
+	JP	AD7E4
+;
+AD80C:	POP	HL
+	RET
+
+;
+; correct REG_DISKS & VECT_RO during unmount
+; Inp: E
+;
+MOD_REG_DISKS:
+resbit:	ld	b, 16
+	ld	a, e
+	ld	hl, WARMDISK
+	cp	(hl)
+	jr	nz, resbit0
+	ld	(hl), d	
+resbit0:sub	1
+	ccf
+	rr	d
+	rr	e
+	djnz	resbit0
+	ld	hl, REG_DISKS
+	call	resbit1
+	ld	hl, VECT_RO
+resbit1:ld	a, (hl)
+	and	e
+	ld	(hl), a
+	inc	hl
+	ld	a, (hl)
+	and	d
+	ld	(hl), a
+	ret
+
+
+; Ф-ция 36/24h - установить номер записи прямого доступа
+F24:    CALL    GETFCB
+	LD      HL,(RG_DE)      ; fcb
+	LD      DE,32
+	CALL    AD7A5           ; расчет указателей в FCB
+				; выход: BC - R1R0, A - R2
+	LD      HL,33
+	ADD	HL,DE
+	LD	(HL),C
+	INC	HL
+	LD	(HL),B
+	INC	HL
+	LD      (HL),A
+	CALL    @RET33		; @RET36
+	JP      RETFCB
+;
+; Ф-ция 12/0Ch - получение номера версии DOS
+FC:     LD      A,22H		; CP/M 2.2
+	EXX
+	LD      HL,0AB35H	; Altair (Best) DOS VERS. 3.5
+	EXX
+	JP      SETEXITRG_A
+;
+; Ф-ция 13/0Dh - сброс дисковой системы
+FD:     CALL    NEW_0
+	ld	a,c
+	LD      (ACTDISK),A
+	XOR	A
+	LD      H,A
+	LD      L,A
+	LD      (VECT_RO),HL
+	LD      (REG_DISKS),HL
+	LD      L,80H
+	LD      (DMA_ADR),HL
+	DEC     A
+	LD      (DATADSK),A
+	CALL    SUSR_DMA           ; SET DMA ADDRESS
+	jr	SELECT_D
+
+; Ф-ция 14/0Eh  - активизация диска
+FE:     LD      A,(RG_E)
+	LD      HL,ACTDISK
+	CP	(HL)
+	RET	Z
+	LD	(HL),A
+
+; выбор диска
+SELECT_D:
+	LD      HL,(REG_DISKS)
+	LD      A,(ACTDISK)
+	LD	C,A
+	CALL    SHIFTR           ; - -
+	PUSH	HL
+	EX	DE,HL
+	CALL    ACF59           ; ВЫБОР ДИСКА И НАСТРОЙКА
+	POP     HL              ; НА НЕГО
+	CALL    Z,P_SELD        ; Z=1 - SELDISK ERROR
+	LD	A,L
+	RRA
+	RET	C
+	LD      HL,(REG_DISKS)
+	LD	C,L
+	LD	B,H
+	CALL	AD10B
+	LD      (REG_DISKS),HL
+	CALL    AD2A3
+COPYDPH:PUSH    HL
+	PUSH    AF
+	LD      A,(WORKDISK)
+	LD      HL,TABDPAR-8
+	LD      DE,8
+	inc	a
+CDPH1:  ADD     HL,DE
+	DEC     A
+	JR      NZ,CDPH1
+	LD      B,4
+AL_DISK:LD      E,(HL)
+	INC     HL
+	LD      D,(HL)
+	INC     HL
+	PUSH    DE              ; push DPH_addr, copy_size, ALV_addr, copy_size
+	DJNZ    AL_DISK
+	LD      A, TPAPAGE	; destination bank
+	EX      AF,AF'
+	pop	bc		; count to copy
+	exx
+	pop	hl		; destination
+	push	hl
+	exx
+	pop	hl		; source
+	call	BLDIRF1		; set A to WORKPAGE
+	LD      A, TPAPAGE	; destination bank
+	EX      AF,AF'
+	pop	bc		; count to copy
+	exx
+	pop	hl		; destination
+	push	hl
+	exx
+	pop	hl		; source
+	call	BLDIRF1		; set A to WORKPAGE
+	POP     AF
+	POP     HL
+	RET
+
+TABDPAR:DW      DPH_A		; device_0=floppy0 
+	DW      40
+	DW      ALV_A
+	DW      61H
+	DW      DPH_B		; device_1=floppy1
+	DW      40
+	DW      ALV_B
+	DW      61H
+	DW      DPH_E		; device_2=vdisk
+	DW      31
+	DW      ALV_E
+	DW      20H
+	DW      DPH_C		; device_3=ide/sd_slot_0
+	DW      31
+	DW      ALV_C
+ALVC_SZ:DW      61H
+	DW      DPH_D		; device_4=ide/sd_slot_1
+	DW      31
+ALVD_AD:DW      ALV_D
+ALVD_SZ:DW      50H
+	DW      DPH_X		; device_5=ide/sd_slot_2
+	DW      31
+ALVX_AD:DW      ALV_X
+ALVX_SZ:DW      50H
+	DW	DPH_R		; device_6=ROM_disk
+	DW      31
+	DW	ALV_R
+	DW	3Bh
+;
+SETDSKUSR:
+	LD      A,0FFH
+	LD      (DISK_FN),A             ; флаг - диск.опер.
+	LD      HL,(RG_DE)
+	LD	A,(HL)
+	AND     1FH
+	DEC	A
+	LD      (RG_E),A
+	CP      1EH
+	JR	NC,AD874
+	LD      A,(ACTDISK)
+	LD      (ACT_DISK),A
+	LD	A,(HL)
+	LD      (FCB_DRIVE),A
+	AND	0E0H
+	LD	(HL),A
+	CALL    FE                      ; ВЫБОР ДИСКА
+AD874:  LD      A,(ACTUSER)
+	LD      HL,(RG_DE)              ; УСТАНОВКА В БАЙТЕ
+	OR      (HL)                    ; 0 FCB КОДА ЮЗЕРА
+	LD      (HL),A
+	RET
+;
+; получить пользoвательское FCB
+GETFCB: ex	de, hl
+	ld      (FCBADDR),hl    ; откуда
+	ld      de,MOVEBUF      ; временный буфер
+	push	de
+	ld      bc,36           ; сколько
+	call    MOVEADRB
+	pop	hl		; ld hl, MOVEBUF      ; из временного буфера
+	ld      de,NEWBUFF      ; переслать в NEWBUFF
+	ld      (RG_DE),de      ; подсунуть в RG_DE
+	PUSH    DE
+	ld      bc,36           ; сколько
+	ldir
+	POP     DE
+	ret
+
+; возвратить пользoвательское FCB
+RETFCB: push    bc
+	ld      bc,36
+	ld      hl,NEWBUFF      ; переслать FCB
+	ld      de,MOVEBUF      ; во временный буфер
+	push	de
+	ldir
+	ld      de,(FCBADDR)    ; в FCB пользователя
+	jr      XRETFCB
+
+; Возвратить DMA при вызове функций F11 и F12
+RET_DMA:CALL    COPYRGA
+	LD      HL,(DIRBPT)     ; из DIRBPT
+
+; возвратить пользoвательское DMA
+; точка входа для ф-ций F11, F12
+XRETDMA:ld      bc,128
+	push	bc
+	ld      de,MOVEBUF
+	push	de
+	ldir
+	ld      de,(DMA_ADR)    ; в пользовательское DMA
+XRETFCB:pop	hl		; ld hl, MOVEBUF      ; из временного буфера
+	pop	bc		; сколько
+MOVEADRB:
+	ld      a,(RG_B)
+MOVEADRSP:
+	ex	af, af'
+	ld	a, WORKPAGE	; page to return
+	ex	af, af'
+	push	hl
+	ld      hl,0FF0h
+	adc     hl,sp
+	pop	hl
+	jr	c,MODEAD1	; jr if SP>0F010h
+	ld	(MOVESPADR+1), sp
+	ld	sp, MOVESP
+	call    MOVEADR		; at 0F2xxh
+MOVESPADR:
+	ld	sp, MOVESP
+	xor	a
+	ret
+MODEAD1:
+	call    MOVEADR		; at 0F2xxh
+	xor	a
+	ret
+;
+; Ф-ция 15/OCh - открыть файл
+;
+FF:     CALL    GETFCB
+	PUSH    DE
+	LD      HL,NEWBUFF+7
+	RES     7,(HL)
+	EX      DE,HL           ; HL=NEWBUFF
+	LD      DE,NEWBUFF+40
+	LD      BC,33
+	LDIR
+	POP     DE
+	CALL    AD172
+	CALL    SETDSKUSR
+	CALL    AD451     ; SET CNTREC=0..XX, EXITRG_A=0..3
+	LD      A,(EXITRG_A)
+	CP      4
+	JR      C,@RET33
+	LD      HL,ACTUSER
+	LD      A,(PATHUSR)
+	CP      16
+	JR      NC,@RET33
+	CP      (HL)
+	JR      Z,@RET33
+	LD      A,(ACT_DISK)
+	LD      (ACTDISK),A
+	CALL    @STPHUS
+	LD      HL,NEWBUFF+40
+	LD      DE,NEWBUFF
+	LD      BC,33
+	LDIR
+	LD      DE,NEWBUFF
+	CALL    AD172
+	CALL    SETDSKUSR
+	CALL    AD451     ; SET CNTREC=0..XX, EXITRG_A=0..3
+	CALL    @STACUS
+	LD      A,(EXITRG_A)
+	CP      4
+	JR      NC,@RET33
+	LD      HL,NEWBUFF+7
+	SET     7,(HL)          ; ПРИЗНАК PATH-ФАЙЛА
+	JR      @RET33
+
+;
+; Ф-ция 33/21h - прямое чтение
+F21:    CALL    GETFCB
+	CALL    SETPATHUSR
+	CALL    SETDSKUSR
+	CALL    AD793
+	CALL    SETACTUSR
+	jr      @RET33		; @RET36
+
+; прямоя запись
+F22:    CALL    GETFCB
+	CALL    SETPATHUSR
+	CALL    SETDSKUSR
+	CALL    AD79C
+	CALL    SETACTUSR
+	Jr      @RET33		; @RET36
+;
+; Ф-ция 16/10h - закрыть файл
+F10:    CALL    GETFCB
+	CALL    SETPATHUSR
+	CALL    SETDSKUSR
+	CALL    AD4A2
+	CALL    COPYDPH
+	CALL    SETACTUSR
+@RET33:	LD      BC,33
+	JP      @RET
+
+; Ф-ция 17/11h - поиск первого
+F11:    CALL    GETFCB
+	LD      HL,NEWBUFF+7
+	RES     7,(HL)
+	LD      C,0
+	EX	DE,HL
+	LD	A,(HL)
+	CP      '?'
+	JR	Z,AD8C8
+	CALL    AFCB_EXT
+	LD	A,(HL)
+	CP      '?'
+	CALL    NZ,AD172
+	CALL    SETDSKUSR
+	LD      C,0FH
+AD8C8:  CALL    AD318
+	JR      RETTDMA
+
+; Ф-ция 18/12h - поиск следующего
+F12:    LD      HL,NEWBUFF+7
+	RES     7,(HL)
+	LD      HL,(SYSFCB)
+	LD      (RG_DE),HL
+	CALL    SETDSKUSR
+	CALL    SR_NEXT
+RETTDMA:JP      RET_DMA
+
+; Ф-ция 19/13h - стирание файла
+F13:    CALL    GETFCB
+	CALL    SETDSKUSR
+	CALL	AD39C
+	CALL    AD301
+	JP      COPYDPH
+
+; Ф-ция 20/14h - последовательное чтение
+F14:    CALL    GETFCB
+	CALL    SETPATHUSR
+	CALL    SETDSKUSR
+	CALL    F14READ
+	CALL    SETACTUSR
+	Jr      @RET33		; DMA возвращает сам BIOS
+
+; Ф-ция 21/15h - последовательная запись
+F15:    CALL    GETFCB          ; DMA получает сам BIOS
+	CALL    SETPATHUSR
+	CALL    SETDSKUSR
+	CALL    F15WRITE
+	CALL    SETACTUSR
+	JR      @RET33          
+;
+; Ф-ция 22/16h - создание файла
+F16:    CALL    GETFCB
+	LD      HL,NEWBUFF+7
+	RES     7,(HL)
+	CALL    AD172
+	CALL    SETDSKUSR
+	CALL    AD524
+	JP      SETDATE     ; ЗАПИСАТЬ ДАТУ СОЗДАНИЯ ФАЙЛА
+
+; Ф-ция 23/17h - переименование файла
+F17:    CALL    GETFCB
+	CALL    SETDSKUSR
+	CALL	AD416
+	JP      AD301
+
+; Ф-ция 24/18h - получение вектора зарегистрир. дисков
+F18:    LD      HL,(REG_DISKS)
+	JR      SETEXITRG_HL
+
+; Ф-ция 25/19h - получение активного диска
+F19:    LD      A,(ACTDISK)
+	JP      SETEXITRG_A
+
+; Ф-ция 26/1Ah - установка DMA
+F1A:    EX      DE,HL
+	LD      (DMA_ADR),HL
+	JP      SUSR_DMA
+
+; Ф-ция 27/1Bh - получение адреса размещения блоков в HL
+F1B:    ;CALL    COPYDPH
+	LD      HL,(ADR_FAT)
+	JR      SETEXITRG_HL
+
+; Ф-ция 29/1Dh - получение вектора R/O для дисков
+F1D:    LD      HL,(VECT_RO)
+	JR      SETEXITRG_HL
+;
+; Ф-ция 30/1Eh - установка атрибутов файла
+F1E:    CALL    GETFCB
+	CALL    SETPATHUSR
+	CALL    SETDSKUSR
+	CALL	AD43B
+	CALL    AD301
+	JP      SETACTUSR
+
+; Ф-ция 31/1Fh - получение адреса DPB
+F1F:    ;CALL    COPYDPH
+	LD      HL,(DPB_ADR)
+SETEXITRG_HL:
+	LD      (EXITRG_A),HL
+	RET
+
+; Ф-ция 32/20h - установка юзера        (рег. E <> FF)
+;              - получение акт. юзера   (рег. E  = FF)
+F20:    LD      A,(RG_E)
+	LD      HL,ACTUSER
+	CP	0FFH
+	JR      NZ,AD93B
+	LD      A,(HL)
+	JP      SETEXITRG_A
+;
+AD93B:  AND     1FH
+	LD      (HL),A
+	RET
+
+; Ф-ция 35/23h - GetFileSize
+F23:    CALL    GETFCB
+	CALL    SETPATHUSR
+	CALL    SETDSKUSR
+	CALL    AD7D2
+	CALL    SETACTUSR
+	Jr      @RET36
+
+; ???
+F25:    LD      HL,(RG_DE)
+	LD	A,L
+	CPL
+	LD	E,A
+	LD      A,H
+	CPL
+	LD      HL,(REG_DISKS)
+	AND	H
+	LD	D,A
+	LD	A,L
+	AND	E
+	LD	E,A
+	LD      HL,(VECT_RO)
+	EX	DE,HL
+	LD      (REG_DISKS),HL
+	LD	A,L
+	AND	E
+	LD	L,A
+	LD	A,H
+	AND	D
+	LD	H,A
+	LD      (VECT_RO),HL
+	RET
+
+;
+F28:    CALL    GETFCB
+	CALL    SETPATHUSR
+	CALL    SETDSKUSR
+	LD      A,2
+	LD      (MODE),A
+	LD      C,0
+	CALL	AD707
+	CALL    Z,AD603
+	CALL    SETACTUSR
+@RET36:	LD      BC,36
+@RET:   LD      A,1
+	LD      (RETOK),A
+	LD      (RETLN),BC
+COPYRGA:LD      A,(EXITRG_A)
+	LD      (COPYEXRGA),A
+	RET
+;
+SETPATHUSR:
+	LD      HL,NEWBUFF+7
+	LD      A,(HL)
+	RLA
+	RET     NC
+	LD      A,1
+	LD      (PATHFLG),A
+	RES     7,(HL)
+@STPHUS:LD      HL,ACTUSER
+	LD      A,(HL)
+	LD      (DRVCODE),A
+	LD      A,(PATHUSR)
+	LD      (HL),A
+	RET
+;
+SETACTUSR:
+	LD      A,(PATHFLG)
+	OR      A
+	RET     Z
+	LD      HL,NEWBUFF+7
+	SET     7,(HL)
+@STACUS:LD      A,(DRVCODE)
+	LD      (ACTUSER),A
+	RET
+;
+; точка возврата ф-ций BDOS
+EXIT_ST: LD      A,(DISK_FN)
+; Уст. FF при вызове ф-ций:
+; FF,F10,F11,F12,F13,F14,F15,F16,F17,F1E,F21,F22,F23,F28.
+; Иначе уст. 0
+	OR	A
+	JR      Z,AD991         ; переход,если не диск. оп.
+
+	LD      HL,(RG_DE)
+;        LD      (HL),0
+
+	LD      A,(FCB_DRIVE)
+	OR	A
+;        JR      Z,AAD991 ; ПЕРЕХОД, ЕСЛИ ОПЕРАЦИЯ БЫЛА НА
+			 ; ТЕКУЩЕМ ДИСКЕ
+	LD      (HL),A
+
+AAD991: PUSH    AF
+	LD      A,(RETOK)
+	OR      A
+
+	LD      BC,(RETLN)
+	CALL    NZ,RETFCB
+	POP     AF
+	JR      Z,AD991
+
+	LD      A,(ACT_DISK)
+	LD      (RG_E),A
+	call    FE        ;ИНАЧЕ, ВОССТАНОВИТЬ ТЕКУЩИЙ ДИСК
+
+AD991:  LD      SP,(RG_SP)
+	LD      HL,(EXITRG_A)
+	LD      A,L
+	LD	B,H
+	RET
+;
+@CONIN: LD      HL,CONIN        ; ДЛЯ РЕЕНТАБЕЛЬНОСТИ
+	JR      @@CONST
+@CONSTAT:
+	LD      HL,CONSTATUS
+@@CONST:LD      (PRADDR),HL
+	LD      HL,(RG_SP)
+	PUSH    HL
+	LD      HL,(STK_PTR)
+	PUSH    HL
+	LD      HL,(RG_DE)
+	PUSH    HL
+	LD      HL,(FALEN)
+	LD      A,(RG_B)
+	LD      H,A
+	PUSH    HL
+	LD      A,(FUNCNUM)
+	sub	10
+	JR      NZ,NOT10
+	exx
+	call    MMDI		; di  
+	LD      A,(FN10QN)      ; (newbuff)
+	INC     A
+	INC     A
+	LD      C,A
+	LD      B,0     ; СКОЛЬКО ПЕРЕСЫЛАТЬ ИЗ NEWBUFF
+	LD      H,B
+	LD      L,B     ; HL=0
+	ADD     HL,SP
+	DEC     HL
+	EX      DE,HL   ; DE=КУДА КЛАСТЬ В СТЕК
+	LD      HL,NEWBUFF-1
+	ADD     HL,BC   ; HL=ОТКУДА БРАТЬ ИЗ NEWBUFF
+	LDDR
+	EX      DE,HL
+	INC     HL
+	LD      SP,HL
+	CALL    MEI
+	exx
+NOT10:
+	LD      HL,(FUNCNUM)    ; L=FUNCNUM
+	LD      A,(FN10QN)      ; (newbuff)
+	LD      H,A
+	PUSH    HL
+	LD      HL,-2
+	ADD     HL,SP
+	LD      (STK_PTR),HL
+	LD      HL,(PRADDR)
+	CALL    TOBIOS2
+;
+	LD      (PRADDR),A
+	POP     HL
+	LD      A,H             ; <!
+	LD      (FN10QN),A      ; <!
+	LD      A,L
+	LD      (FUNCNUM),A
+	CP      10
+	JR      NZ,NOTT10
+	INC     H
+	INC     H
+	LD      C,H
+	LD      B,0
+	LD      H,B
+	LD      L,B     ; HL=0
+	ADD     HL,SP
+	LD      DE,NEWBUFF
+	LDIR
+	LD      SP,HL
+NOTT10: POP     HL
+	LD      A,H
+	LD      (RG_B),A
+	LD      H,0
+	LD      (FALEN),HL
+	POP     HL
+	LD      (RG_DE),HL
+	POP     HL
+	LD      (STK_PTR),HL
+	POP     HL
+	LD      (RG_SP),HL
+	LD      A,(PRADDR)
+	RET
+;
+;@WSTART:        CALL    TOBIOS
+;                CALL    TOBIOS
+;                CALL    TOBIOS
+@CONOUT:        CALL    TOBIOS
+@OUT_PRNT:      CALL    TOBIOS
+@AUXOUT:        CALL    TOBIOS
+@AUXIN:         CALL    TOBIOS
+@SETTR00:       CALL    TOBIOS
+@SELDISK:       CALL    TOBIOS
+@SELTRK:        CALL    TOBIOS
+@SELSEC:        CALL    TOBIOS
+@SETDMA:        CALL    TOBIOS
+@READSEC:       CALL    TOBIOS
+@WRITESEC:      CALL    TOBIOS
+@PRN_STAT:      CALL    TOBIOS
+@TRANSSEC:      CALL    TOBIOS
+;
+TOBIOS: POP     DE
+	LD      HL,BIOS-@CONOUT+9       ;-@WSTART
+	ADD     HL,DE
+TOBIOS2:LD      A,TPAPAGE		; 2
+	JP      BCALL
+;
+DD9AC:  DB      0E5H
+VECT_RO:DW      0
+REG_DISKS:DW    0
+DMA_ADR:DW      NEWBUFF+128
+SYSW1:  DW      0
+;SCRATCH2:			; bigfiles
+;SYSW2:  DW      0
+;SCRATCH3:
+;SYSW3:  DW      0
+
+DIRBPT: DW      0       ; УК-ЛЬ НА DIRBUF
+DPB_ADR:DW      0       ; УК-ЛЬ НА DPB
+CSVPT:  DW      0       ; УК-ЛЬ НА CSV
+ADR_FAT:DW      0       ; УК-ЛЬ НА ALV
+DPBCOPY:                ; \
+SECTORS:
+SPT:    DW      0       ;  |
+BLKSHFT:
+BSH:    DB      0       ;  |
+BLKMASK:
+BLM:    DB      0       ;  |
+EXTMASK:
+EXM:    DB      0       ;  |
+DSM:    DW      0       ;  +-> DPB
+DRM:    DW      0       ;  |
+AL0:    DB      0       ;  |
+AL1:    DB      0       ;  |
+CKS:    DW      0       ;  |
+OFFSET:
+OFF:    DW      0       ; /
+XLATE:
+XLTPT:  DW      0       ; АДР. ВЕКТОРА ПЕРЕСЧЕТА
+DD9D2:  DB      0
+DD9D3:  DB      0
+DD9D4:  DB      0
+MODE:   DB      0	; DD9D5
+RG_E:   DB      0
+DD9D7:  DB      0
+FLAGSR: DB      0      ; вид поиска в каталоге
+SYSFCB: DW      0      ; fcb при поиске (F11 и F12)
+	DB      0
+	DB      0
+BIGDISK:
+DSM255: DB      0      ; об'ем дисковода < or > 255 групп
+DISK_FN:DB      0      ; флаг - дисковая операция
+;( исп. при EXIT_ST )
+ACT_DISK:DB     DEFAULT_DISK      ; текущий диск
+;( исп временно при операции с явно указанным диском в FCB )
+FCB_DRIVE:DB    0      ; первый байт FCB
+;( исп временно при операции с явно указанным диском в FCB )
+SAVNXT: DB      0	; DD9E1
+SAVEXT: DB      0	; DD9E2
+SAVNREC:DW      0	; DD9E3
+BLKNMBR:DW      0	; DD9E5
+BLKNMBRH:DB	0			; ADDED 20160802 - bigfiles
+LOGSECT:DW      0	; DD9E7
+LOGSECTH:DB     0			; ADDED 20160802 - bigfiles
+DD9E9:  DB      0
+FILEPOS:DW      0	; DD9EA
+CKSUMTBL:Dw     0	; DD9EC
+PDP:    DB      0
+RG_B:   DB      0
+FL0:    DB      0       ; CURRENT TIMPLETE STRING
+FL1:    DB      0       ; MAX TIMPLETE STRING
+FL2:    DB      0       ; CURRENT REPL. STRING
+FL3:    DB      0       ; MAX REPL. STRING
+FL_PRINT:DB     0       ;
+PATHFLG:DB      0
+PATHUSR:DB      80h
+ACTUSER:DB      0
+ACTDISK:DB      DEFAULT_DISK
+DATADSK:DB      0FFH
+PARAMS:
+RG_DE:  DW      0
+RETOK:  DB      0
+RETLN:  DW      0
+FUNCNUM:DB      0
+EXITRG_A:DW     0       ; выходное значение ф-ции в рг. A
+			; или HL
+STK_PTR:DW      SP_BDOS ; СТЕК BDOS
+RG_SP:  DW      0       ; СТЕК ВЫЗЫВАВШЕЙ ПРОГРАММЫ
+CNTREC: db      0       ; offset от начала каталога
+			; для искомого сегмента
+FCBADDR:DW      0
+CALADDR:DW      0
+CALSEGM:DB      0
+FALEN:  DW      0
+FN10QN: DB      0
+PRADDR: DW      0
+COPYEXRGA:
+	DB      0FFH
+ISCREAT:DB      0
+;
+EFLAG:  DB      0EH
+BATSEGM:DB      0FFH
+BEGBUF: DW      0
+ENDBUF: DW      0
+NTABQN: DB      0
+DRVQN:  db      0
+DRVCODE:db      0
+REWBANK:db      0
+REWADDR:dw      0
+;
+
+

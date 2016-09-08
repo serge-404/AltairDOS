@@ -1,0 +1,1526 @@
+; BIOS best dos
+
+PF8     EQU     0F8H
+PF9     EQU     0F9H
+PFB     EQU     0FBH
+PFROM	EQU	0FEh		; 0FCH	; in-ROM CP/M start page
+PROM2	EQU	009H		; Orion-PRO ROM2 page register
+PROPA	EQU	00Ah		; D3 - activate "ROM2-BIOS" window
+ROM_PPA	     equ 0F500h
+
+BPROC   EQU     0F201H
+DRV_INT_SERVICE EQU     0D400H	; BRET	
+DRV_KB_INT      EQU     0D403H  ; BRET	
+VALUE   EQU     0F3F6H  ; D3 (1) - WORK INTO CCP
+SYSVEC  EQU     0F301h
+ELSIZE  EQU     18      ; размер одной записи о драйвере
+TIMSIZE EQU     0FFH
+
+sysPFB  EQU     0F3FBH
+YF3F8   EQU     0F3F8H
+YF3FA   EQU     0F3FAH
+
+YF700   EQU     0F700H
+YF701	EQU	0F701H
+YF702   EQU     0F702H
+YF703   EQU     0F703H
+YF720	EQU	0F720H
+
+partcpm equ	052h		; cpm type partition
+DPBSize	equ	31		; DBP size
+
+STACKTMP equ	0F11Eh		; defs 2
+;
+;
+; SETTRK -  выбирает  дорожку  на  диске  по  содержимому
+;           регистровой пары вс ( обычно номер дорожки не
+;           привышает 80D).
+; 
+; SETSEC -  выбирает   сектор  на  выбранной  дорожке  по
+;           содержимому  регистровой  пары  BC  (  обычно
+;           номер сектора не привышает 26D).
+;
+; READ   -  подпрограмма  считывает один сектор с диска в
+;           озу  начиная  с  адреса,   установленного   в
+;           последней   операции   SETDMA  и   заканчивая
+;           этим   адресом  +  128   байт.   Подпрограмма
+;           возвращает следующие параметры :
+;             A=00 - нет ошибок
+;             A>0  - ошибка при считывании
+;
+; WRITE  -  подпрограмма записывает один сектор из озу (с
+;           адреса,  определенного  в последней  операции
+;           SETDMA по этот адрес + 128 байт) на сыбранный
+;           сектор  выбранной дорожки выбранного диска  (
+;           операции SETDSK,SETTRK,SETSEC).  Возвращаемые
+;           параметры аналогичны команде READ.
+;
+;
+RDVDISK:
+	CALL    SEC2ADR         ; HL=SECTOR_ADDRESS, A=SECTOR_BANK
+	LD      DE,MOVEBUF
+	LD      BC,80h
+	CALL    MOVEADRSP	; ВО ВРЕМЕННЫЙ БУФЕР
+	LD      HL,MOVEBUF
+	CALL    @@BLDR80DEDMA	; В ПОЛЬЗОВАТЕЛЬСКОЕ DMA
+TSTCSUM:LD      HL,MOVEBUF
+	LD      B,80H
+	XOR     A
+MKADR1: XOR     (HL)            ; ПОДСЧЕТ К.С.
+	INC     HL
+	DJNZ    MKADR1
+	PUSH    AF              ; K.С. СЕКТОРА
+	LD      A,(ETRACK0)
+	LD      H,A             ; SEGMENT
+	XOR     A
+	LD      L,A             ; L=0
+	LD      B,4
+MKADR2: SLA     H
+	RLA
+	DJNZ    MKADR2          ; A=BANK,HL=SEGMENT_ADDRESS
+	PUSH    AF
+	LD      DE,2000
+	ADD     HL,DE           ; НАЧАЛО КОНТР. СУММ СЕКТОРОВ
+	LD      D,0
+	LD      A,(TRKNUM)
+	OR      A
+	JR      Z,MKADR4
+	LD      B,A
+	LD      A,(DPB_E)       ; SPT (SECTORS PER TRACK)
+	LD      E,A
+MKADR3: ADD     HL,DE
+	DJNZ    MKADR3
+MKADR4: LD      A,(@SECNUM)
+	LD      E,A
+	ADD     HL,DE           ; АДРЕС К.С. СЕКТОРА
+	POP     AF              ; БАНК К.С. СЕКТОРА
+	PUSH    AF
+	PUSH    HL
+	CALL    BLDB            ; A=К.С. СЕКТОРА
+	POP     HL
+	POP     DE              ; D=БАНК К.С. СЕКТОРА
+	LD      A,B
+	POP     BC              ; B=K.С. СЕКТОРА
+	XOR     B
+	RET                     ; A=0-OK, A<>0-BAD SECTOR
+;
+SEC2ADR:LD      A,(TRKNUM)
+	LD      E,A
+	LD      D,0
+	LD      HL,ETRACK0
+	ADD     HL,DE
+	LD      H,(HL)          ; SEGMENT
+	LD      L,D             ; L=0
+	XOR     A
+	LD      B,4
+MKADR:  SLA     H
+	RLA
+	DJNZ    MKADR           ; A=BANK,HL=SEGMENT_ADDRESS
+;
+	PUSH    AF              ; ВХ. HL=АДР. СЕГМЕНТА
+	PUSH    HL
+	LD      A,(TRKNUM)
+	OR      A
+	LD      A,(SECNUM)
+	JR      NZ,ADDRRR
+	CP      13
+	JR      C,ADDRRR
+	LD      A,13
+ADDRRR: LD      (@SECNUM),A
+	dec     a
+	LD      B,7
+	LD      H,0
+	LD      L,A
+ADDDRR: ADD     HL,HL
+	DJNZ    ADDDRR
+	POP     DE
+	ADD     HL,DE
+	POP     AF
+	RET
+;
+WRVDISK:
+	LD      DE,MOVEBUF
+	push	de
+	CALL    @@BLDR80HLDMA   ; ИЗ ПОЛЬЗОВАТЕЛЬСКОГО DMA
+	CALL    SEC2ADR         ; OUT: HL=SECTOR_ADDRESS, A=SECTOR_BANK, B=0
+	EX      DE,HL
+	LD 	C,80h
+	pop	hl		; LD HL, MOVEBUF
+	CALL    MOVEADRSP	; ИЗ ВРЕМЕННОГО БУФЕРА
+	CALL    TSTCSUM         ; HL=ADDR_CSUM, B=CSUM
+	LD      A,D             ; D=BANK_CSUM
+	CALL    BSTB
+	XOR     A
+	RET
+;
+; IDE/SD subroutines
+;
+; SEARCH_FREE:
+; OUT:	A=0=found 
+;	B=free ide slot index (0,1,2)
+;	DE=PARIDEx
+;
+SEARCH_FREE:
+	ld	c, 0FFh
+;
+; SEARCH_SLOT:	
+; INP:	c=hash, 
+; OUT:	A=0=found
+;	B=ide slot index (0,1,2) 
+;	DE=PARIDEx
+; saves C 
+;
+SEARCH_SLOT:	
+	ld	b, 3 		; IDE/SD slots count
+SSLOT:	push	bc
+	ld	c, b
+	CALL	SEARCH_HASH1
+	ld	a, c
+	pop	bc
+	sub	c
+	jr	z, SSLOT1
+	djnz	SSLOT		
+	ret
+SSLOT1: dec	b
+	ret
+;
+; SEARCH_HASH:
+; INP: B=ide slot index (0,1,2)
+; OUT: C=(HL)=partition_hash (part & drv) - BORDERx[9]
+;      DE=PARIDEx
+; saves B
+;
+PARIDESIZE	EQU	PARIDE1-PARIDE0
+SEARCH_HASH:
+	ld	c, b
+	inc	c
+SEARCH_HASH1:
+	ld	hl, PARIDE0-PARIDESIZE	; first IDE/SD slot
+	ld	de, PARIDESIZE
+RSLOT0:	add	hl, de
+	dec	c
+	jr	nz, RSLOT0
+	push	hl
+	inc	hl
+	inc	hl
+	ld	e, (hl)
+	inc	hl
+	ld	d, (hl)		; de=BORDERx
+	ld	hl, 9
+	add 	hl, de
+	ld	c, (hl)		; c=partition hash (part_N & dev_sign)
+	pop	de
+	ret
+;
+; INP:  B=ide slot index (0,1,...)
+; OUT:  C=previous partition_hash (part & drv)
+;       DE=PARIDEx
+; saves B
+;
+RELEASE_SLOT:
+	call	SEARCH_HASH
+	ld	(hl), 0FFh
+	ret
+;
+; register HDD partition (IDE or SD)
+;   Input: B=free ide slot index (0,1,..), 
+;	   C=partition_hash (part(D6..D5) & drv_sign)
+;              drv_sign=(0=IDE_MASTER, 10h=IDE_SLAVE; 1=SDC, 3=SDHC)
+;	   DE=PARIDEx
+;	   A'=0 - do not call sd_init, A'=1 - call sd_init for SD-cards
+;   Output: Z=ok, NZ=error;
+;
+idereg: ex	af, af'		; A:=docall-sd_init
+	ld	h, a
+	ex	af, af'
+	ld	a, h		
+	and	c
+	push	bc
+	push	de
+	call	nz, sd_init	; if SDC or SDHC - poweron & wakeup card
+	pop	hl		; hl=PARIDEx
+	ld	de, xPARIDE
+	push	de
+	ld	bc, 8
+	ldir
+	pop	hl		; hl=xPARIDE
+	ld	a, (hl)
+	inc	hl
+	ld	h, (hl)
+	ld	l, a		; hl=LBABUF
+	ld	c,3
+	add	hl,bc
+	ld	(hl), 0FFh	; (LBABUF+3)=0FFh  ->  force reread for dirty IDEBUF
+	ld	de, xIDEBUF
+	ld	hl, xMInfo+3
+	ld	(hl), e
+	inc	hl
+	ld	(hl), d
+	inc	hl
+	ld	(hl), b		; b=0
+	inc	hl
+	ld	(hl), b		; b=0
+	inc	hl
+	ld	(hl), b		; b=0
+	inc	hl		; hl=xMInfo+8
+	ld	(hl), b		; b=0
+	pop	bc
+	ld	a, c		; a=part_hash
+	ld	(xBORDER+9), a	; select ide device & partition
+	and	1Fh		; a: 0=master, 10h=slave, 1=SDC, 3=SDHC
+	ld	d, a
+	push	bc
+	call	x_rdide 	; read MBR.  hl=idebuf1+512, e:=ide_cmd_read, saves D
+        pop     bc		; B=free ide slot index (0,1,..), 
+				; C=partition_hash (part(D6..D5) & drv_sign)
+	ret	nz		; if error
+	push	de		; d=device (0=master, 10h=slave, 1=SDC, 3=SDHC)
+	ld	hl,xIDEBUF+462	; hl=partition_record[0][15]+1
+	ld	a, c
+	rlca
+	rlca
+	rlca	
+	and	3		; a=partition N (0..3)
+	ld	de, 16
+idereg1:or	a
+	jr	z, idereg2
+	add	hl, de
+	dec	a
+	jr	idereg1		; hl=partition_record[0..3][15]
+idereg2:ld	de, xBorder+9	; BATVAR[10..18]=[crc,parbeg,parsize,part_hash]
+	ld	a,(de)
+	ld	(hl),a
+	ld	bc, 966h	; c=0/10h=xBorder[9]
+idereg3:ld	a, (hl)
+	ld	(de), a		; copy lbabeg, lbasize to xBorder[1..8]
+	add	a, c
+	ld	c, a
+	dec	hl
+	dec	de
+	djnz	idereg3
+	ld	(de), a		; put crc of lbabeg+lbasize+drv_sign to xBorder[0]
+	ld	de, xIDEBUF
+	ld	(hl), d
+	dec	hl
+	ld	(hl), e		; zMasterInfo over MBR partition record
+	dec	hl
+	dec	hl
+	ld	a, partcpm	; process only CP/M partitions
+	cp	(hl)		; partition_record[0..3][4]
+	pop	de		; D: 0=master, 10h=slave, 1=SDC, 3=SDHC
+	ret	nz		; if wrong partition type
+	ld	c, 7
+	add	hl, bc		; hl=xMasterInfo+8
+	call	x_rdide 	; read first partition sector. hl=buf+512  saves D
+	ret	nz		; if IO error
+;
+	ld	hl, xIDEBUF	; hl=Buffer
+	call	DPBcrc
+	ld	a, 66h
+	ret	nz		; if volume has not DPB
+	ld	hl, xIDEBUF+16	; source DPB (readed DPB)
+	ld	c, 15		; count
+	ld	de, (XPARIDE+6) ; destination DPB where copy to
+	LDIR			; copy DPB to work area
+	ld	hl, xBorder	; source (readed border)
+	ld	de, (XPARIDE+2)	; destination border
+	ld	c, 10		; count
+	ldir			; copy partition params to ide slot array
+	dec	de
+	push	de
+	call	CALC_ALV
+	pop	hl
+	ret	z
+	ld	(hl), 0FFh	; free slot
+	ret
+;
+DPBcrc:	LD      B,DPBSize
+crc66:	LD      A,66H
+idereg4:ADD	A,(HL)		; calculate DPB crc
+	INC	HL
+	DJNZ	idereg4
+	CP	(HL)
+	ret
+; 
+; Recalculate and move all ALVs. INP: none, OUT: Z(A=0)=ok, NZ(A<>0)=failed=no_space 
+;
+CALC_ALV:
+	ld	de, MNTBUF	; ALV_D_buffer address = MNTBUF
+	ld	bc, BORDER1+9	
+	ld	hl, DPB_D
+	call	COPYALV		; return de=nextfree, bc=ALVsize
+	ld	(ALVD_SZ), bc
+	push	de		; ALV_X_buffer address (calculated during prev COPYALV)
+	ld	bc, BORDER2+9
+	ld	hl, DPB_X
+	call	COPYALV		; return de=nextfree, bc=ALVsize
+	ld	(ALVX_SZ), bc
+	push	bc
+	ld	bc, BORDER0+9
+	ld	hl, DPB_C 
+	ld	de, (DPH_C+14)	; ALV_C address
+	call	COPYALV		; return de=nextfree, bc=ALVsize
+	ld	(ALVC_SZ), bc
+	ex	de, hl		; HL=ALVD address
+	ld	(DPH_D+14), hl	; ALV_D
+	ld	(ALVD_AD), hl
+	ex	de, hl		; DE=ALVD_AD
+	ld	hl, MNTBUF 
+	ld	bc, (ALVD_SZ)
+	call	checkalv	; DE=next ALV address
+	pop	bc		; BC=ALVX_SZ
+	pop	hl		; HL=ALVX_AD in temporary buffer
+	ret	nz
+	ld	(DPH_X+14), de
+	ld	(ALVX_AD), de
+checkalv:			; check for (de+bc<ALV_E)=(de+bc-ALV_E<0)
+	ld	a, b
+	or	c
+	ret	z		; LDIR(0)=LDIR(65536)
+	push	hl
+	ld	hl, -ALV_E
+	add	hl, de
+	add	hl, bc
+	pop	hl
+	jp	nc, @@BLDRET	; idereg5	
+	or	d		; d<>0  (de=0Exxxh)
+	ret
+;idereg5:LDIR			; copy block to work area (RAM page 1),  set Z=0
+;	xor	a
+;	ret
+;
+; here analyse DSM_D=*(WORD*)&buf[16+5] and set (WORD*)&DPH_D[14]=*(WORD*)&DPH_C[14]+(DSM_D>>3)+1
+;
+;  INP:  HL=DPB address, DE=destination addres, BC=BORDER+9 (0/10h=master/slave, 1/3=SDcard, 0FFh=free)
+;  OUT:  DE=next free destination addres, BC=ALVsize, HL, AF trashed
+;
+COPYALV:ld	a, (bc)
+	inc	a
+	ld	b, a
+	ld	c, a		; bc=0 if (BORDER+9)=0FFh (free slot) or undefined otherwise
+	ret	z
+	push	hl
+	ld	bc, 5
+	add	hl, bc		; hl=DBP+5	CY=0
+	ld	c, (hl)
+	inc	hl
+	ld	b, (hl)		; bc=DSM
+	ld	a, 3
+CALCAL1:rr	b
+	rr	c
+	dec	a		
+	or	a		; CY=0
+	jr	nz, CALCAL1	; bc=bc/8=DSM/8 - how much bytes occuped by copied ALV
+	pop	hl		; hl=DPB address
+	dec	hl
+	ld	a, (hl)
+	dec	hl
+	ld	l, (hl)
+	ld	h, a		; hl=(DPH+14)=ALV address
+	inc	bc		; add reminder byte
+	push	bc
+	ldir
+	pop	bc
+	ret
+;
+PAR_IDE:defw	LBABUF0
+	defw	border0 
+	defw	IDEBUF0
+	defw	DPB_C
+;
+; sec2lba - calculate ((TRKNUM*SPT)+SECNUM)/4, put reminder to IDEBUF_OFFS,
+;   check partition borders and partition borders CRC
+;   and puts absolute LBA address to MasterInfo[5..8]
+;
+; Returns Z if lba_offset crc OK, NZ if crc failed.
+;
+sec2lba:ld	hl, (PAR_IDE+2) ; hl=borders=[crc,lbabeg,lbasize,master/slave]
+	ld	a,(hl)		; crc
+	ld	b,9
+seclba0:inc	hl
+	sub	(hl)
+	djnz	seclba0
+	SUB	66h
+	ret	nz		; return FALSE if CRC failed
+	ld	hl, (PAR_IDE+6) ; hl = DPB
+	ld	e, (hl)
+	inc	hl
+	ld	d, (hl)		; de=SPT (sectors per track)
+	ld	bc, (TRKNUM)
+	call	MULT32A		; DEHL=DE*BC
+	ld	bc, (SECNUM)
+	dec	bc
+	add	hl, bc          ; 
+	jr	nc, seclba1
+	inc	de		; DEHL=(TRKNUM*SPT)+SECNUM
+seclba1:xor	a		; CY:=0
+	rr	d
+	rr      e
+	rr	h
+	rr	l		; DEHL/2
+	rr	a               ; keep reminder (CY->A7, A0=0->CY)
+	rr	d
+	rr      e
+	rr	h
+	rr	l		; DEHL/2, CY=reminder bit.  DEHL=lba (d-high, l-low)
+	rla     	        ; keep reminder (CY->A0, A7->CY)
+	rla				;       (A0->A1, CY->A0) CY=A7=0
+	ld	(IDEBUF_OFFS),a		; a=reminder=128b-offset in 512b-block (0..3)
+	ld	(MasterInfo+5), hl
+	ld	(MasterInfo+7), de	; lba относительный
+	ld	hl, (PAR_IDE+4) 	; hl=IDEBUF
+	ld	(MasterInfo+3), hl	; destination address
+	ld	hl, (PAR_IDE+2) 	; hl=borders=[crc,lbabeg,lbasize,master/slave]
+	ld	de, 8
+	add	hl,de
+	ld	b,4
+	ld	de, MasterInfo+8	; check partition upper border
+copy2:	ld	a,(de)
+	cp	(hl)
+	jr 	c, copyok	; MasterInfo[5..8] (partition zero-based LBA) 
+	jr 	nz,copyerr	; STRICTLY LESS [1:EFFB..EFFE] (partition size)
+	dec	de
+	dec	hl
+	djnz	copy2
+copyerr:xor	a
+	dec	a
+	ret
+;
+copyok:	ld	hl, (PAR_IDE+2) 	; hl=borders=[crc,lbabeg,lbasize,master/slave]
+	inc	hl
+        ld      de, MasterInfo+5
+        ld      b, 4                	; add 4 bytes of partition offset
+	xor	a			; cy=0
+copy1:  ld	a, (de)
+	adc	a, (hl)                 ; add partition offset (1:EFFB..EFFE)
+	ld	(de), a			; to LBA=MasterInfo[5..8] -> absolute LBA
+        inc     hl
+        inc     de
+        djnz    copy1
+	xor	a
+	ret
+;
+; Inp: none
+; Out: d: 0=Master, 10h=slave, 1=SDC, 3=SDHC, 0FFh=unused
+;      hl=IDEDEVx 
+;
+IDEDEVICE:
+	ld	hl, (PAR_IDE+2) 	; hl=borders=[crc,lbabeg,lbasize,master/slave]
+IDEDEVHL:
+	ld	de, 9
+	add	hl, de
+	ld	d, (hl) 		; d: 0=Master, 10h=slave, 1=SDC, 3=SDHC, 0FFh=unused
+	ld	hl, (PAR_IDE) 		; hl=LBABUF
+	dec	hl			; hl=IDEDEVx
+	ret
+;
+; Сравнивает текущий номер LBA в MasterInfo[5..8] 
+; с номером буферизированного сектора LBABUF[0..3]
+; Возвращает Z если числа равны, иначе - NZ
+;  портит все регистры
+;
+cmp_lba:call	IDEDEVICE		; d=0/10h, hl=IDEDEVx
+	ld	a, d
+	cp	(hl)
+	ret	nz			; if idedevice changed
+	ld	de, MasterInfo+4
+	ld	b, 4
+cmplba1:inc     de
+	inc	hl
+	ld	a, (de)
+	cp	(hl)
+	ret	nz
+	djnz	cmplba1
+	ret
+;
+; ===================== COMMON DISK SUBROUTINES ======================
+;
+SELTRK: LD      (TRKNUM),BC
+	RET
+
+SELSEC: LD      (SECNUM),BC
+	RET
+;
+SELIDE: push	hl
+	dec	hl
+	ld	de, PAR_IDE+7
+	ld	bc, 8
+	lddr
+	pop	hl
+	ret
+;
+SELDISK:call    ZDI		; trashes HL reg
+	LD      A,C
+	LD      (WORKDISK),A
+	ld	DE, DPH_A	; Device0 = FLOPPY 0
+	or	a
+	jr	z, SELFLOPPY
+	ld	DE, DPH_B	; Device1 = FLOPPY 1
+	dec	a
+	jr	z, SELFLOPPY
+	LD      HL,DPH_E	; Device2 =  VDISK (RAMDISK)
+	dec	a
+	RET 	Z
+	ld	hl, DPH_C	; Device3 = IDE/SD slot 0
+	dec	a		
+	jr	z, SELIDE
+	ld	hl, DPH_D	; Device3 = IDE/SD slot 1
+	dec	a		
+	jr	z, SELIDE
+	ld	hl, DPH_X	; Device3 = IDE/SD slot 3
+	dec	a		
+	jr	z, SELIDE
+	dec	a		
+	JR      nz, toilleg
+;
+; ROMdisk kernale 
+;
+SELROM: JP	xSELROM
+GETROM:	JP	xGETROM
+;
+xSELROM:LD	A,090H		; x* = Orion-128 type ROMDISK
+	LD	(ROM_PPA+3),A	; init ROM-DISK PPA
+;
+ySELROM:xor	a		; y* = Orion-PRO type ROMDISK
+	ld	h,a
+	ld	l,a		; disk offset = 0
+	inc	a		; a=1
+	ld	de, MNTBUF	; COMMON SELROM PART
+	push	de
+	call	GETROM		; get BOOT-sector
+	pop	hl
+	call	DPBcrc		; b=0
+toilleg:JR      nz, ILLEGDISK
+	ld	hl, DPH_R	; Device6 = ROMDISK
+	push	hl
+	ld	c, 10		; bc,10
+	add	hl, bc
+	ld	e, (hl)
+	inc	hl
+	ld	d, (hl)		; de=DPB_R
+	ld	hl, MNTBUF+10h
+	ld	a, (hl)
+	ld	(ROM_SPT), a
+	ld	c,15
+	ldir			; get ROMDISK DPB
+	pop	hl
+	xor	a
+	ret
+;
+SELFLOPPY:
+;	call    YDI		; trashes A, HL reg
+	ex	de,hl
+	PUSH    HL		; В HL адрес DPH диска
+	LD      BC,10
+	ADD	HL,BC		; В HL адрес указателя на DPB диска
+	LD      A,(HL)
+	INC	HL
+	LD	H,(HL)
+	LD	L,A
+	DEC     HL
+
+	LD      A,(HL)          ; Рег. А = (DPB-1)
+	DEC	HL
+	LD      (DE577),HL      ; DE577 - адрес DPB-2
+
+	INC     A
+	DI			; 20120418
+	CALL    NZ,GETDPB
+	POP     HL
+
+	RET     Z
+; Выход при несуществующем диске: HL = 0
+; и ячейка по адресу 4 установливается в 0
+ILLEGDISK:
+	LD      HL,ACTDSK
+	LD      B, DEFAULT_DISK
+	CALL    BSTB2			; set A to TPAPAGE
+	XOR	A
+	LD      H,A
+	LD      L,A
+	RET
+;
+; СЧИТЫВАЕТ БЛОК ПАРАМЕТРОВ ДИСКА ИЗ ВООТ-СЕКТОРА
+; ВХОД: HL=(АДРЕС РАЗМЕЩЕНИЯ DPB В ПАМЯТИ)-2
+; ВОЗВРАЩАЕТ А=0 Z=TRUE ЕСЛИ ОК И A=1 Z=FALSE ИНАЧЕ
+;
+GETDPB: PUSH    HL
+	CALL    ADF3E
+	POP	HL
+	LD      (DE577),HL
+	PUSH	HL
+	LD	A,(HL)
+	LD      (DE579),A
+	XOR	A
+	LD      (DE57A),A
+	INC     A
+	LD      (DE57B),A
+	LD      HL,DE577
+	CALL    ADFB5
+	CALL    READBOOT        ; ZERO FLAG: Z-OK NZ-BADSEC
+	CALL    NZ,READBOOT
+	JR      NZ,ADED8        ; ПЕРЕХОД ЕСЛИ ОПЯТЬ ОБЛОМ
+ADEBC:  LD      A,(DE579)
+	LD	(DE580),A
+	XOR     A
+	LD	(DE581),A
+	INC	A
+	LD	(DE582),A
+	LD      HL,DISKBUF      ; ПРОВЕРКА НАЛИЧИЯ БЛОКА
+	call	DPBcrc
+	JR	Z,ADEDD
+ADED8:  POP     DE              ; БАЛЛАНС СТЕКА
+	LD      A,1
+	OR      A               ; А=1, Z=FALSE -> НА ДИСКЕ
+	RET                     ; НЕТ BOOT-SEKTORA
+;
+ADEDD:  POP     HL              ; ПЕРЕКАПЫВАЕТ BOOT-СЕКТОР
+	PUSH	HL
+	LD      A,(RG_F720)
+	OR      10H
+	LD	(HL),A
+	INC	HL
+	LD	(HL),0FFH
+	INC	HL
+	LD      DE,DISKBUF+16
+	LD      BC,0FH
+	EX	DE,HL
+	LDIR                    ; ПЕРЕСЛАЛИ DPB
+	POP	DE
+	XOR	A
+	DEC	DE
+	LD	(DE),A
+	DEC	DE
+	LD      HL,DISKBUF+10
+	LD	A,(HL)
+	LD	(DE),A
+	DEC	DE
+	INC	HL
+	LD	A,(HL)
+	LD	(DE),A
+	LD	C,A
+	INC	C
+	LD      A,80H
+ADF04:	RLCA
+	DEC	C
+	JR	NZ,ADF04
+	LD	(DE583),A
+	DEC	DE
+	INC	HL
+	LD	A,(HL)
+	LD	(DE),A
+	DEC	DE
+	DEC	DE
+	INC     HL
+	INC	HL
+	LD	A,(HL)
+	LD	(DE),A
+	DEC	DE
+	LD	(DE),A
+	XOR     A
+	RET
+;
+ADF3E:  LD      A,(DE56E)
+	OR	A
+	RET	Z
+	XOR	A
+	LD	(DE56E),A
+	LD      HL,(DE57E)
+	LD      (DE577),HL
+	LD	HL,(DE581)
+	LD      (DE57C),HL
+	CALL	AE030
+	LD      A,0
+	LD      (DE576),A
+	LD      HL,DISKBUF
+	LD      (DE570),HL
+ADF64:  LD      HL,DE577
+	CALL    ADFB5
+ADF6A:  LD      HL,(DE570)
+	CALL	AE0C0
+	EX	DE,HL
+	LD      (DE570),HL
+	LD      HL,DE576
+	LD      A,(DE573)
+	ADD	A,(HL)
+	LD	(HL),A
+	LD	A,(DE583)
+	CP	(HL)
+	RET	Z
+	RET	M
+	LD      A,(DE571)
+	CP	0F7H
+	JP	NC, RES0FF
+;	JR	C,ADF8F
+;	LD	A,0FFH
+;	LD      (RESULT),A
+;	RET
+;
+ADF8F:  LD      HL,DE57B
+	LD	A,(HL)
+	INC	(HL)
+	LD      HL,(DE577)
+	LD	DE,0FFFCH
+	ADD	HL,DE
+	CP	(HL)
+	JR	NC,ADFA4
+	INC	A
+	LD      (YF702),A
+	JR	ADF6A
+;
+ADFA4:  LD      A,(DE57C)
+	INC	A
+	LD      (DE57C),A
+	LD      A,1
+	LD      (DE57D),A
+	CALL	AE030
+	JR	ADF64
+;
+ADFB5:  LD      E,(HL)
+	INC	HL
+	LD	D,(HL)
+	INC	HL
+	CALL    NOWGINT
+	LD      A,(HL)
+	OR      20H
+	LD	(YF720),A
+	AND     0DFH            ; МИГНУЛИ БИТОМ D5 -
+	LD      (RG_F720),A     ; ЗАПУСК МОТОРА НА
+	LD      (YF720),A       ; ДОИСТОРИЧЕСКИХ КНГМД
+	DEC	DE
+	INC	HL
+	LD	A,(HL)
+	OR	A
+	LD	C,A
+	INC	HL
+	LD	A,(HL)
+	LD      (YF702),A       ; УСТАНОВКА СЕКТОРА
+	JR	Z,AE006
+	LD	A,(DE)
+	LD      (YF701),A       ; УСТАНОВКА ДОРОЖКИ
+	PUSH	AF
+	PUSH	DE
+	LD      B,0
+	LD	HL,0FFFAH
+	ADD	HL,DE
+	LD	A,(HL)
+	INC	HL
+	CP      50H
+	JR      C,ADFF4
+	CP	(HL)
+	JR	Z,ADFF4
+	LD	B,0FFH
+	LD	A,C
+	OR	A
+	RLA
+	LD	C,A
+ADFF4:	POP	DE
+	POP	AF
+	CP	C
+	JR	NZ,ADFFE
+	LD	A,B
+	OR	A
+	JR	NZ,AE027
+	RET
+;
+ADFFE:	LD	A,C
+	LD	(YF703),A
+	LD      C,18H
+	JR	NZ,AE009
+AE006:	LD	A,C
+	LD      C,8
+AE009:	LD	(DE),A
+	DEC	DE
+	DEC	DE
+	DEC	DE
+	DEC	DE
+	LD	A,(DE)
+	AND     3
+	OR	C
+	CALL    CMDBUSY
+	LD      B,0FH
+AE15E:  CALL    AE16C
+	DEC	B
+	JR      NZ,AE15E        ; ЗАДЕРЖКА
+	CALL    NOWGINT         ; ТИП ПРЕРЫВАНИЙ ОТ КНГМД
+	DEC	DE
+	DEC	DE
+	LD	A,(DE)
+	CP      50H
+	RET     C
+	INC	DE
+	EX	DE,HL
+	CP	(HL)
+	RET     Z
+AE027:  LD      A,(YF701)       ; ЗМУЛЯЦИЯ 40-ДОРОЖЕЧНОГО
+	OR      A               ; ДИСКОВОДА : НОМЕР ДОРОЖКИ
+	RRA                     ; ДЕЛИТСЯ НА 2
+	LD	(YF701),A
+	RET
+;
+AE030:  LD      HL,(DE577)
+	LD	A,(HL)
+	LD      (DE579),A
+	DEC	HL
+	DEC	HL
+	LD	B,(HL)
+	LD	C,0FFH
+	LD      A,(DE57D)
+	DEC	A
+	INC	B
+	LD	D,A
+	LD	E,A
+AE043:	DEC	B
+	JR	Z,AE04F
+	OR	A
+	LD	A,E
+	RRA
+	LD	E,A
+	LD	A,C
+	ADD	A,A
+	LD	C,A
+	JR	AE043
+;
+AE04F:	LD	A,C
+	AND	D
+	INC	A
+	LD      (DE572),A
+	LD	A,C
+	CPL
+	INC	A
+	LD      (DE573),A
+	DEC	HL
+	LD	D,(HL)
+	OR	A
+	DEC	D
+	LD      A,(DE57C)
+	JR	NZ,AE065
+	RRA
+AE065:  LD      (DE57A),A
+	CALL	C,AE07D
+	DEC	D
+	JR	NZ,AE077
+	DEC	HL
+	LD	A,E
+	SUB	(HL)
+	JR	C,AE077
+	LD	E,A
+	CALL	AE07D
+AE077:	LD	A,E
+	INC	A
+	LD      (DE57B),A
+	RET
+;
+AE07D:  LD      A,(DE579)
+	AND	0EFH
+	LD      (DE579),A
+	RET
+;
+READBOOT:
+	CALL    NOWGINT
+	LD      HL,DISKBUF
+;	LD      A,2             ; НЕ БОЛЕЕ 2-Х
+;	CALL    AE088           ; ПОПЫТОК ЧТЕНИЯ
+	call	rdtwice
+	RET     Z
+	LD      A,(RG_F720)     ; ЕСЛИ НЕУДАЧНО, ТО ПРО-
+	XOR     8               ; ИНВЕРТИРОВАТЬ БИТ HD
+	LD      (RG_F720),A
+	LD      (YF720),A
+	LD      HL,DISKBUF
+RDTWICE:LD      A,2             ; СНОВА НЕ БОЛЕЕ 2-Х
+				; ПОПЫТОК ЧТЕНИЯ
+AE088:  DEFB    0DDH
+	LD      L,A     ; LD    IXL,A
+	CALL    READWG
+	RET     Z
+	DEFB    0DDH
+	LD      A,L     ; LD    A,IXL
+	DEC     A
+	JR      NZ,AE088
+	DEC	A
+	RET
+;
+; ЧТЕНИЕ ФИЗИЧЕСКОГО СЕКТОРА В (HL)..(HL+1023)
+;
+READWG: CALL    START           ; ЗАПУСК МОТОРА
+	RET	NZ
+;
+; ЗДЕСЬ ВОТКНУТЬ ЗАТЫЧКУ ПРЕРЫВАНИЙ
+;
+	PUSH	HL
+	PUSH    HL              ; I
+	LD      HL,TE0B5        ; ТОЧКА ВЫХОДА
+	EX      (SP),HL         ; PUSH    HL
+	LD      A,80H           ; ЧТЕНИЕ СЕКТОРА
+	CALL    WG_CMD
+	LD      DE,YF700
+	LD      BC,YF703
+AE0AA:	LD	A,(DE)
+	RRA
+	RET     NC      ; КНГМД СВОБОДЕН ЕСЛИ КОНЕЦ СЕКТОРА
+	RRA
+	JR      NC,AE0AA        ; ЕСЛИ ДАННЫЕ НЕ ГОТОВЫ
+	LD	A,(BC)
+	LD	(HL),A
+	INC	HL
+	JR	AE0AA
+;
+TE0B5:	EX	DE,HL
+AE0B6:  POP     HL              ; HL = НАЧАЛО СЕКТОРА В ОЗУ
+	LD	A,(YF700)
+	AND     0DDH
+;	LD      (RESULT),A      ; РЕЗУЛЬТАТ ОПЕРАЦИИ (0=OK)
+;
+; ЗДЕСЬ РАЗРЕШАТЬ ПРЕРЫВАНИЯ
+;
+;	RET
+	jr	RESRET
+;
+AE0C0:  CALL    START
+	RET	NZ
+;
+; ЗДЕСЬ ВОТКНУТЬ ЗАТЫЧКУ ПРЕРЫВАНИЙ
+;
+	LD      A,0A0H
+	CALL    WG_CMD          ; ЗАПИСАТЬ СЕКТОР
+	PUSH    HL
+	LD      (STACKTMP),SP
+	LD      SP,HL
+	LD      HL,YF703
+	LD      DE,YF700
+AE0DD:  POP     BC
+AE0DE:	LD	A,(DE)
+	XOR     1
+	JR	Z,AE0DE
+	LD	(HL),C
+	RRA
+	JR	C,AE0F2
+	RRA
+	JR	NC,AE0DE
+AE0EA:	LD	A,(DE)
+	XOR     1
+	JR	Z,AE0EA
+	LD	(HL),B
+	JR	AE0DD
+;
+AE0F2:  LD      HL,-2
+	ADD     HL,SP
+	EX	DE,HL
+	LD      HL,(STACKTMP)
+	LD      SP,HL
+	JR	AE0B6
+;
+START:  PUSH    HL              ; ЗАПУСК ДИСКОВОДА И Т.П.
+	LD      HL,YF720
+	LD      A,(RG_F720)
+	OR      20H
+	LD      (HL),A
+	AND	0DFH
+	LD      (HL),A          ; ЗАПУСК МОТОРА НГМД
+	LD	A,(YF700)
+	RLCA
+	JR      NC,AE14C        ; ПЕРЕХОД ЕСЛИ ГОТОВ
+	LD	A,(YF701)
+	OR	A
+	JR      NZ,AE120        ; ПЕРЕХОД ЕСЛИ TRK>0
+	LD      A,78H           ; СМЕЩЕНИЕ ГОЛОВКИ НА ОДНУ
+	CALL    CMDBUSY         ; ДОРОЖКУ ОТ ЦЕНТРА ДИСКА
+	JR	AE12A
+;
+AE120:  LD      A,78H
+	CALL    CMDBUSY         ; ГОЛОВКУ ОТ ЦЕНТРА
+	LD      A,58H
+	CALL    CMDBUSY         ; ГОЛОВКУ К ЦЕНТРУ
+AE12A:	PUSH	DE
+	LD	DE,0EA60H
+AE12E:	DEC	DE
+	LD	A,D
+	OR	E
+	JR      NZ,AE12E        ; БОЛЬШАЯ ЗАДЕРЖКА
+	LD      DE,3A98H
+AE136:	LD	A,(YF700)
+	RLCA
+	JR      NC,AE14B        ; ПЕРЕХОД ЕСЛИ ГОТОВ
+	DEC	E
+	JR	NZ,AE136
+	DEC	D
+	JR	NZ,AE136
+	POP	DE
+	POP	HL
+	LD      A,80H
+	OR	A
+RESRET:	LD      (RESULT),A
+	RET
+;
+AE14B:	POP	DE
+AE14C:	POP	HL
+	LD      DE,YF700
+	JR      NOWGINT
+;
+CMDBUSY:CALL    WG_CMD          ; KOМАНДА
+				;С ПРОВЕРКОЙ ГОТОВ.
+AE155:  LD      A,(YF700)       ; ЦИКЛ ПОКА КОНТРОЛЕР
+	RRCA                    ; ЗАНЯТ
+	JR      C,AE155
+	RET
+;
+NOWGINT:LD      A,0D0H          ; КНГМД НЕ ДЕЛАЕТ ПРЕРЫВАНИЯ
+WG_CMD: LD      (YF700),A       ; ВЫПОЛНИТЬ КОМАНДУ ВГ93
+	LD      A,12
+AE16C:  DEC     A               ; ЗАДЕРЖКА
+	JR	NZ,AE16C
+	RET
+;
+; DI -> IFF:=0  ;  EI -> IFF:=1  ;  LD  A,I -> P/V:=IFF
+; JP PO,XXX (IF P/V=0 - IF DI) ;  JP PE,XXX (IF P/V=1 - EI)
+;
+GETEIDI:PUSH    BC
+	LD      A,I
+	LD      B,0FBH          ; EI
+	JP      PE,MDI1
+	LD      B,0F3H          ; DI
+MDI1:   LD      A,I
+	LD      A,0FBH          ; EI
+	JP      PE,MDI2
+	LD      A,0F3H          ; DI
+MDI2:   OR      B
+	POP     BC
+	RET
+;
+MDI:    NOP		; default 0 - pause INTs (perform DI) while IO, else 0C9h - RET
+MMDI:	PUSH	AF
+	CALL	GETEIDI
+	DI
+	LD      (MEI),A
+	POP	AF
+	RET
+;
+ZDI:	CALL	GETEIDI
+	ld	hl, MEI		; to avoid nested MDI`s
+	LD      (hl),A
+	call	MDI
+	ex 	(sp),hl
+	jp	(hl)
+;
+;YDI:	ld	a,(MDI)	
+;	or	a
+;	ret	z		; XDI/XEI not needed in PAUSE_INTERRUPTS mode
+;	call	XDI
+;	ld	hl, XEI	
+;	ex 	(sp),hl
+;	jp	(hl)
+;
+; соображалка - выбор банка ( источника или приемника )
+; если PDP<>0, то выбирается банк, вызвавший BDOS
+;
+GETBANK:ld      hl,PDP
+	ld      a,(hl)
+	ld      (hl),0
+	or      a
+	ret     z
+	ld      a,(RG_B)
+	ld      d,a
+	ret
+;
+;==================================================
+;MULTIPLY ROUTINE 16*16bit=32bit
+;DEHL=DE*BC 457usec
+MULT32A: LD     A,16
+         LD     HL,0000
+MULT32B: ADD    HL,HL       ;LSB OF MULTIPLIER
+         EX     DE,HL
+         ADC    HL,HL       ;PROPAGATE CY TO MSB
+         EX     DE,HL
+         JR     NC,MULT32C
+         ADD    HL,BC       ;ADD MULTIPLICAND
+         JR     NC,MULT32C  ;NO CY THEN NEXT
+         INC    DE          ;CY THEN PROPAGATE TO MSB
+MULT32C: DEC    A
+         JR     NZ,MULT32B  ;REPEAT
+         RET
+;
+; READ 128 bytes sector from pre-selected ROMdisk page
+; Input:  A=from_page (ROM 64k page index = 1..N )
+;	 HL=from_addr (ROM page offset within 64k basis), 
+;        DE=to_addr   (RAM offset)
+;
+xGETROM:out	(PFROM), a	; x* = Orion-128 type ROMDISK
+	ld	b,128		
+GETROMD:LD	(ROM_PPA+1),HL
+	LD	A,(ROM_PPA)	
+	ld	(de), a
+	inc	hl
+	inc	de
+	djnz	GETROMD	
+	xor	a
+	ret
+;
+; y* = Orion-PRO type ROMDISK read
+;
+yGETROM:ld	b,3
+	ld	c,h
+pGetROM:rl	c	
+	adc	a,a		
+	djnz	pGetROM
+	out	(PROM2), a	; PRO ROM2 8kb page index
+	ld	a,h
+	and	1Fh
+	add	a,20h		; 8k ROM window at 2000h
+	ld	h,a		; 3 higher bits moved from H7..H5 shifted 3 times Acc
+	in	a,(PROPA)
+	ld	c,a
+	or	08h		; D3=1 - activate "ROM2-BIOS" window
+	DI			; call MDI
+	out	(PROPA),a
+	ld	a,c
+	ld	c,128		; BC=128  (b=0)
+	LDIR
+	out	(PROPA),a	; deactivate "ROM2-BIOS" window
+	xor	a
+	ret			; JP MEI ; MEI not needed because ZDI directing to do MEI allways
+;
+READSEC:ld      a,d
+	ld      (DMABANK),a
+	call    ZDI		; trashes HL reg
+	LD      A,(WORKDISK)
+	CP      2
+	Jr      c, READFLOPPY	; Device0 = Floppy0, Device1 = Floppy1
+	JP      z, RDVDISK	; Device2 = VDISK
+	cp	6		
+	jp	c, RDIDE	; Device345 = IDE/SD
+				; Device6 = ROMDISK
+;
+READROM:
+	ld	de,(ROM_SPT)	; d=0
+	ld	bc,(TRKNUM)
+	call	MULT32A		; DEHL=DE*BC, A=0
+	ld	bc,(SECNUM)
+	dec	bc
+	add	hl,bc		; HL=SectorN (LBA128BASE, 0-started), DE=0
+	ld	b,7
+RDROM0: add	hl,hl		; HL=HL*128
+	rla
+	djnz	RDROM0		; HL=ROM page offset
+	inc	a
+	ld	b,a		; CP/M ROM 64k page (1,2,...)
+	ld	de,(DMAPOINT)
+	LD      A,(DMABANK)
+	CP	WORKPAGE
+	ld	a,b		; CP/M ROM 64k page (1,2,...)
+	jp	z, GETROM	; READ ROM TO WORK PAGE
+	ld	de,MOVEBUF
+	push	de
+	call	GETROM
+	pop	hl
+	JP      @@BLDR80DEDMA	; READ ROM TO TPA PAGE
+;
+READFLOPPY:
+;	call    YDI		; trashes A,HL reg
+	DI			; 20120418
+	CALL    START
+	CALL	RESORRET
+;	LD      A,(RESULT)
+;	OR	A
+	JR	NZ,AE18D
+AE185:  LD      HL,DE580
+	CALL	AE239
+	JR	Z,AE19D
+AE18D:  LD      HL,(DE577)
+	PUSH	HL
+	CALL    ADF3E
+	POP	HL
+	LD      (DE577),HL
+	CALL	AE1B5
+	JR	AE185
+;
+AE19D:  LD      HL,DISKBUF
+	RRA
+	LD	B,A
+	LD      A,0
+	RRA
+	LD	C,A
+	ADD     HL,BC           ; ОТКУДА ИЗ DISKBUF
+	LD      DE,(DMAPOINT)   ; KУДA
+	LD      BC,80H          ; СКОЛЬКО
+
+	CALL    @BLDIR
+
+RESORRET:
+	LD      A,(RESULT)
+	OR	A
+	ret
+;
+; П/П ПЕРЕСЫЛКИ DISKBUF->DMA
+; ВХОД: HL-OTKУДA , DE-KУДA , BC-СКОЛЬКО
+; INT. OFF !
+;
+@BLDIR: LD      A,(DMABANK)
+	CP	WORKPAGE
+	JR      NZ,SKIPLDIR
+JSTLDIR:LDIR
+	RET
+SKIPLDIR:
+	PUSH    BC
+	PUSH    DE
+	LD      DE,MOVEBUF
+	PUSH    DE
+	ldir
+	POP     HL              ; из временного буфера
+	POP     DE              ; в пользовательское DMA
+	POP     BC              ; сколько
+	JP      MOVEADRSP	; call to 0F2xxh (ldir to page [A]), return to WORKPAGE
+;
+AE1B5:  LD      A,(TRKNUM)
+	LD	(DE581),A
+	LD      (DE57C),A
+	LD      A,(SECNUM)
+	LD      (DE57D),A
+	LD      A,(WORKDISK)            ;!
+	LD	(DE580),A
+	CALL	AE030
+	LD      A,(DE572)
+	LD	(DE582),A
+	LD	A,000H
+	LD	(DE583),A
+	LD      HL,DISKBUF
+	LD      (DE570),HL
+AE1DE:  LD      HL,DE577
+	CALL	ADFB5
+AE1E4:  LD      HL,(DE570)
+	LD      A,3
+	CALL    AE088
+	RET	NZ
+	EX	DE,HL
+	LD      (DE570),HL
+	LD	HL,DE583
+	LD      A,(DE573)
+	ADD	A,(HL)
+	LD	(HL),A
+	CP      10H
+	RET	P
+	LD      A,(DE571)
+	CP	0F7H
+	JP	NC, RES0FF
+;	JR	C,AE207
+;	LD	A,0FFH
+;	LD      (RESULT),A
+;	RET
+;
+AE207:  LD      HL,DE57B
+	LD	A,(HL)
+	INC	(HL)
+	LD      HL,(DE577)
+	LD	DE,0FFFCH
+	ADD	HL,DE
+	CP	(HL)
+	JR	NC,AE21C
+	INC	A
+	LD      (YF702),A       ; УСТ. СЕКТОР
+	JR	AE1E4
+;
+AE21C:  LD      A,(DE57C)
+	INC	A
+	LD      (DE57C),A
+	LD      A,1
+	LD      (DE57D),A
+	CALL	AE030
+	LD      HL,(DE577)
+	LD	DE,0FFFAH
+	ADD	HL,DE
+	LD      A,(DE57A)
+	CP	(HL)
+	RET	P
+	JR	AE1DE
+;
+AE239:  LD      A,(WORKDISK)
+	CP	(HL)
+	RET	NZ
+	INC	HL
+	LD      A,(TRKNUM)
+	SUB	(HL)
+	RET	C
+	INC	HL
+	LD	E,(HL)
+	INC	HL
+	LD	D,(HL)
+	LD      HL,(DE577)
+	INC	HL
+	INC	HL
+	JR      Z,AE25E
+	DEC	A
+	RET	NZ
+	LD      A,(SECNUM)
+	ADD	A,(HL)
+AE255:	SUB	E
+	LD	E,A
+	LD	A,D
+	DEC	A
+	CP	E
+	RET	C
+	XOR	A
+	LD	A,E
+	RET
+;
+AE25E:  LD      A,(SECNUM)
+	CP	E
+	RET	C
+	JR	AE255
+;
+;
+WRITEFLOPPY:
+;	call    YDI		; trashes A,HL reg
+	DI			; 20120418
+	LD	A,C
+	LD      (DE56D),A
+	CALL    START
+AE293:	LD	HL,DE580
+	CALL	AE239
+	JR	Z,AE2D2
+	LD      HL,(DE577)
+	PUSH	HL
+	CALL    ADF3E
+	POP	HL
+	LD      (DE57E),HL
+	LD      (DE577),HL
+	LD      A,(DE56D)
+	CP      2
+	JR	Z,AE2B5
+	CALL	AE1B5
+	JR	AE293
+;
+AE2B5:  LD      A,(WORKDISK)
+	LD	(DE580),A
+	LD      a,(TRKNUM)	; was LD hl,(TRKNUM)   ! fucked hackers !
+	LD	(DE581),a       ; was LD (DE581),HL    ! fucked hackers !
+	LD      a,(SECNUM)	; added
+	LD	(DE582),a	; added
+	LD      HL,(DE577)
+	LD      DE,5
+	ADD	HL,DE
+	LD	A,(HL)
+	INC	A
+	LD	(DE583),A
+	XOR	A
+	LD      (RESULT),A
+	LD	E,A
+AE2D2:	CALL	AE2E1
+	LD      A,(DE56D)
+	DEC	A
+	CALL    Z,ADF3E
+	JP	RESORRET
+;	LD      A,(RESULT)
+;	OR	A
+;	RET
+;
+AE2E1:	RRA
+	LD	B,A
+	LD      A,0
+	RRA
+	LD	C,A
+	LD      HL,DISKBUF
+	ADD	HL,BC
+	EX	DE,HL
+	LD	A,D
+	CP	0F7H
+	JR	C,AE2F7
+RES0FF:	LD	A,0FFH
+	LD      (RESULT),A
+	RET
+;
+AE2F7:	LD	A,(DE583)
+	DEC	A
+	CP	L
+	JR	NZ,AE303
+	LD      A,1
+	LD      (DE56D),A
+AE303:	LD	A,0FFH
+	LD	(DE56E),A
+	LD      HL,(DE577)
+	LD      (DE57E),HL
+	LD      HL,(DMAPOINT)
+@@BLDIR80:
+	LD      BC,80H
+;
+; П/П ПЕРЕСЫЛКИ DMA->DISKBUF
+; ВХОД: HL-OTKУДA , DE-KУДA , BC-СКОЛЬКО
+; INT. OFF !
+@@BLDIR:LD      A,(DMABANK)
+	CP	WORKPAGE
+	jr	z, XBLDIR
+	PUSH    DE
+	PUSH    BC
+	LD      DE,MOVEBUF
+	push	de
+	CALL    MOVEADRSP
+	pop	hl		; LD HL, MOVEBUF
+	POP     BC
+	POP     DE
+XBLDIR: ldir
+	ret
+;
+;
+SETDMA: LD      (DMAPOINT),BC
+	RET
+;
+CCPFLUSH:
+        LD      A,(YF3FA)
+        OUT     (PFA),A
+        LD      A,(YF3F8)
+        OUT     (PF8),A
+        LD      A,TPAPAGE		; 2
+        LD      HL,BEGCCP               ; КУДА
+        PUSH    HL
+        EXX
+        EX      AF,AF'
+        POP     HL                      ; ОТКУДА
+        LD      BC,DOOR-BEGCCP          ; СКОЛЬКО
+        CALL    BLDIRF1     		; LD A,WORKPAGE  ПЕРЕСЛАЛИ CCP И ВЕКТОРА ОШИБОК
+	jr	FLUSH
+;
+NEW_0:  CALL    ADF3E
+
+; сброс неких флагов (наверное, настройки на формат),
+FLUSH:  ld	c, DEFAULT_DISK
+WARMDISK equ	FLUSH+1
+	XOR     A
+	LD      (DPB_A-1),A
+	LD      (DPB_B-1),A
+	RET
+
+DE55E:  defs    8,0
+	defb    0ffh
+	defs    4,0
+WORKDISK:defb   1
+RG_F720:defb    0
+DE56D:  defb    0
+DE56E:  defb    0
+RESULT: defb    0
+DE570:  defb    0
+DE571:  defb    0
+DE572:  defb    0
+DE573:  defb    0
+DE576:  defb    1
+DE577:  defw    TRKNUM
+DE579:  defb    1
+DE57A:  defb    0
+DE57B:  defb    0
+DE57C:  defb    1
+DE57D:  defb    1
+DE57E:  defw    TRKNUM
+DE580:  defb    0
+DE581:  defb    0
+DE582:  defb    0
+DE583:  defb    0
+TRKNUM: defw    0       ; номер дорожки (was 8-bit, now 16-bit)
+SECNUM: defw    1       ; номер сектора (was 8-bit, now 16-bit)
+@SECNUM:defb    1
+DMAPOINT:defw   80H     ; указатель DMA
+DMABANK:defb    2
+ROM_SPT:defb	28H
+	defb	0	; allways=0
+IDEBUF_OFFS: 
+	defb	0
+;
+
+

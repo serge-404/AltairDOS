@@ -1,0 +1,51 @@
+;
+; for debug
+;
+	dw	0
+	dw	0
+	dw	COLDINIT
+	dw	coldbeg
+	dw	READSEC
+	dw	readide
+;	dw	SELROM
+;	dw	ySELROM
+;	dw	GETROM
+;	dw	yGETROM
+
+;	dw	BLKNMBR
+;	dw	TRKSEC1
+;	dw	GETBLOCK
+;	dw	LOGICAL
+
+;	dw	TTY
+;	dw	INT
+;	dw	ASSIGN				; +4 executed in BIOS1 (config.sys - ASSIGN cmd)
+;	dw	WRVTRK
+;	dw	READSEC
+;	dw	WRITESEC
+;	dw	SELDISK
+;	dw	COLDSTART			; +0 executed after BootLoader
+;	DW	COLDbeg				; +2 executed in BIOS1 (floppy buffer)
+;	DW	MNT				; +6 executed in CCP1 (MNT cmd)
+;	DW	RDIDE				; +8
+;	DW	WRIDE				; +10
+;	DW	SELTRK				; +12
+;	DW	SELSEC				; +14
+;	DW	SELDISK				; +16
+;	DW	idereg				; +18
+;	dw	ALVD_SZ				; +20
+;	dw	CALC_ALV			; +22
+;	DW	EXCONF				; +24
+
+;	dw	ENDCCP-BEGCCP			; +26
+;	DW	ENDCOLD1-MMTEST			; +28 must be >= 800h (floppy buffer)
+;	DW	BDOS				; +30 BDOS-wrapper begin (TPA_size + 100h)
+;	DW	BIOS				; +32 BIOS-wrapper begin 
+;	DW	CODESIZE			; +34
+;	DW	EE-EB+AVECEND-AVECBEG+ACPMVEC	; +36 end of DOS code in memory
+;	DW	ALV_E-ALV_C			; +38 total ALVs space for IDE/SD devices
+	dw	0
+	dw	0
+
+
+

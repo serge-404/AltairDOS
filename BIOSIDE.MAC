@@ -1,0 +1,479 @@
+; IDE BIOS best dos
+;
+PRO_SYS		EQU 56H  ; registr uprawleniq
+PRO_DATAH	EQU 57H  ; st.bajt registra dannyh
+PRO_DATAL	EQU 58H  ; ml.bajt registra dannyh
+PRO_ERREG	EQU 59H  ; registr o{ibok
+PRO_SEC_CNT	EQU 5Ah	 ;    // s4et4ik seektorow          - W                    // adr=2
+PRO_SECTOR	EQU 5Bh	 ;    // registr sektora            - W                    // adr=3
+PRO_CYL_LSB	EQU 5Ch	 ;    // ml.bajt nom.cilindra       - W                    // adr=4
+PRO_CYL_MSB	EQU 5Dh	 ;    // st.bajt nom.cilindra       - W                    // adr=5
+PRO_HEAD	EQU 5Eh	 ;    // registr golowki/ustrojstwa - W                    // adr=6
+PRO_STAT	EQU 5FH  ; registr sostoqniq
+PRO_COMAND	EQU 5FH  ; registr komand
+;
+ide_8255     equ 0F600h		; 0F500h     ;PPA base address
+ide_8255_lsb equ ide_8255+2 ;pC - lower 8 bits
+ide_8255_msb equ ide_8255+1 ;pB - upper 8 bits
+ide_8255_ctl equ ide_8255   ;pA - control lines
+ide_8255_cfg equ ide_8255+3 ;     8255 configuration register
+rd_ide_8255  equ 10001011b  ;ide_8255_ctl out, ide_8255_lsb/msb input
+wr_ide_8255  equ 10000000b  ;all three ports output
+;
+ide_a0_line  equ 01h       ;direct from 8255 to ide interface
+ide_a1_line  equ 02h       ;direct from 8255 to ide interface
+ide_a2_line  equ 04h       ;direct from 8255 to ide interface
+ide_cs0_line equ 08h       ;inverter between 8255 and ide interface
+ide_cs1_line equ 10h       ;inverter between 8255 and ide interface
+ide_wr_line  equ 20h       ;inverter between 8255 and ide interface
+ide_rd_line  equ 40h       ;inverter between 8255 and ide interface
+ide_rst_line equ 80h       ;inverter between 8255 and ide interface
+;
+ide_data     equ   ide_cs0_line
+ide_err      equ   ide_cs0_line + ide_a0_line
+ide_sec_cnt  equ   ide_cs0_line + ide_a1_line
+ide_sector   equ   ide_cs0_line + ide_a1_line + ide_a0_line
+ide_cyl_lsb  equ   ide_cs0_line + ide_a2_line
+ide_cyl_msb  equ   ide_cs0_line + ide_a2_line + ide_a0_line
+ide_head     equ   ide_cs0_line + ide_a2_line + ide_a1_line
+ide_command  equ   ide_cs0_line + ide_a2_line + ide_a1_line + ide_a0_line
+ide_status   equ   ide_cs0_line + ide_a2_line + ide_a1_line + ide_a0_line
+ide_control  equ   ide_cs1_line + ide_a2_line + ide_a1_line
+ide_astatus  equ   ide_cs1_line + ide_a2_line + ide_a1_line + ide_a0_line
+;
+;IDE Command Constants.  These should never change.
+;
+ide_cmd_read equ 20h
+ide_cmd_write equ 30h
+ide_cmd_id   equ 0ECh
+ide_cmd_none equ 0
+;
+intinchl equ	2756       ; initial constant for 10ms timing loop
+;
+; M_RDIDE read 512b sector from ide, inp: HL=DriveInfo_array+8, 
+;	    d=0=master;  d=10h=slave
+;           e=command_mode (ide_cmd_none,ide_cmd_read,ide_cmd_id)
+; Return: acc=zero on success, non-zero for an error
+;         de=IDE PPA base address (0F500h, F600h, etc)  
+;         hl=buffer+512
+;
+;M_RDIDE	EQU	0F834h
+;
+;
+x_rdide:ld	e, ide_cmd_read
+y_rdide:
+;	call	MDI		; saves all registers
+	push	de
+	ld	a, d
+	and	1
+	jr	z, _rdhdd
+	ld	a, ide_cmd_read
+	cp	e
+	call	z, sd_read
+	jr	_rdret
+_rdhdd:	call	z_rdide		
+_rdret:	pop	de
+	ret
+;
+; “œﬁ…‘¡‘ÿ ”≈À‘œ“, ”œ»“¡Œ…‘ÿ ¡ƒ“≈” ”≈À‘œ“¡ ◊ LBABUF
+; ˜Ÿ»œƒ: Z=ok, NZ=error
+;
+readide:
+	call	idedevice		; d: 0=Master, 10h=slave;
+	ld	hl, MasterInfo+8
+	call	x_rdide			; e:=ide_cmd_read, saves de (d: 0=Master, 10h=slave)
+	ld	b, 0FFh			; unreal LBA - force reread on access
+	jr	nz, readide1		; if error
+	ld	bc, (MasterInfo+7)
+readide1:
+	ld	hl, (PAR_IDE) 		; hl=LBABUF
+	dec	hl			; hl=IDEDEVx
+	ld	(hl), d			; put device flag (master=0/slave=10h) to IDEDEVx
+	inc	hl
+	ld	de, (MasterInfo+5)
+	ld	(hl), e
+	inc	hl
+	ld	(hl), d
+	inc	hl
+	ld	(hl), c
+	inc	hl
+	ld	(hl), b
+	ret	
+;
+idebuf_offset:
+	ld	a, (IDEBUF_OFFS)	; a=0..3
+	ld	hl, (PAR_IDE+4) 	; hl=IDEBUF
+	ld	bc, 80h         	; calculate buffer offset
+iboffs: or	a
+	ret	z			; return if a=-1
+	dec	a
+	add	hl, bc
+	jr	iboffs
+;
+WRITESEC:
+	ld      a,d
+	ld      (DMABANK),a
+	call    ZDI
+	LD      A,(WORKDISK)
+	CP      2
+	JP      c, WRITEFLOPPY	; Device0 = Floppy0, Device1 = Floppy1
+	JP      z, WRVDISK	; Device2 = VDISK
+	cp	6		; Device6 = ROMDISK
+	jp	nc, copyerr	; ROM writing not acceptable
+;	
+; Device3..Device5 = IDE/SD slot 0..2
+WRIDE:  LD      A, d		; d=(DMABANK)
+	cp	WORKPAGE
+	jr 	z, WRIDE00
+	LD      DE,MOVEBUF
+	CALL    @@BLDR80HLDMA	; È˙ ÔÏ¯˙Ô˜·ÙÂÏ¯ÛÎÔÁÔ DMA
+WRIDE00:CALL    SEC2LBA		; OUT: HL=SECTOR_ADDRESS, A=SECTOR_BANK, B=0         
+	jr	nz, get_err1
+	CALL    cmp_lba		; hl=MasterInfo+8
+	push	af
+	call	nz, readide	; read IDE if attemp to write nonbuffered sector
+	jr	nz, get_err2
+	call	idebuf_offset	; hl=128b segment address, bc=080h
+	ex	de,hl
+	LD      HL,MOVEBUF
+	LD      A,(DMABANK)
+	cp	WORKPAGE
+	jr 	nz, WRIDE01
+	LD      HL,(DMAPOINT)
+WRIDE01:ldir	
+	call	idedevice		; d: 0=Master, 10h=slave, 1,3=SDCARD 
+	ld	hl, MasterInfo+8
+;
+; ide<->sd switch 
+;
+	bit	0, d
+	jr	z, _wrhdd
+	pop	af
+;	call	MDI
+	jp	sd_write
+;	jp	MEI
+_wrhdd:	
+	pop	af
+	jr 	nz, wride0
+;
+x_wride:ld	e, ide_cmd_write
+	call	y_rdide			; e=ide_cmd_write -> only set LBA position, wait DRQ
+	jr	nz, get_err1
+wride0:	ld	hl, (PAR_IDE+4) 	; hl=IDEBUF
+;
+; Write a block of 512 bytes [from buffer at (hl)] to the drive
+;
+write_data:
+;	call	MDI
+IF IDEPRO
+	ld	b,0
+WRC0:	ld	c,(hl)
+	inc	hl
+	ld	a,(hl)
+	out	(PRO_DATAH),a
+	inc	hl
+	ld	a,c
+	out	(PRO_DATAL),a
+	djnz	WRC0	
+ELSE
+        ld      a, wr_ide_8255
+@@P0:	ld      (ide_8255_cfg), a       ; config 8255 chip, write mode
+        ld      bc, ide_data            ; b=0,  c = ide register address
+@@P1:	ld      de, ide_8255_ctl
+wrblk2: ld      a, (hl)
+@@P2:	ld      (ide_8255_lsb), a       ; drive lower lines with lsb
+        inc     hl
+        ld      a, (hl)
+@@P3:	ld      (ide_8255_msb), a       ; drive upper lines with msb
+        ld      a, c
+        ld      (de), a                 ; drive address onto control lines
+        or      ide_wr_line 
+        ld      (de), a                 ; assert write pin
+        inc     hl                      ; delay 6 tstates
+        ld      a, c                    ; delay 4 tstates, total ~2.5 mks
+        ld      (de), a                 ; deassert write pin
+        djnz    wrblk2
+        ld      a, rd_ide_8255
+@@P4:	ld      (ide_8255_cfg), a       ; config 8255 chip, read mode
+ENDIF
+
+;
+; wait until the write is complete
+;
+	call	ide_wait_not_busy
+;	call	MEI
+	jr	z, get_err1		; if Busy
+	xor	a
+	ret 
+;
+get_err2:pop	af
+get_err1:
+get_err:xor	a		
+rdretff:dec	a		; error = 0FFh
+	ret
+;
+RDIDE:				; Device3..Device5 = IDE/SD slot 0..2
+	CALL    SEC2LBA         
+	jr	nz, get_err1
+	CALL    cmp_lba
+	call	nz, readide	; read IDE if attemp to read nonbuffered sector
+	jr	nz, get_err1
+	call	idebuf_offset	; hl=128b segment address, bc=080h
+	LD      A,(DMABANK)
+	cp	WORKPAGE
+	jr 	z, @@BLDR80DEDMA
+	LD      DE,MOVEBUF
+	push	de
+	ldir        		; ˜Ô ˜ÚÂÌÂÓÓ˘Í ‚ıÊÂÚ
+	pop	HL		; HL=MOVEBUF
+;
+@@BLDR80DEDMA:
+	LD      DE,(DMAPOINT)
+	jr	@@BLDR80
+@@BLDR80HLDMA:
+	LD      HL,(DMAPOINT)
+@@BLDR80:
+	ld	bc, 80h
+@@BLDR: LD      A,(DMABANK)
+	CP      WORKPAGE
+	JP      NZ,MOVEADRSP
+@@BLDRET:
+	LDIR
+	xor	a
+	RET
+;
+; read a HDD sector, specified by the 4 bytes in "lba" 
+; Input: HL=DriveInfo_array+8, 
+;	 d=( 0=master, 10h=slave )
+;        e=command_mode (ide_cmd_read, ide_cmd_id, ide_cmd_write)
+; Return, acc=zero (Z) on success, non-zero (NZ) for an error
+;
+;get_err:xor	a
+;rdretff:dec	a		; ld      a, ide_error_busy
+;	ret
+z_rdide:push	de
+	call    ide_wait_not_busy       ; make sure drive is ready
+	pop	de
+        jr      z, rdretff		; if a=0,Z=true
+	push	de
+	call    wr_lba                  ; tell it which sector we want
+	dec	hl
+	ld	a, (hl)
+	dec	hl
+	ld	l, (hl)
+	ld	h, a			; hl = buffer addres from DriveInfo_array
+	call    ide_wait_not_busy       ; make sure drive is ready
+	pop	de
+zgeterr:jr      z, get_err
+        rrca
+cgeterr:jr      c, get_err
+IF IDEPRO
+	ld	a,e
+	out	(PRO_COMAND),a
+	push	de
+ELSE
+        ld      a, ide_command
+	push	de
+	call    ide_wr_8                ; ask the drive to read it
+ENDIF
+	call    ide_wait_drq            ; wait until it's got the data
+	pop	de
+	jr	z, zgeterr
+        rrca
+        jr      c, cgeterr
+	ld	a, e
+	sub	ide_cmd_write
+	ret	z
+;
+; Read a block of 512 bytes (one sector) from the drive
+; and store it in memory (hl)
+;
+read_data:				; hl=buffer address
+IF IDEPRO
+	ld	b,0
+RDC0:	in	a,(PRO_DATAL)
+	ld	(hl),a
+	inc	hl
+	in	a,(PRO_DATAH)
+	ld	(hl),a
+	inc	hl
+	djnz	RDC0
+	xor	a
+	ret
+ELSE
+@@P7:	ld      de, ide_8255_ctl	; 0F500h
+        ld      bc, ide_data		; b=0, c=ide_data
+rdblk2: ld      a, c
+        ld      (de), a                 ; drive address onto control lines
+        or      ide_rd_line 
+        ld      (de), a                 ; assert read pin on control lines
+@@P8:	ld      a, (ide_8255_lsb)       ; read the lower byte
+        ld      (hl), a
+        inc     hl
+@@P9:	ld      a, (ide_8255_msb)       ; read the upper byte
+        ld      (hl), a
+        inc     hl
+        xor     a
+        ld      (de), a                 ; deassert all control pins
+        djnz    rdblk2
+        ret
+ENDIF
+;
+; Wait for NOT_BUSY.  if Z at exit => error(timeout, busy), NZ=OK
+;
+ide_wait_not_busy:
+        ld      b, 0			; rdy_repeat=256
+ide_wbsy:
+IF IDEPRO
+	in	a,(PRO_STAT)
+ELSE
+        ld      a, ide_status           ; wait for RDY bit to be set
+	call    ide_rd_8
+ENDIF
+        cpl
+        and     10000000b
+        ret     nz			; nz = OK
+	call    delay10
+        djnz    ide_wbsy
+        RET                    	
+;
+; Wait for the drive to be ready to command/control.
+; Returns the drive's status in Acc.  if Z at exit => error(timeout), NZ=OK
+;
+ide_wait_ready:
+        ld      b, 0			; rdy_repeat=256
+ide_wrdy:
+IF IDEPRO
+	in	a,(PRO_STAT)
+ELSE
+        ld      a, ide_status           ; wait for RDY bit to be set
+	call    ide_rd_8                
+ENDIF
+        and     01000000b
+        jr      nz, ide_wait_not_busy
+	call    delay10                 ; dirt A, de:=0
+        djnz    ide_wrdy
+        ret     			; z = FAIL
+;
+; Read byte from IDE register
+; input  a = ide regsiter address
+; output a = byte readed from ide drive
+;
+; bc, hl - not used
+;
+
+IF IDEPRO
+ELSE
+
+ide_rd_8:
+        ex	de, hl
+@@P5:   ld	hl, ide_8255_ctl
+	ld      (hl), a       		; drive address onto control lines
+        or      ide_rd_line 
+	ld      (hl), a       		; assert read pin
+@@P6:	ld      a, (ide_8255_lsb)       ; read the lower byte
+	ld      (hl), 0			; deassert all control pins
+	ex	de, hl
+        ret
+
+ENDIF
+
+;
+delay10:
+@@55:   ld      de, intinchl
+delayx: dec     de			; 6
+        ld      a, d			; 4
+        or      e			; 4
+        ret	z			; 5
+        jr      delayx			; 12  total=31 tstates
+;
+; Wait for the drive to be ready to transfer data.
+; Returns the drive's status in Acc.  if Z at exit => error(timeout), NZ=OK
+;
+ide_wait_drq:
+        ld      b, 0			; rdy_repeat=256
+ide_wdrq:
+IF IDEPRO
+	in	a,(PRO_STAT)
+ELSE
+        ld      a, ide_status		; wait for DRQ bit to be set
+	call    ide_rd_8
+ENDIF
+	ld	c, a
+        and     10000000b
+        jr      nz, ide_wdrq1		; wait for BSY to be clear
+        ld      a, c
+        and     00001000b		; wait for DRQ to be set
+        ret     nz
+ide_wdrq1:
+	call    delay10
+        djnz    ide_wdrq
+        ld      a, c
+        ret     			; z = FAIL
+;
+; Load position registers (sector number in LBA notation)
+;   (Input: HL=DriveInfo_array+8,  d: 0=master, 10h=slave)
+;
+wr_lba: ld	a, 10h
+	and	d			; 0=master, 10h=slave. Mask out other values
+        or	0E0h			; 11100000b - LBA mode, Master, head 0 
+	or 	(hl)			; lba+3
+IF IDEPRO
+	out	(PRO_HEAD),a
+	dec	hl
+	ld	a,(hl)
+	out	(PRO_CYL_MSB),a
+	dec	hl
+	ld	a,(hl)
+	out	(PRO_CYL_LSB),a
+	dec	hl
+	ld	a,(hl)
+	out	(PRO_SECTOR),a
+	ld	a,1
+	out	(PRO_SEC_CNT),a
+	ret
+ELSE
+	ld	e, a
+        ld      a, ide_head
+	call    ide_wr_8
+	dec	hl
+        ld      a, ide_cyl_msb
+        ld      e, (hl)			; lba+2
+	call    ide_wr_8
+        ld      a, ide_cyl_lsb
+	dec     hl
+        ld      e, (hl)			; lba+1
+	call    ide_wr_8
+        ld      a, ide_sector
+	dec	hl
+        ld      e, (hl)			; lba+0
+	call    ide_wr_8
+        ld      a, ide_sec_cnt
+        ld      e, 1
+;
+; Write byte to IDE register
+; input  a = ide regsiter address
+;        e = byte to write to ide drive
+; hl - not used
+;
+ide_wr_8:
+        ld      c, a                    ; address in  c
+        ld      a, wr_ide_8255
+@@P10:	ld      (ide_8255_cfg), a     	; config 8255 chip, write mode
+        ld      a, e
+@@P11:	ld      (ide_8255_lsb), a       ; drive lower lines with lsb (r2)
+        ld      a, c
+	ex	de, hl
+@@P12:	ld      hl, ide_8255_ctl
+        ld      (hl), a                 ; drive address onto control lines
+        or      ide_wr_line 
+        ld      (hl), a                 ; assert write pin
+        ld      a, rd_ide_8255          ; delay 7 tstates  7+7=14= 3 mks
+        ld      (hl), c                 ; delay 7 tstates. deassert write pin
+	ex	de, hl
+@@P13:	ld      (ide_8255_cfg), a	; config 8255 chip, read mode
+        ret
+ENDIF
+;
+
+

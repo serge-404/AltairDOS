@@ -1,0 +1,1336 @@
+;
+; console command processor BEST DOS
+;
+COLBYTE EQU     0F3F5H
+ACTDSK  EQU     4
+DMAMEM  EQU     80h
+SYSLINE EQU     80h
+FCB1    EQU     5Ch
+FCB     EQU     FCB1
+FCB2    EQU     6Ch
+TPA     EQU     100h
+VALUE   EQU     0F3F6h    ; Служебная ячейка CCP
+; бит    0   -   0/1  -> ширина 6/8 символов
+; бит    1   -   0/1  -> PROMPT выкл./вкл.
+; бит    2   -   0/1  -> ECHO OFF/ON
+; бит    3   -   0/1  -> PROGRAMM/CCP WORK
+; бит    4   -   0/1  -> LPT F500/F600
+;
+BEGCCP:
+BUFFMAX EQU     BEGCCP-82H
+BUFFLEN EQU     BEGCCP-81H
+BUFFDATA EQU    BEGCCP-80H
+ADDRSTR	EQU	BEGCCP-84H
+;
+STACK   EQU     ADDRSTR-4
+COPYBUF EQU     BEGCCP-1100H
+;
+;COPFCB1 EQU     COPYBUF-40
+;COPFCB2 EQU     COPFCB1-40
+;DSTFCB  EQU     COPFCB2-40
+;
+CCP:    LD      SP,STACK
+        LD      C,13
+        CALL    BDOS            ; сбросить диск
+
+        call    SETCLR          ; ВОССТАНОВЛЕНИЕ ЦВЕТА
+; repeat CCP
+RESTRT:
+        LD      E,0FFH
+        LD      C,6
+        CALL    BDOS
+        CP      4
+        LD      A,WORKPAGE
+        LD      HL,CLRBAT
+        CALL    Z,BCALL
+RES_ND:	LD      A,(ACTDSK)
+RES_NEWD:
+        LD      SP,STACK
+        AND     0FH
+        LD      (ACTDSK),A
+        CALL    SETDMADSK
+
+        XOR     A
+        LD      (ECHOFL),A
+        LD      (REPLNUM),A
+        LD      (ISECHO),A
+        LD      HL,BUFFMAX
+        LD      (HL),7FH
+        INC     HL
+        LD      (HL),A
+
+        LD      HL,VALUE
+        LD      A,(HL)
+        XOR     1
+        RES     7,A
+        LD      (HL),A
+        CALL    NOPARM          ; ВОССТАНОВЛЕНИЕ WIDTH
+;
+;********************************************************
+; ЗДЕСЬ АНАЛИЗ BAT-БУФЕРА НА ПРЕМЕТ СРАБАТЫВАНИЯ ECHO OFF
+;********************************************************
+;
+        LD      C,32H
+        LD      DE,COPYBUF
+        LD      A,80H
+        LD      (DE),A
+        CALL    XBDOS           ; ЧИТАТЬ СТРОКУ ИЗ BAT-БУФ.
+        OR      A
+        LD      HL,VALUE
+        JR      NZ,NOECHO       ; ЕСЛИ СТРОКИ НЕТ
+        PUSH    AF
+        LD      HL,COPYBUF+100H
+        LD      A,TPAPAGE
+        EXX
+        EX      AF,AF'
+        LD      HL,BATVAR
+        LD      BC,80H
+        LD      A,WORKPAGE
+        CALL    BLDIR		; B=0
+        LD      HL,COPYBUF+1
+        LD      E,(HL)
+        LD      D,B		; ,0
+        INC     DE
+        PUSH    HL
+        ADD     HL,DE
+        LD      (HL),D
+        LD      HL,COPYBUF+100H
+        LD      E,(HL)
+        INC     DE
+        ADD     HL,DE
+        LD      (HL),D
+        POP     HL              ; HL=COPYBUF+1
+        PUSH    HL
+
+        LD      B,(HL)
+        INC     HL
+        LD      DE,ECHOSTR
+        CALL    CPSTR
+        JR      NZ,IFNOEHO
+        LD      A,1
+        LD      (ISECHO),A
+IFNOEHO:
+        POP     HL
+        LD      DE,BUFFMAX
+        LD      A,(DE)
+        LD      B,A
+        PUSH    DE
+        INC     DE
+BATT1:  INC     DE
+        INC     HL
+        LD      A,(HL)
+        OR      A
+        JR      Z,BATT2
+        LD      (DE),A
+        CP      '%'
+        JR      NZ,BATT0
+        LD      A,(ISECHO)
+        OR      A
+        CALL    Z,MOVEVAR
+BATT0:  DJNZ    BATT1
+BATT2:  POP     DE
+        LD      A,(DE)
+        SUB     B
+        INC     DE
+        LD      (DE),A
+        POP     AF
+
+        LD      HL,VALUE
+        BIT     2,(HL)
+        JR      Z,BATSTR        ; СТРОКА ЕСТЬ И ECHO OFF
+NOECHO: OR      A               ; Z ->СТРОКА ЕСТЬ & ECHO ON
+        PUSH    AF              ; NZ->BAT-СТРОКИ НЕТ
+        JR      Z,NOECHO1
+        LD      C,113
+        CALL    BDOS
+        LD      B,0
+        LD      HL,BATVAR
+        LD      A,WORKPAGE
+        CALL    BSTB
+; SHOW_PROMPT
+NOECHO1:POP     AF
+        PUSH    AF
+
+;     >>> ВЕКТОР CCP ! <<<
+	ld	c,b	  ; bc=0
+        LD      HL,YWARM  ; СПЕЦИАЛЬНО ДЛЯ ОБОЛОЧЕК ТИПА
+        CALL    NZ,YPROC  ; NC
+;     >>>>>>>><<<<<<<<<<<<
+
+        CALL    CRLF
+        LD      A,(ACTDSK)
+        ADD     A,'A'
+        LD      E,A
+        CALL    OUTSYM
+; Вывести имя юзера
+        LD      HL,VALUE
+        BIT     1,(HL)          ; prompt ON/OFF
+        JR      Z,NO_NAME
+        ld      de,USRMSG
+        call    STRING
+        ld      c,20H
+        ld      e,0FFh
+        call    BDOS
+        or      a
+        CALL    NZ,USRNAME      ; корневой не выводить
+NO_NAME:
+        LD      E,'>'
+        CALL    OUTSYM
+;вывести BAT-строку
+        POP     AF
+        JR      NZ,INPSTART
+        LD      HL,BUFFMAX+1
+        LD      B,(HL)
+        INC     HL
+        LD      A,(ISECHO)
+        OR      A
+        CALL    Z,WRSTRNG
+        JR      BATSTR
+
+INPSTART:
+        LD      HL,VALUE
+        SET     3,(HL)
+        LD      DE,BUFFMAX
+;        PUSH    HL
+; ввести строку с консоли с эхо-печатью
+        LD      C,10
+        CALL    NZ,XBDOS
+
+;        POP     HL
+        RES     3,(HL)
+
+BATSTR: LD      HL,BUFFMAX+1
+        LD      A,(HL)
+        PUSH    AF              ; reg.A = длина строки
+
+AC5C2:  INC     HL
+        LD      A,(HL)
+        CP      ' '
+        JR      Z,AC5C2
+; взять байт из буфера, пробелы игнорировать
+
+        LD      (ADDRSTR),HL
+        POP     AF
+        PUSH    HL
+        OR      A
+        JP      Z,RESTRT
+
+; буфер пустой (просто нажата ВК) - переход
+; иначе поместить длину строки в reg.B
+; обработка буфера: выкидываются коды < 40h, у остальных
+; сбросываются D7 и D5.
+        LD      B,A
+        LD      HL,BUFFLEN+1
+AC5D4:  LD      A,(HL)
+        CP      39
+        CALL    Z,SETFLG
+        CP      34
+        CALL    Z,SETFLG
+        CP      '@'
+        JR      C,AC5DD
+        LD      D,A
+        LD      A,(ECHOFL)
+        OR      A
+        JR      NZ,AC5DD
+        LD      A,D
+        AND     05FH
+        LD      (HL),A
+AC5DD:  INC     HL
+        DJNZ    AC5D4
+        LD      (HL),B	; ,0 ; сформировать флаг конца строки - 0
+;
+;*********************************
+; ЗДЕСЬ АНАЛИЗ ПОДМЕН
+;*********************************
+;
+REPL1:  LD      C,30H
+        LD      A,250
+        LD      DE,COPYBUF
+        LD      (DE),A
+        CALL    XBDOS
+        LD      HL,REPLNUM
+        CP      (HL)
+        JR      Z,ENDREPL
+        LD      B,A
+        LD      A,(HL)
+        OR      A
+        JR      NZ,NONEW
+        LD      (HL),B
+NONEW:  INC     DE
+        LD      A,(DE)
+        LD      H,0
+        LD      L,A
+        INC     DE
+        ADD     HL,DE
+        LD      (HL),0  ; сформировать флаг конца стр. - 0
+        EX      DE,HL   ; HL=COPYBUF+2
+        PUSH    HL
+        LD      BC,250
+        LD      A,'='
+        CPIR
+        DEC     HL
+        LD      (HL),' '
+        POP     HL      ; HL=COPYBUF+2
+        JR      NZ,ENDREPL
+        POP     DE      ; DE=НАЧАЛО ВВЕДЕННОЙ СТРОКИ
+        PUSH    DE
+CPSTRS: LD      A,(DE)
+        CP      ' '+1
+        JR      C,ENDCP
+        CP      (HL)
+        JR      NZ,REPL1
+        INC     HL
+        INC     DE
+        JR      CPSTRS
+ENDCP:  LD      A,(HL)
+        CP      ' '
+        JR      NZ,REPL1
+;MKFL:   INC     HL
+;        LD      A,(HL)
+;        OR      A
+;        JR      Z,ENDREPL
+;        CP      ' '+1
+;        JR      C,MKFL
+	push	hl
+        ld	hl, 0-BUFFDATA
+	add	hl, de
+	ld	a, (BUFFLEN)
+	sub	l
+	pop	hl
+	ld	b,d
+	ld	c,e		; bc=params begin
+        LD      DE,COPYBUF+100H
+        PUSH    DE
+        EX      DE,HL   ; DE=REPL_STRING , HL=COPYBUF+100H
+	push	af
+MKFL1:  LD      A,(DE)
+        INC     DE
+        OR      A
+        JR      Z,NULL
+        CP      '&'
+        JR      NZ,MKFL2
+        LD      (HL),13
+        INC     HL
+        LD      A,10
+MKFL2:  LD      (HL),A
+        INC     HL
+        JR      MKFL1
+NULL:   ld	d,b
+	ld	e,c
+	pop	bc		; b=size of the rest (params)
+NULL2:	ld	a,(de)
+	ld	(hl),a		; copy params
+	inc	de
+	inc	hl
+	djnz	NULL2	
+	LD      (HL),1AH
+        JP      TOPRBAT
+;
+ENDREPL:POP     DE
+; в DE адрес начала значащих символов в буфере строки CCP
+        LD      HL,COMMTABL     ; в HL адрес начала таблицы
+                                ; команд CCP
+        LD      B,(HL)          ; в reg.B число команд CCP
+AC5E7:  INC     HL
+        PUSH    DE
+AC5E9:  LD      A,(DE)
+        CP      ' '+1
+        JR      C,AC5F5
+        CP      (HL)
+        JR      NZ,AC611
+        INC     HL
+        INC     DE
+        JR      AC5E9
+;
+AC5F5:  LD      A,(HL)
+        CP      ' '
+        JR      NZ,AC611
+; команда идентифицирована
+        INC     HL
+        LD      C,(HL)
+        INC     HL
+        LD      B,(HL)
+        LD      HL,RESTRT
+        EX      (SP),HL ; в стек адрес выхода на repeat CCP
+        PUSH    BC      ; в стек адрес нужной команды CCP
+        PUSH    DE
+        CALL    CRLF
+        CALL    CL_FCB  ; УСТ DE=FCB
+        POP     HL      ; в HL адрес по буферу CCP операнда
+        PUSH    DE
+        PUSH    HL
+        CALL    MAKEFCB ; нет  файла - CY=1
+        LD      (RGHL1),HL
+        POP     HL
+        POP     DE
+        RET             ;запуск по стеку нужной команды CCP
+
+; не та команда, поиск следующей
+AC611:  LD      A,(HL)
+        INC     HL
+        CP      ' '
+        JR      NZ,AC611
+        INC     HL      ; HL - адрес текста NEXT команды
+        POP     DE
+        DJNZ    AC5E7
+; команда не идентифицирована
+
+        LD      HL,RESTRT
+        PUSH    HL              ; в стек адрес repeat CCP
+
+        CALL    CL_FCB          ; очистить FCB
+        LD      HL,(ADDRSTR)
+; HL - адрес значащей части строки
+        CALL    MAKEFCB
+        JR      NC,AC638
+; CY = 1 - нет файла в FCB
+
+; Переход на рестарт CCP с изменением или без изменения
+; текущего диска.
+        LD      HL,(TMPBUF)
+        LD      A,(HL)
+        OR      A
+        RET     Z
+; Если [TMPBUF] = 0, то переход на RESTART,
+        SUB     'A'
+        JP      RES_NEWD
+; иначе переход на RESTART с установкой нового диска
+
+
+; В FCB находится имя файла
+AC638:  CALL    CRLF
+        LD      HL,FCB+1
+        LD      B,11    ; 8+3
+AC640:  LD      A,(HL)
+        INC     HL
+        CP      '?'
+        JP      Z,INV_REP
+; Если в имени или расш. файла в FCB обнаружен символ ?,
+; то переход на INV_REP
+        DJNZ    AC640
+
+        LD      C,0FFH
+        LD      DE,FCB+9
+; HL указывает на расширеиие файла в FCB
+	push	de
+	ld	HL, STBAT
+	ld	b, 3
+	call	CPSTRB
+	pop	de
+        JR      Z,IFBAT		; if extension = 'BAT'
+	push	de
+	ld	hl, SPACE
+	ld	b, 3
+	call	CPSTRB
+	pop	de
+        JP      NZ,SKIPCOM	; if extension <> '   ' 
+
+; переход, если расширение файла не 3 пробела
+; иначе изменить расширение на  'BAT'
+	ld	HL, STBAT
+	ld	c, 3
+        ldir
+IFBAT:	LD      DE,FCB
+        LD      C,0FH
+        CALL    BDOS
+        INC     A
+        JP      Z,COMFILE
+; открыть файл по имени из FCB, если ошибка открытия, то
+; переход на обслугу COM-ФАЙЛА
+        LD      HL,COPYBUF
+        PUSH    HL
+        LD      DE,FCB
+        LD      BC,20H
+; загрузка файла, reg.B счетчик длины
+        CALL    FREAD
+        LD      A,1AH
+        LD      (HL),A
+
+        LD      HL,(TMPBUF)
+        CALL    MKSYSLN
+        LD      HL,BATVAR
+        LD      A,WORKPAGE
+        CALL    BLDB
+        LD      A,B
+        OR      A
+        JR      NZ,TOPRBAT
+
+        LD      A,WORKPAGE
+        EXX
+        EX      AF,AF'
+        LD      HL,SYSLINE
+        LD      A,TPAPAGE
+        LD      BC,80H
+        CALL    BLDIR
+
+TOPRBAT:POP     HL
+        LD      IX,COPYBUF-85H
+        CALL    PROCBAT
+        JP      RESTRT
+
+;
+ISKEY:  INC     DE
+        LD      A,(DE)
+        LD      H,D
+        LD      L,E
+        INC     DE
+        CP      '/'
+        RET     NZ
+        LD      A,(DE)
+        CP      'D'
+        RET     NZ
+        LD      BC,10
+        LD      (HL),'?'
+        LDIR
+        XOR     A
+        RET
+;
+DIR:    PUSH    DE
+        LD      A,(DE)
+        OR      A
+        JR      Z,AC70B
+        DEC     A
+        LD      E,A
+        LD      C,14
+        CALL    BDOS    ; выбрать диск, если DIR D:, где
+
+;
+AC70B:  LD      HL,(RGHL1)
+        LD      DE,FCB2
+        CALL    MAKEFCB
+        POP     DE
+        PUSH    DE
+        CALL    ISKEY
+        LD      DE,FCB2
+        CALL    NZ,ISKEY
+        LD      A,4
+        JR      NZ,DIR2
+        LD      A,2
+DIR2:   LD      (COLMAX),A
+        LD      (COLCNT),A
+
+        CALL    VOLUME
+        POP     DE
+        LD      C,11h
+        CALL    XBDOS
+        CP      4
+        JR      C,TOPRDIR
+        LD      DE,NOFILES
+        CALL    STRING
+        JR      TOTLINE
+;       push    af
+;       CALL    VOLUME
+;       POP     AF
+; вывод каталога
+TOPRDIR:LD      B,4
+PR_DIR: RRCA
+        RRCA
+        RRCA                    ; A*32
+        LD      E,A
+        LD      D,0
+        LD      HL,DMAMEM+10
+        ADD     HL,DE           ; (HL) = флаг SYS
+        LD      A,(HL)
+        AND     80H
+        CALL    Z,PR_FILE0      ; если флаг SYS сброшен
+        LD      DE,FCB
+        LD      C,12h           ; search next
+        CALL    XBDOS
+        CP      4
+        JR      C,PR_DIR
+;
+        LD      HL,COLMAX
+        LD      A,(COLCNT)
+        CP      (HL)
+        JR      Z,TOLINE
+TOTLINE:CALL    CRLF
+TOLINE: CALL    LINE
+        LD      DE,TOTAL
+        LD      HL,SIZE
+        CALL    DOUBLE
+        LD      C,31
+        CALL    BDOS
+        INC     HL
+        INC     HL
+        INC     HL
+        LD      A,(HL)
+        INC     A
+        RRCA
+        RRCA
+        RRCA                    ; РАЗМЕР ГРУППЫ В КБ
+        PUSH    AF
+        INC     HL
+        INC     HL
+        LD      E,(HL)
+        INC     HL
+        LD      D,(HL)
+        INC     DE              ; РАЗМЕР ДИСКА В ГРУППАХ
+        PUSH    DE
+        CALL    PRMULGR
+	LD      DE,SPACE
+	call	string
+        LD      DE,FREE
+        LD      HL,SIZE
+        CALL    DOUBLE
+        LD      C,27
+        CALL    BDOS
+        POP     DE      ; КОЛ-ВО ГРУПП (СЧЕТЧИК)
+        PUSH    HL
+        POP     IX
+        LD      HL,0
+PRSIZE0:LD      C,(IX)
+        LD      B,8
+PRSIZE1:RLC     C
+        PUSH    BC
+        CCF
+        LD      BC,0
+        ADC     HL,BC
+        POP     BC
+        DEC     DE
+        LD      A,D
+        OR      E
+        JR      Z,PRSIZE2
+        DJNZ    PRSIZE1
+        INC     IX
+        JR      PRSIZE0
+PRSIZE2:EX      DE,HL           ; DE=СВОБОДНО В ГРУППАХ
+        POP     AF
+PRMULGR:LD      B,A
+        XOR     A
+        LD      H, a
+	ld	L, a
+MUL4:   ADD     HL,DE
+        adc     a, 0
+        DJNZ    MUL4            ; A,HL=РАЗМЕР ДИСКА В КБ
+	JP      PRSIZE
+;
+TYPE:   JP      C,INV_REP ; нет файла в FCB - сообщение
+                          ; об ошибке
+        LD      C,0FH
+        CALL    XBDOS
+        inc     a
+        JP      Z,NOTF_REP  ; переход, если не открыт файл
+
+TYPE1:  LD      C,14h           ; читать файл
+        CALL    XBDOS
+        OR      A
+        RET     NZ
+
+        LD      HL,DMAMEM
+        LD      B,L
+TYPE2:  LD      A,(HL)
+        INC     HL
+        CP      1AH             ; EOF
+        RET     Z
+        CP      ' '
+        JR      NC,NOLF
+        CALL    HOUT          ; и выводить на экран
+        JR      TYPE3
+NOLF:   PUSH    DE
+        LD      E,A
+        CALL    OUTSYM
+        POP     DE
+TYPE3:  DJNZ    TYPE2
+        JR      TYPE1
+;
+PR_FILE0:
+        LD      C,'.'
+        CALL    PRNAME
+
+        LD      B,3
+PR_EXT: LD      A,(HL)
+        INC     HL
+        OR      20h
+        LD      E,A
+        CALL    OUTSYM
+        DJNZ    PR_EXT
+
+        LD      A,(COLMAX)
+        CP      4
+        JR      NC,DIR3
+
+        LD      DE,BEGCCP-40
+        LD      C,38H
+        CALL    BDOS
+        CP      4
+        JR      NC,DIR3
+        LD      HL,BEGCCP-22
+        LD      E,' '
+        CALL    DECBYT1
+        DEC     HL
+        LD      E,':'
+        CALL    DECBYT1
+        DEC     HL
+        LD      E,':'
+        CALL    DECBYT1
+        INC     HL
+        INC     HL
+        LD      E,' '
+        CALL    DECBYTE
+        LD      E,':'
+        CALL    DECBYTE
+
+DIR3:   LD      A,(COLCNT)
+        LD      DE,SPACE
+        DEC     A
+        JR      NZ,PR_FILE1
+        CALL    TDA06      ;CONSTATUS
+        OR      A
+        JP      NZ,RESTRT
+        LD      DE,CRLF_MSG
+        LD      A,(COLMAX)    ; число файлов в строке
+PR_FILE1:
+        LD      (COLCNT),A
+        JR      STRN
+;
+SURE:	PUSH    DE
+        LD      DE,CONFIRM      ; are you sure ?
+        CALL    STRING
+        LD      C,1
+        CALL    BDOS
+        POP     DE
+        AND     5FH
+        CP      'Y'     ; Если не "Ы", то выход
+        RET
+;
+ERA:    JR      C,INV_REP ; нет файла в FCB - сообщение
+                          ; об ошибке
+        LD      HL,VALUE
+        BIT     2,(HL)
+	CALL	NZ,SURE
+        RET     NZ
+        LD      C,13h
+        CALL    BDOS
+        INC     A
+        RET     NZ      ; операция удачная - выход
+        CALL    CRLF
+        JR      NOTF_REP
+;
+REN:
+        JR      C,INV_REP ; нет файла в FCB - сообщение
+                          ; об ошибке
+        LD      C,11h
+        CALL    XBDOS
+        CP      4
+        JR      C,ALR_REP ; переход, если already exists
+
+        EX      DE,HL     ; HL=FCB
+        PUSH    HL
+        LD      DE,FCB+16
+        LD      BC,12
+        LDIR
+        POP     DE        ; DE=FCB
+        LD      HL,(RGHL1)
+        PUSH    DE
+        CALL    MAKEFCB   ; получить FCB SOURCE файла
+        POP     DE        ; DE=FCB
+        JR      C,INV_REP ; несъедобное имя - обругаться
+                          ; и выйти
+        LD      HL,FCB+16
+        LD      A,(HL)
+        LD      (FCB),A
+        LD      (HL),0
+
+        LD      C,17H
+        CALL    BDOS      ; rename file
+        INC     A
+        RET     NZ
+
+; File not found
+NOTF_REP:LD     DE,FILE
+HLNOTFND:LD      HL,NOTFOUND
+DOUBLE: 
+;	PUSH    HL              ; СОСТАВНАЯ СТРОКА
+        CALL    STRING
+;        POP     DE
+	ex	de, hl
+TOSTRING:JP	STRING
+;
+; already exists
+ALR:    POP     HL
+ALR_REP:LD      DE,FILE
+        LD      HL,ALREADY
+        JR      DOUBLE
+;
+AC986:  LD      DE,FCB
+        LD      C,10H
+        CALL    XBDOS           ; close file
+        INC     A
+        RET     NZ
+SV_ERR: ;JR      INV_REP
+;
+INV_REP:LD      DE,BADCOMM
+STRN:   jr      TOSTRING
+;
+; команда CCP !
+VER:
+        LD      DE,VER_TXT
+        Jr      TOSTRING
+;
+VOL:    INC     DE
+        LD      A,(DE)
+        CP      '?'
+        JR      Z,VOL0
+        CP      ' '+1
+        JR      NC,SETVOL
+VOL0:   CALL    VOLUME
+        OR      A
+        JR      NZ,NOLAB_REP
+        RET
+SETVOL: CALL    VOLCOMM
+        LD      C,2AH
+        CALL    XBDOS
+        OR      A
+        RET     Z
+NOLAB_REP:
+        LD      DE,NO_LAB
+        Jr      TOSTRING
+;
+;SAVE:   JR      C,SV_ERR        ; несъедобное имя - выход
+;        LD      HL,(RGHL1)
+;        CALL    GETNUM
+;        JR      C,SV_ERR
+
+;        LD      C,13h
+;        CALL    XBDOS           ; KILL файл-дублер
+;        LD      C,16h
+;        CALL    XBDOS           ; создать заголовок файла
+;        INC     A
+;        Jp      Z,NOSP_REP
+;        INC     B
+;        LD      DE,TPA
+;AC953:  DEC     B
+;        JR      Z,AC986
+;        LD      A,2
+;MUL2:   PUSH    AF
+;        LD      C,1Ah
+;        CALL    XBDOS
+;        PUSH    DE
+;        LD      DE,FCB
+;        LD      C,15h
+;        CALL    XBDOS
+;        POP     HL
+;        OR      A
+;        Jp      NZ,NOSP_REP
+;        LD      DE,128
+;        ADD     HL,DE
+;        EX      DE,HL
+;        POP     AF
+;        DEC     A
+;        JR      NZ,MUL2
+;        JR      AC953
+;
+;
+KILL:   LD      C,106
+        INC     DE
+        LD      A,0FFh
+        CALL    NC,BDOS
+        LD      DE,DRIVR
+        LD      HL,NOTFOUND
+        INC     A
+        RET     NZ
+;
+CL_FCB: LD      HL,FCB
+CL_FCB1:PUSH    HL
+        LD      D,H
+        LD      E,L
+        INC     DE
+        LD      BC,35
+        LD      (HL),0
+        LDIR
+        POP     DE
+        RET
+;
+; НОВЫЕ ДИСКОВЫЕ ФУНКЦИИ
+;
+;F29 - В МАССИВ С АДРЕСОМ В DE В ТЕКУЩЕМ БАНКЕ ВОЗВРАЩ.16 СИМВ.МЕТКА ДИСКА
+;F2A - ИЗ МАССИВА (ПО DE) НА ДИСК ЗАПИС. 16-И СИМВОЛЬНАЯ МЕТКА ДИСКА
+;F2B - В МАССИВ (ПО DE) ВОЗВРАЩ. 16 СИМВ. ИМЯ ТЕКУЩЕГО ЮЗЕРА
+;F2C - ТЕКУЩЕМУ ЮЗЕРУ УСТАНАВЛ. НОВОЕ ИМЯ ИЗ МАССИВА (ПО DE) - 16 СИМВ.
+;F2D - УСТАНОВКА ЮЗЕРА ПО ИМЕНИ ИЗ МАСИВА (ПО DE)
+;F2E - ПОЛУЧИТЬ ИЗ БУФЕРА ТИМПЛЕТА СТРОКУ В МАССИВ (ПО DE).
+;F2F - ДОБАВИТЬ СТРОКУ В БУФЕР ТИМПЛЕТА ИЗ МАССИВА (по DE).
+;F30 - ПОЛУЧИТЬ ИЗ БУФЕРА ПОДМЕН СТРОКУ В МАССИВ (ПО DE).
+;F31 - ДОБАВИТЬ СТРОКУ В БУФЕР ПОДМЕН ИЗ МАССИВА (по DE).
+;F32 - ПОЛУЧИТЬ СТРОКУ ИЗ BAT-БУФЕРА В МАССИВ (ПО DE).МАСCИВ СОКРАЩАЕТСЯ
+;F33 - ДОБАВИТЬ СТРОКУ В BAT-БУФЕР ИЗ МАССИВА (ПО DE).
+;F34 - ПОЛУЧИТЬ ДАТУ СОЗДАНИЯ ПОСЛЕДНЕГО ОТКРЫТОГО ФАЙЛА .
+;F35 - УСТАНОВИТЬ ДАТУ СОЗДАНИЯ ФАЙЛА ДЛЯ ПОСЛЕДНЕГО ОТКРЫТОГО ФАЙЛА.
+;F36 - ПОЛУЧИТЬ СТРОКУ УСТАНОВКИ ДИСКОВ
+;
+VOLUME: LD      DE,DMAMEM
+        LD      C,29H
+        CALL    XBDOS
+        OR      A
+        RET     NZ
+        PUSH    DE
+        LD      DE,VOL_MSG
+        CALL    STRING          ; METKA ДИСКА
+        POP     HL
+        LD      B,16
+        CALL    WRSTRNG
+        CALL    CRLF
+        XOR     A
+        RET
+;
+INSERT: 
+;	PUSH    HL
+        LD      E,0FFH
+        CALL    SETUSR		; saves HL
+        LD      (RGHL1),A
+        LD      E,0
+        CALL    SETUSR		; saves HL
+        LD      DE,FCB
+        LD      C,2BH
+        CALL    XBDOS		; saves HL
+        OR      A
+;	POP     HL
+        JP      NZ,NOSP_REP
+        LD      DE,FCB+16
+        CALL    VOLCOMM
+;        PUSH    HL
+        LD      C,2DH
+        CALL    XBDOS		; saves HL
+        OR      A
+;        POP     HL
+        JP      NZ,LISTUSR
+;        PUSH    HL
+        LD      E,0FFH
+        CALL    SETUSR		; saves HL
+;        POP     HL
+        LD      DE,FCB+16
+        PUSH    AF              ; КАКОЙ ЮЗЕР
+        CALL    VOLCOMM
+        LD      A,(DE)
+        CP      ' '
+        LD      A,0
+        JR      Z,IFUSER0
+        LD      C,2DH
+        CALL    XBDOS
+        OR      A
+        POP     BC
+        JP      NZ,LISTUSR
+        PUSH    BC
+        LD      E,0FFH
+        CALL    SETUSR          ; КУДА ВКЛАДЫВАТЬ
+IFUSER0:POP     BC
+;        CP      B
+;        JP      Z,LISTUSR
+        LD      C,B
+        LD      B,0
+        LD      HL,FCB
+        ADD     HL,BC
+        LD      (HL),A
+        LD      E,B             ; E=0
+        CALL    SETUSR
+        LD      DE,FCB
+        LD      C,2CH
+        CALL    BDOS
+        OR      A
+        JP      NZ,INV_REP
+        LD      A,(RGHL1)
+        LD      E,A
+        JP      SETUSR
+;
+HELP:   LD      DE,COMMTABL
+        LD      A,(DE)
+	LD	C,A
+HELP1:  PUSH    DE
+        CALL    CRLF
+        POP     DE
+        LD      B,6
+HELP2:  PUSH    BC
+        INC     DE
+        LD      B,7
+        CALL    WRTOSP
+        LD      A,9
+        CALL    HOUT
+        INC     DE
+        INC     DE
+        POP     BC
+        DEC     C
+        JP      Z,CRLF
+        DJNZ	HELP2
+        JR      HELP1
+;
+;CCOPY:  LD      DE,COPFCB1              ; СЫРАЯ
+;        CALL    MAKEFCB
+;        JR      C,BADCMM
+;        LD      DE,COPFCB2
+;        CALL    MAKEFCB
+;BADCMM: JP      C,BADCOMM
+;
+;        LD      DE,COPFCB1
+;        LD      C,11h
+;        CALL    BDOS
+;        CP      4
+;        JP      NC,NOTF_REP
+;CCOPY1: CALL    CL_FCB
+;        LD      HL,DSTFCB
+;        CALL    CL_FCB1
+;        RRCA
+;        RRCA
+;        RRCA                    ; A*32
+;        LD      E,A
+;        LD      D,0
+;        LD      (RGHL1),DE
+;        LD      HL,DMAMEM+1
+;        ADD     HL,DE           ; (HL) = флаг SYS
+;        LD      DE,FCB+1
+;        LD      BC,11
+;        LDIR
+;        LD      A,(COPFCB1)
+;        LD      (FCB),A
+;        LD      DE,COPFCB2
+;        LD      HL,FCB
+;        LD      IX,DSTFCB
+;        LD      B,12
+;CCOPY2: LD      A,(DE)
+;        CP      '?'
+;        JR      NZ,CCOPY3
+;        LD      A,(HL)
+;CCOPY3: LD      (IX),A
+;        INC     DE
+;        INC     HL
+;        INC     IX
+;        DJNZ    CCOPY2  ; ОБА FCB ГОТОВЫ (FCB & DSTFCB)
+;
+;        LD      C,0FH
+;        LD      DE,FCB
+;        CALL    XBDOS   ; ОТКРЫТЬ ФАЙЛ-ИСТОЧНИК
+;        CP      4
+;        JP      NC,NOTF_REP     ; SOUR. FILE NOT FOUND
+;
+;        LD      DE,(RGHL1)
+;        LD      B,2
+;        CALL    PR_FILE0
+;
+;        LD      C,0FH
+;        LD      DE,DSTFCB
+;        CALL    XBDOS
+;        CP      4
+;        JR      NC,CREATE
+;        CALL    ALR_REP         ; DEST. FILE ALREADY EXISTS
+;        JR      SKIP
+;CREATE: LD      C,16H
+;        CALL    XBDOS           ; СОЗДАТЬ ФАЙЛ-ПРИЕМНИК
+;        CP      4
+;        JP      NC,NOSP_REP
+;        CALL    CRLF
+;
+;CCOPY5: LD      DE,FCB
+;        LD      HL,COPYBUF
+;        LD      BC,20H
+;        CALL    FREAD   ; IN: DE=FCB HL=ARRAY, OUT: NZ=EOF
+;        PUSH    AF
+;
+;        LD      HL,COPYBUF
+;        LD      A,20H
+;        SUB     C
+;        JR      Z,IFZERO
+;        LD      C,A
+;FSAVE:  PUSH    HL
+;        PUSH    BC
+;        EX      DE,HL
+;        LD      C,1AH
+;        CALL    BDOS            ; УСТ. ПДП
+;        LD      DE,DSTFCB
+;        LD      C,15H
+;        CALL    BDOS            ; ПОСЛЕД. ЗАПИСЬ
+;        OR      A
+;        POP     BC
+;        POP     HL
+;        JP      NZ,POPNOSP      ; ВОЗВРАТ, ЕСЛИ ДИСК ПОЛОН
+;        LD      DE,80H
+;        ADD     HL,DE
+;        DEC     BC
+;        LD      A,C
+;        OR      B
+;        JR      NZ,FSAVE
+;IFZERO: POP     AF
+;        JR      Z,CCOPY5
+;
+;        LD      DE,DSTFCB
+;        LD      C,16
+;        CALL    BDOS            ; ЗАKРЫТЬ DEST. ФАЙЛ
+;SKIP:
+;        LD      DE,DMAMEM
+;        LD      C,1AH
+;        CALL    BDOS
+;        LD      DE,COPFCB1
+;        LD      C,12h           ; search next
+;        CALL    BDOS
+;        CP      4
+;        JP      C,CCOPY1
+;        RET
+;
+EECHO:  LD      A,(HL)
+        CP      9
+        JR      Z,IFTAB
+        CP      ' '
+        JP      NZ,ECHO
+IFTAB:  INC     HL
+        JR      EECHO
+;
+MEM:    ld      c,100           ; set pdp
+        ld      de,DMAMEM
+        call    XBDOS
+        ld      c,107           ; get list
+        call    XBDOS
+        OR      A
+        JR      Z,NOLIST
+        PUSH    AF
+        CALL    LINE
+        LD      DE,UPSTR
+        CALL    STRING
+        CALL    CRLF
+        CALL    LINE		; B=0
+        LD      D,B
+	LD	E,B		; DE=0
+        POP     BC              ; B=КОЛ-ВО ЗАПИСЕЙ
+MEM1:   PUSH    BC
+        PUSH    DE
+        LD      C,' '
+        CALL    PRNAME          ; ВОЗВР. E=НАЧ. СЕГМЕНТ
+        PUSH    HL              ; HL=ВЕК.ЗАНЯТЫХ ВЕКТОРОВ
+        LD      C,112
+        CALL    BDOS
+        EX      DE,HL
+        LD      A,E
+        CALL    HOUT0F
+        LD      E,':'
+        CALL    XOUTSYM
+        LD      E,0
+        CALL    PRHEX           ; X:YYYY
+        POP     HL
+        PUSH    HL
+        LD      DE,8
+        ADD     HL,DE
+        LD      A,(HL)
+        CALL    SEGSIZE
+        POP     HL              ; HL=ВЕК. ЗАНЯТЫХ ВЕКТОРОВ
+        LD      DE,0F301H
+        LD      C,8
+        LD      A,3
+MEM2:   PUSH    AF
+        LD      B,8
+MEM3:   PUSH    HL
+        RLC     (HL)
+        CALL    C,PRHEXCR
+        POP     HL
+        INC     DE
+        INC     DE
+        INC     DE
+        DJNZ    MEM3
+        INC     HL
+        POP     AF
+        DEC     A
+        JR      NZ,MEM2
+        CALL    CRLF
+        POP     HL
+        LD      DE,18
+        ADD     HL,DE
+        EX      DE,HL
+        POP     BC
+        DJNZ    MEM1
+        CALL    LINE
+NOLIST: LD      DE,TOTAL
+        LD      HL,MEMORY
+        CALL    DOUBLE
+        LD      C,110           ; ПОЛНАЯ/СВОБОДНАЯ ПАМЯТЬ
+        CALL    BDOS
+        PUSH    HL
+        LD      A,H
+        CALL    SEGSIZE
+        LD      DE,FREE
+        LD      HL,MEMORY
+        CALL    DOUBLE
+        POP     HL
+        LD      A,L
+SEGSIZE:LD      L,A
+        LD      H,0
+        SLA     L
+        RL      H
+        SLA     L
+        RL      H
+        xor     a
+PRSIZE: CALL    PRDEC           ; ВХОД: HL=ЧИСЛО КИЛОБАЙТ
+        LD      E,'k'
+        CALL    XOUTSYM
+        LD      E,9
+
+; вывод символа, код в reg.E, с опросом статуса
+; если активен, то переход на RESTART CCP
+XOUTSYM:PUSH    HL
+        PUSH    BC
+        PUSH    AF
+        PUSH    DE
+        ld      a,e
+        cp      13
+        jr      nz,XOUT0
+        CALL    TDA06      ;CONSTATUS
+        OR      A
+        JP      NZ,RESTRT
+XOUT0:  pop     de
+        push    de
+        JR      OUTSYM1
+
+; вывод символа, код в reg.E
+OUTSYM: PUSH    HL
+        PUSH    BC
+        PUSH    AF
+        PUSH    DE
+OUTSYM1:LD      C,2
+        call    BDOS
+NEWBP:  POP     DE
+        POP     AF
+        POP     BC
+        POP     HL
+        RET
+;
+PRDEC:  ld      e,a             ; ВХОД: A,HL=HEX-ЧИСЛО
+        or	H
+        OR      L
+        JR      Z,DOUT0F
+        XOR     A               
+        LD      (LEADF),A       ; СБРОС ФЛАГА ВЕДУЩИХ 0
+        ld      a,e
+        ld      b,h
+        ld      c,l
+;
+; п/п десятичной коррекции - вход : A,BC - 24-битное шестнадцатиричное число :
+;                                               ( D23=A7 .. D0=C0 )
+;                           выход : DE,HL - 8-значное десятичное число :
+;         (D7..D4; D3..D0; E7..E4; E3..E0; H7..H4; H3..H0; L7..L4; L3..L0)
+;
+correction:
+        push    bc
+        pop     ix
+        ld      c,a
+        xor     a
+        ld      d,a
+        ld      e,a
+        ld      h,a
+        ld      l,a
+        ld      b,24
+cycl:   ld      a,c
+        add     ix,ix
+        adc     a,c
+        ld      c,a
+
+        ld      a,l
+        adc     a,l
+        daa
+        ld      l,a
+
+        ld      a,h
+        adc     a,h
+        daa
+        ld      h,a
+
+        ld      a,e
+        adc     a,e
+        daa
+        ld      e,a
+
+        ld      a,d
+        adc     a,d
+        daa
+        ld      d,a
+        djnz    cycl
+        push    hl
+        call    prdec0
+        pop     de
+prdec0: LD      A,D
+        CALL    DOUTF0
+        LD      A,D
+        CALL    DOUT0F
+        LD      A,E
+        CALL    DOUTF0
+        LD      A,E
+        jr      DOUT0F
+;
+DOUTF0: RRCA
+        RRCA
+        RRCA
+        RRCA
+DOUT0F: PUSH    DE
+        AND     0FH
+        JR      NZ,OUTNUM
+;        LD      E,' '
+        LD      A,(LEADF)
+        OR      A
+        JR      Z,OUTNUM2
+        LD      E,'0'
+        JR      OUTNUM1
+OUTNUM: LD      (LEADF),A
+        ADD     A,'0'
+OUTNUM0:LD      E,A
+OUTNUM1:CALL    XOUTSYM
+OUTNUM2:POP     DE
+        RET
+;
+PRHEXCR:PUSH    DE
+        DEC     C
+        JR      NZ,PRH1
+        LD      C,8
+        LD      DE,CCRLF
+        CALL    STRING
+PRH1:   POP     DE
+;
+PRHEX:  LD      A,D
+        CALL    HOUTF0
+        LD      A,D
+        CALL    HOUT0F
+        LD      A,E
+        CALL    HOUTF0
+        LD      A,E
+        CALL    HOUT0F
+        LD      A,' '
+        JR      HOUT
+;
+HOUTF0: RRCA
+        RRCA
+        RRCA
+        RRCA
+HOUT0F: AND     0FH
+        ADD     A,'0'
+        CP      '9'+1
+        JR      C,HOUT
+        ADD     A,7
+HOUT:   PUSH    DE
+        JR      OUTNUM0
+;
+DECBYTE:INC     HL
+DECBYT1:CALL    OUTSYM
+        LD      B,(HL)
+        LD      A,B
+        OR      A
+        JR      Z,PDBYTE
+        XOR     A
+DBYTE1: INC     A
+        DAA
+        DJNZ    DBYTE1
+PDBYTE: PUSH    AF
+        CALL    HOUTF0
+        POP     AF
+        JR      HOUT0F
+;
+PRNAME: LD      HL,DMAMEM
+        ADD     HL,DE
+        LD      D,(HL)
+        INC     HL
+; HL указывает на FileName в одном из 4 описателей в DMA
+        LD      B,8
+PR_NAME:LD      A,(HL)
+        INC     HL
+        OR      20h
+        LD      E,A
+        CALL    OUTSYM
+        DJNZ    PR_NAME
+        LD      A,C
+        LD      E,D
+        JR      HOUT
+;
+
+

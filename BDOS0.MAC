@@ -1,0 +1,1574 @@
+; находится в банке 1
+
+	.PHASE  SYSADDR
+
+IO_BYTE EQU	3
+SIGKILL equ	9	; kill driver
+SIGHUP	equ	1       ; refresh driver
+
+BDOS1:  LD      (RG_DE),DE
+	LD	A,E
+	LD      (RG_E),A
+	LD      HL,0
+	LD      (EXITRG_A),HL
+	LD	A,B
+	LD      (CALSEGM),A     ; ВЫЗЫВАЮЩИЙ СЕГМЕНТ
+	LD      B,4
+MKADDR: RRA
+	RR      H
+	DJNZ    MKADDR
+	LD      (CALADDR),HL    ; ВЫЗЫВАЮЩИЙ АДРЕС
+	AND     0FH
+	LD      (RG_B),A        ; ВЫЗЫВАЮЩИЙ БАНК
+	LD      (RG_SP),SP
+	LD      SP,(STK_PTR)
+
+	ld	a, DEFAULT_DISK
+	LD      (ACT_DISK),A; текущий диск
+	xor	a
+;(исп временно при операции с явно указанным диском в FCB )
+	LD      (DISK_FN),A ; сбр. флаг - дисковая операция
+			    ; ( исп. при EXIT_ST )
+	LD      (RETOK),A   ; сбр. флаг - возврат FCB
+	LD      (FCB_DRIVE),A
+	LD      (PATHFLG),A
+	LD      (ISCREAT),A
+
+	LD      A,C
+	LD      (FUNCNUM),A
+	CP      29H
+	LD      HL,EXIT_ST   ; точка возврата старых ф-ций
+	JR      C,NOPUSH
+	LD      HL,RETURN
+NOPUSH: PUSH    HL
+
+	CP      100
+	JP      NC,EMMFUNC
+
+	LD      C,E
+	LD      HL,BDOSF     ; таблица векторов ф-ций BDOS
+	LD	E,A
+	LD      D,0
+	ADD	HL,DE
+	ADD	HL,DE
+	LD	E,(HL)
+	INC	HL
+	LD      D,(HL)
+	LD      HL,(RG_DE)
+	EX      DE,HL
+	JP	(HL)
+;
+; таблица векторов ф-ций BDOS
+BDOSF:  DW      RESTART ;  0 - "горячий старт"
+	DW      F1      ;  1 - ввод символа с консоли
+	DW      OUTPUT  ;  2 - вывод символа на консоль
+	DW      F3      ;  3 - ввод символа с логического
+			;      устройства RDR
+	DW      @AUXOUT ;  4 - вывод символа на логическое
+			;      устройство PUN
+	DW      @OUT_PRNT;  5 - вывод символа на логическое
+			;      устройство LST
+	DW      F6      ;  6 - прямой ввод/вывод символа
+			;      с консоли
+	DW      F7      ;  7 - получить байт назначения
+			;      устройств (БНУ)
+	DW      F8      ;  8 - установить БНУ
+	DW      F9      ;  9 - вывод строки символов
+	DW      FA      ; 10 - чтение консольного буфера
+	DW      FB      ; 11 - опрос статуса консоли
+	DW      FC      ; 12 - ПОЛУЧЕНИЕ НОМЕРА ВЕРСИИ CPM
+			;    В HL: H=0 - СP/M , H=11 - MP/M
+			;    L=20...2F НА CP/M 2.0 ... 2.15
+	DW      FD      ; 13 - СБРОС ДИСКОВОЙ СИСТЕМЫ
+	DW      FE      ; 14 - активизация диска
+	DW      FF      ; 15 - открытие файла
+	DW      F10     ; 16 - закрытие файла
+	DW      F11     ; 17 - ПОИСК ПЕРВОГО - ПОИСК ФАЙЛА
+			;      В КАТАЛОГЕ ДИСКА
+	DW      F12     ; 18 - ПОИСК СЛЕДУЮЩЕГО - ТО ЖЕ
+			;      ЧТО И 17 НО С ТЕКУЩЕГО
+	DW      F13     ; 19 - стирание файла
+	DW      F14     ; 20 - последовательное чтение
+	DW      F15     ; 21 - последовательная запись
+	DW      F16     ; 22 - создать файл
+	DW      F17     ; 23 - переименовать файл
+	DW      F18     ; 24 - получить вектор зарегистри-
+			;      рованных дисков
+	DW      F19     ; 25 - получить номер акт. диска
+	DW      F1A     ; 26 - установить адрес DMA
+	DW      F1B     ; 27 - ПОЛУЧЕНИЕ АДРЕСА РАЗМЕЩЕНИЯ
+			;      В HL
+	DW      F1C     ; 28 - записать ключ защиты диска
+	DW      F1D     ; 29 - пол. вектор R/O для дисков
+	DW      F1E     ; 30 - установить индикатор досту-
+			;      па файла
+	DW      F1F     ; 31 - ПОЛУЧЕНИЕ АДРЕСА БЛОКА ПАРА-
+			;      МЕТРОВ ДИСКА В HL
+	DW      F20     ; 32-  УСТАНОВКА/ПОЛУЧЕНИЕ КОДА
+			;      ПОЛЬЗОВАТЕЛЯ
+	DW      F21     ; 33 - прямое чтение
+	DW      F22     ; 34 - прямая запись
+	DW      F23     ; 35 - вычислить размер файла
+	DW      F24     ; 36 - установить номер записи для
+			;      прямого доступа
+	DW      F25     ; - , (но какая-то функция есть)
+	DW      F26     ; -  RET
+	DW      F27     ; -  RET
+	DW      F28     ; 40 - прямая запись на обнуленный
+			;      блок
+;
+; НОВЫЕ ДИСКОВЫЕ ФУНКЦИИ
+;
+	DW      FN29    ; В МАССИВ С АДРЕСОМ В DE В ТЕКУЩЕМ
+			; БАНКЕ ВОЗВРАЩ.16 СИМВ.МЕТКА ДИСКА
+	DW      FN2A    ; ИЗ МАССИВА (ПО DE) НА ДИСК ЗАПИС.
+			; 16-И СИМВОЛЬНАЯ МЕТКА ДИСКА
+	DW      FN2B    ; В МАССИВ (ПО DE) ВОЗВРАЩ. 16 СИМВ.
+			; ИМЯ ТЕКУЩЕГО ЮЗЕРА
+	DW      FN2C    ; ТЕКУЩЕМУ ЮЗЕРУ УСТАНАВЛ. НОВОЕ ИМЯ
+			; ИЗ МАССИВА (ПО DE) - 16 СИМВ.
+	DW      FN2D    ; УСТАНОВКА ЮЗЕРА ПО ИМЕНИ ИЗ МАСИВА
+			; (ПО DE)
+	DW      FN2E    ; ПОЛУЧИТЬ ИЗ БУФЕРА ТИМПЛЕТА СТРОКУ
+			; В МАССИВ (ПО DE).
+	DW      FN2F    ; ДОБАВИТЬ СТРОКУ В БУФЕР ТИМПЛЕТА
+			; ИЗ МАССИВА (по DE).
+	DW      FN30    ; ПОЛУЧИТЬ ИЗ БУФЕРА ПОДМЕН СТРОКУ
+			; В МАССИВ (ПО DE).
+	DW      FN31    ; ДОБАВИТЬ СТРОКУ В БУФЕР ПОДМЕН
+			; ИЗ МАССИВА (по DE).
+	DW      FN32    ; ПОЛУЧИТЬ СТРОКУ ИЗ BAT-БУФЕРА В
+			; МАССИВ (ПО DE).МАСИВ СОКРАЩАЕТСЯ
+	DW      FN33    ; ДОБАВИТЬ СТРОКУ В BAT-БУФЕР ИЗ
+			; МАССИВА (ПО DE).
+	DW      FN34    ; ПОЛУЧИТЬ ДАТУ СОЗДАНИЯ ФАЙЛА.
+			; ВХОД: DE=ADDR(FCB).
+	DW      FN35    ; УСТАНОВИТЬ ДАТУ СОЗДАНИЯ ФАЙЛА.
+			; ВХОД: DE=ADDR(FCB).
+	DW      FN36    ; ПОЛУЧИТЬ СТРОКУ РЕГСТРАЦИИ ДИСКОВ
+			; (16 БАЙТ) В МАССИВ (ПО DE)
+	DW      FN37    ; УСТАНОВИТЬ/ПОЛУЧИТЬ PATH-USER
+			; ВХОД: РЕГ.Е=(0..0FН)/0FFН
+	DW      FN38    ; ДОВЕСОК K FN34
+	DW      FN39    ; ДОВЕСОК К FN35
+	DW      FN3A    ; ПОЛУЧИТЬ АДРЕС DMA
+; >>>>>>
+; вывод "BAD SECTOR"
+R_BADS: LD      HL,MSG_BADS
+	CALL    FATAL
+	CALL    INPUT
+	CP      3               ; введено ^C
+	JR      Z,RESTART
+	DB      31H             ; LD  SP,...
+ERRSTACK:DW     0
+	XOR     A
+	RET
+
+; вывод "SELECT"
+R_SELD: LD      HL,MSG_SELD
+	JR      ALLERR
+
+; вывод "DISK R/O"
+R_DSKRO:LD      HL,MSG_DSKRO
+	JR      ALLERR
+
+; вывод "FILE R/O"
+R_FLRO: LD      HL,MSG_FLRO
+ALLERR: CALL    FATAL
+RESTART:LD      HL,WARMSTART
+	JP      TOBIOS2
+
+MSG_ERR:DEFB    13,10,'BDOS Error on '
+DRV_ERR:DEFB    ' : $'
+MSG_BADS:DEFB   'Bad Sector$'
+MSG_SELD:DEFB   'Select$'
+MSG_FLRO:DEFB   'File '
+MSG_DSKRO:DEFB  'R/O$'
+;MSG_CRLF:DEFB   10,13,36
+;
+FATAL:  PUSH    HL
+;	LD      DE,MSG_CRLF
+;	CALL    PRINTT
+	LD      A,(ACTDISK)
+	ADD     A,'A'
+	LD      (DRV_ERR),A
+	LD      DE,MSG_ERR
+	CALL    PRINTT
+	POP     DE
+PRINTT: LD      A,(DE)
+	CP      '$'
+	RET     Z
+	PUSH    DE
+	LD      C,A
+	CALL    @CONOUT
+	POP     DE
+	INC     DE
+	JR      PRINTT
+; <<<<<<<
+;
+
+; вывод "BAD SECTOR"
+; ЭТО В BIOS
+P_BADS: LD      HL,BERR1
+	JR      ISERROR
+
+; вывод "SELECT"
+P_SELD: LD      HL,BERR2
+	JR      ISERROR
+
+; вывод "DISK R/O"
+P_DSKRO:LD      HL,BERR3
+	JR      ISERROR
+
+; вывод "FILE R/O"
+P_FLRO: LD      HL,BERR4
+ISERROR:LD      (ERRSTACK),SP
+	LD      SP, MOVESP
+	CALL    BLDB2
+	PUSH    BC              ; B=BANK
+	INC     HL
+	CALL    BLDB2
+	LD      C,B
+	PUSH    BC              ; C=L.ADDR
+	INC     HL
+	CALL    BLDB2           ; B=H.ADDR
+	POP     HL              ; L=L.ADDR
+	LD      H,B
+	POP     AF
+	JP      BJMP
+;
+BLDB2:  LD      A,TPAPAGE
+	JP      BLDB
+;
+; ф-ция 1 (ввод с консоли с эхопечатью)
+F1:     CALL    INPUT           ; !!!
+	CP      ' '
+	JP      C,SETEXITRG_A
+	LD	C,A
+	CALL    XOUTPUT
+	JP      SETEXITRG_A
+;
+;F6:     LD      A,C
+;	INC     A
+;	JP      Z,F6NEXT
+;	INC     A
+;	JP      Z,FB
+;	LD      HL,CONOUT        ; BIOS+0CH
+;	JP      TOBIOS2
+;
+;F6NEXT: CALL    @CONSTAT      ; BIOS+6
+;	OR      A
+;	CALL    NZ,@CONIN     ; BIOS+9
+;	JP      SETEXITRG_A
+;
+F9:     EX      DE,HL
+	LD      A,(RG_B)
+	CALL    BLDB
+	LD      A,B
+	INC     HL
+	CP      '$'
+	RET	Z
+	LD	C,A
+	PUSH    HL
+	CALL    OUTPUT
+	POP     HL
+	JR      F9+1
+
+; ф-ция 0Ah ввод строки с консоли в буфер
+; СОАВТОР: А.БАЛДИН
+FA:     CALL    GETSTRING       ; ЭТО В BIOS2.MAC
+	DEC     HL              ; HL=NEWBUFF
+	XOR     A
+	LD      (FL0),A
+	LD      E,A             ; E=СКОЛЬКО ВВЕДЕНО
+	LD      B,A             ; В=ПОЗИЦИЯ КУРСОРА
+	LD      D,(HL)          ; в D макс. длина строки
+	INC     HL
+	PUSH    HL              ; HL=NEWBUFF+1
+; в стеке указатель на реальную длину строки
+	LD      A,(VALUE)
+	RLCA
+	JR      NC,BIT7RES
+	LD      A,(HL)
+	OR      A
+	JR      Z,BIT7RES
+	LD      E,A
+	INC     HL
+	PUSH    DE
+	CALL    SHOWLEFT
+	POP     DE
+	LD      B,E
+LCYCL:  CALL    CLEFT
+	DJNZ    LCYCL
+	DEC     HL
+BIT7RES:INC     HL
+; HL указывает на рабочую часть буфера строки
+LOOP_INP:
+	PUSH    HL
+	PUSH    DE
+	PUSH    BC
+	LD      A,E
+	LD      (FN10QN),A
+	CALL    INPUT           ; XINPUT
+	POP     BC
+	POP	DE
+	POP     HL              ; !!!
+	LD      C,A             ; сохр. данные в C
+	CP      8               ; кл
+	JP      Z,CRLEFT
+	CP      13              ; вк
+	JR      Z,CRCR
+	CP      10              ; пс
+	JR      Z,CRCR
+	CP      7Fh             ; del
+	JP      Z,CRDEL
+	CP      4               ; кп
+	JP      Z,CRNEXT
+	CP      27              ; esc
+	JP      Z,CRESC
+	CP      5               ; кп
+	JP      Z,CRUP
+	CP      24              ; кн
+	JP      Z,CRDOWN
+	CP      3               ; ^C
+	CALL    Z,CRCTRLC
+
+	LD      A,(VALUE)
+	RLCA
+	JR      NC,BIT7RSS
+	LD      A,C
+	CP      ' '
+	JR      C,LOOP_INP
+BIT7RSS:
+	LD      A,D
+	OR	A
+	JR      Z,LOOP_INP ; игнор. ввода, буфер заполнен
+	DEC     D       ; иначе уменьшить счетчик
+	LD	A,E
+	SUB     B
+	INC	A
+			; A = E - B + 1
+	PUSH    BC
+	LD	B,A
+FA_L0:  LD      A,C
+	CALL    CTRL_OUT
+	LD      C,(HL)
+	LD      (HL),A
+	INC     HL
+	DEC	B
+	JR      NZ,FA_L0
+	POP     BC
+
+	LD      A,E
+	SUB     B
+	JR      Z,FA_L1
+
+FA_L2:  PUSH    AF
+	CALL    CLEFT
+	POP     AF
+	DEC	A
+	JR      NZ,FA_L2
+
+FA_L1:  INC     E
+	INC     B
+	JR      LOOP_INP
+;
+CRCTRLC:LD      A,E
+	OR	A
+	RET     NZ
+	LD      A,(VALUE)
+	RLCA
+	RET     C
+	LD      HL,VALUE
+	RES     3,(HL)  ; СБРОСИТЬ ПРИЗНАК РАБОТЫ В CCP
+	JP      RESTART
+
+; Вывести остаток буфера (справа после курсора)
+SHOWLEFT:
+	LD      A,E
+	SUB     B
+	LD	C,A
+	RET	Z
+FA_L3:  LD      A,(HL)
+	CALL    CTRL_OUT
+	INC     HL
+	INC	B
+	DEC	C
+	JR      NZ,FA_L3
+	RET
+;
+CRCR:   CALL    SHOWLEFT
+	LD      C,13
+	LD      (HL),C
+	CALL    XOUTPUT
+	POP     HL
+	LD      (HL),E
+
+	LD      A,E
+	OR	A
+	JR      Z,EXITFA ; ВЫХОД, ЕСЛИ ПУСТОЙ БУФЕР
+
+	LD      A,(VALUE)
+	AND     8
+	JR      Z,EXITFA ; ВЫХОД, ЕСЛИ ВЫЗОВ НЕ ИЗ CCP
+
+	CALL    @SAVETIM ; ЗАПИСАТЬ СТРОКУ В БУФЕР ТИМПЛЕТА
+EXITFA: LD      A,(RG_B)        ; КУДА
+	LD      HL,(RG_DE)
+	EXX
+	EX      AF,AF'
+	LD      HL,NEWBUFF
+	LD      BC,(FALEN)
+BLDIRF1:LD      A,WORKPAGE	; ОТКУДА
+	JP      BLDIR           ; !!!
+;
+; ESC - СТЕРЕТЬ ВСЮ СТРОКУ
+CRESC:  LD      A,E
+	OR	A
+	JP      Z,LOOP_INP
+	CALL    SHOWLEFT
+FA_L8:  CALL    KILLSYM
+	JR      NZ,FA_L8
+	JP      LOOP_INP
+
+; КУРСОР ВЛЕВО
+CRLEFT: LD      A,B
+	OR	A
+	JP      Z,LOOP_INP
+	DEC	B
+	CALL    CLEFT
+	JP      LOOP_INP
+;
+CLEFT:  LD      C,8                     ; кл
+	DEC     HL
+	CALL    XOUTPUT
+	LD      A,(HL)
+	CP      ' '
+	CALL    C,XOUTPUT
+	RET
+
+; КУРСОР ВПРАВО
+CRNEXT: LD      A,E
+	CP	B
+	JP      Z,LOOP_INP
+
+	LD      C,24          ; кп
+	CALL    XOUTPUT
+	LD      A,(HL)
+	CP      ' '
+	CALL    C,XOUTPUT
+	INC     HL
+	INC	B
+	JP      LOOP_INP
+
+; DELETE
+CRDEL:  LD      A,B
+	OR	A
+	JP      Z,LOOP_INP
+	CALL    KILLSYM
+	JP      LOOP_INP
+
+; УДАЛИТЬ СИМВОЛ В СТРОКЕ
+KILLSYM:LD      C,8
+	DEC     HL
+	CALL    XOUTPUT
+	LD      A,(HL)
+	CP      ' '
+	CALL    C,XOUTPUT
+	PUSH    AF
+	LD	A,E
+	SUB	B
+	LD	C,A
+	JR      Z,FA_L9
+FA_L10: INC     HL
+	LD      A,(HL)
+	DEC     HL
+	LD      (HL),A
+	INC     HL
+	CALL    CTRL_OUT
+	DEC	C
+	JR      NZ,FA_L10
+FA_L9:  POP     AF
+	LD      C,' '
+	CALL    XOUTPUT
+	CALL    C,XOUTPUT
+	LD      C,8
+	CALL    XOUTPUT
+	CALL    C,XOUTPUT
+	LD	A,E
+	SUB	B
+	JR      Z,FA_L11
+FA_L19: PUSH    AF
+	CALL    CLEFT
+	POP     AF
+	DEC	A
+	JR      NZ,FA_L19
+FA_L11: DEC     E
+	INC	D
+	DEC	B
+	RET
+
+; КУРСОР ВВЕРХ - ПОЛУЧИТЬ СТРОКУ ИЗ БУФЕРА ТИМПЛЕТА
+CRUP:   LD      A,(FL1)
+	OR	A
+	JP      Z,LOOP_INP ; ВЫХОД, БУФЕР ТИМПЛЕТА ПУСТОЙ
+
+	LD      A,(VALUE)
+	AND     8
+	JP      Z,LOOP_INP  ; ПЕРЕХОД, ЕСЛИ ВЫЗОВ НЕ ИЗ CCP
+	JR      FA_DL13
+;
+CRDOWN: LD      A,(FL1)
+	OR	A
+	JP      Z,LOOP_INP ; ВЫХОД, БУФЕР ТИМПЛЕТА ПУСТОЙ
+
+	LD      A,(VALUE)
+	AND     8
+	JP      Z,LOOP_INP  ; ПЕРЕХОД, ЕСЛИ ВЫЗОВ НЕ ИЗ CCP
+	LD      A,(FL0)
+	CP      2
+	JR      NC,FA_L14   ; IF FL0>1
+	LD      A,(FL1)     ; УСТ. В РЕГ. А НОМЕР СТРОКИ
+	JR      FA_L13      ; ИЗ БУФЕРА ТИМПЛЕТА
+FA_L14: DEC     A
+FA_L13: CP      2
+	JR      NC,FA_CL14
+	LD      A,(FL1)     ; УСТ. В РЕГ. А НОМЕР СТРОКИ
+	JR      FA_CL13     ; ИЗ БУФЕРА ТИМПЛЕТА
+FA_CL14:DEC     A
+FA_CL13:LD      (FL0),A     ; ЗАНЕСТИ В FL0 НОМЕР СТРОКИ
+
+FA_DL13:                    ; ТИМПЛЕТА
+	LD      A,E
+	OR	A
+	JR      Z,FA_L15
+	CALL    SHOWLEFT
+FA_L16: CALL    KILLSYM     ; УБРАТЬ СТАРУЮ СТРОКУ
+	JR      NZ,FA_L16
+FA_L15: LD      A,B
+	POP     HL          ; HL - УКАЗАТЕЛЬ НА STRING SIZE
+
+	CALL    @GETTIM     ; ПОЛУЧИТЬ СТРОКУ ИЗ БУФЕРА
+
+	DEC     HL
+	LD      A,(HL)
+	SUB     E           ; A=MAX-REAL
+	LD      D,A         ; УСТАНОВИТЬ РЕГ. D,E,HL
+	INC     HL
+
+	PUSH    HL
+	INC     HL
+
+	CALL    SHOWLEFT    ; ВЫДАТЬ НОВУЮ СТРОКУ НА ЭКРАН
+	JP      LOOP_INP
+;
+XOUTPUT:PUSH    HL
+	PUSH    DE
+	PUSH    BC
+	PUSH    AF
+	CALL    OUTPUT
+	POP	AF
+	POP     BC
+	POP	DE
+	POP     HL
+	RET
+
+; вывод символа из C, если меньше 20h, то вывод с '^'
+CTRL_OUT:
+	PUSH    BC
+	PUSH    AF
+	CP      ' '
+	JR      NC,C_OUT0
+	PUSH    AF
+	LD      C,'^'
+	CALL    XOUTPUT
+	POP	AF
+	ADD     A,40h
+C_OUT0: LD      C,A
+	CALL    XOUTPUT
+	POP	AF
+	POP	BC
+	RET
+;
+OUTPUT: PUSH    BC
+	LD      HL,CONOUT        ; BIOS+0Ch
+	CALL    TOBIOS2
+	POP     BC
+	LD      A,(FL_PRINT)
+	OR	A
+	RET     Z
+	JP      @OUT_PRNT        ; BIOS+0Fh
+;
+INPUT:  CALL    @CONIN           ; BIOS+9
+	CP      16               ; ^P
+	RET	NZ
+	LD      A,(FL_PRINT)
+	CPL
+	LD      (FL_PRINT),A
+	JR      INPUT
+;
+; Функция 3 - ввести байт с устр. ввода
+F3:     CALL    @AUXIN
+	JP      SETEXITRG_A
+
+; Функция 7 - получить байт назначения устройств
+F7:     LD      HL, IO_BYTE
+	CALL    BLDB2
+	LD      A,B
+SETEXITRG_A:
+	LD      (EXITRG_A),A
+F6:
+FB:
+F26:
+F27:    RET
+
+; Функция 8 - установить байт назначения устройств
+F8:     LD      HL, IO_BYTE
+	LD      B,E
+BSTB2:	LD      A,TPAPAGE
+	JP      BSTB
+;
+;FB:     CALL    @CONSTAT         ; BIOS+6
+;	JP      SETEXITRG_A
+;
+; установить ячейку, в которой хранится значение рг. A для
+; тех ф-ций, которые возвращают выходной параметр в рг. A
+;
+SETEXRGA_1:
+	LD      A,1
+	JR      SETEXITRG_A
+
+COPY:   INC     C               ; ПОХОЖЕ НА LDIR
+ACF50:	DEC	C
+	RET	Z
+	LD	A,(DE)
+	LD	(HL),A
+	INC	DE
+	INC	HL
+	JP      ACF50
+;
+ACF59:  LD      A,(ACTDISK)
+	LD	C,A
+	CALL    @SELDISK        ; (HL)=DPH
+	LD	A,H
+	OR	L
+	RET	Z
+;
+	ld	de,XLTPT	; bigfiles
+	ld	bc,2
+	ldir
+	LD      (SYSW1),HL      ; УК-ЛЬ НА СЛУЖЕБ. СЛОВО 1
+	ld	c,6
+	add	hl,bc
+	ld	de,DIRBPT
+	ld	c,8
+	ldir
+	ld	hl,(DPB_ADR)
+	ld	de,DPBCOPY
+	ld	c,0FH
+	ldir			; bigfiles
+;	LD      E,(HL)
+;	INC	HL
+;	LD      D,(HL)          ; (DE)=XLT
+;	INC	HL
+;	LD      (SYSW1),HL      ; УК-ЛЬ НА СЛУЖЕБ. СЛОВО 1
+;	INC	HL
+;	INC	HL
+;	LD      (SYSW2),HL      ; --"--"--"--"--"--"--"- 2
+;	INC	HL
+;	INC	HL
+;	LD      (SYSW3),HL      ; --"--"--"--"--"--"--"- 3
+;	INC	HL
+;	INC	HL
+;	EX      DE,HL           ; DE=АДР. УК-ЛЯ НА DIRBUF
+;	LD      (XLTPT),HL      ; УК-ЛЬ НА XLT
+;	LD      HL,DIRBPT
+;	LD      C,8
+;	CALL    COPY            ; БЕРЕМ ПАРАМЕТРЫ ИЗ DPH
+;	LD      HL,(DPB_ADR)
+;	EX	DE,HL
+;	LD      HL,DPBCOPY
+;	LD      C,0FH
+;	CALL    COPY            ; КОПИЯ DPB ДИСКА
+	LD      HL,(DSM)
+	LD	A,H
+	LD      HL,DSM255
+	LD      (HL),0FFH
+	OR	A
+	JR      Z,ACF9D
+	LD      (HL),0
+; DSM255 = FF, если об'ем дисковода < 256 групп
+; DSM255 = 00, если об'ем дисковода > 255 групп
+
+ACF9D:  xor	a	; LD	A,0FFH          ; уст. Z=0 - ок!
+	dec	a	; OR	A
+	RET
+;
+HOME	EQU	@SETTR00		; bigfiles
+;HOME:   CALL    @SETTR00
+;	XOR	A
+;	LD      HL,(SYSW2)
+;	LD	(HL),A
+;	INC	HL
+;	LD	(HL),A
+;	LD      HL,(SYSW3)
+;	LD	(HL),A
+;	INC	HL
+;	LD	(HL),A
+;	RET
+;
+RDSEC:  CALL    @READSEC
+	JR      COMMSEC
+;
+WRSEC:  CALL    @WRITESEC
+COMMSEC:OR      A
+	CALL    NZ,P_BADS
+	RET
+;
+; ОБСЛУГА РАСШИРЕННОЙ ПАМЯТИ - Ф. 100..114
+;
+EMMFUNC:PUSH    AF              ; A=НОМЕР ФУНКЦИИ
+	ld      a,(CALSEGM)
+	ld      e,a
+	call    GETSEGM
+	ld      (DRVCODE),a     ; код вызывающей программы
+	POP     AF
+	LD      C,A
+	ld      hl,FUNCTAB-200
+	ld      b,0
+	cp      100
+	jr      z,NEXT3
+	cp      105
+	jr      nc,NEXT3
+	ld      a,d
+	or      a               ; ф-ии 101..104 нельзя
+	jp      z,BADRET        ; вызывать с рег. D=0
+NEXT3:  add     hl,bc
+	add     hl,bc
+	ld      e,(hl)
+	inc     hl
+	ld      d,(hl)
+	ld      hl,(RG_DE)
+	ex      de,hl
+	ld      a,(RG_B)
+	jp      (hl)
+;
+FUNCTAB:DW      F100
+	DW      F101
+	DW      F102
+	DW      F103
+	DW      F104
+	DW      F105
+	DW      F106
+	DW      F107
+	DW      F108
+	DW      F109
+	DW      F110
+	DW      F111
+	DW      F112
+	DW      F113
+	DW      F114
+	DW      F115
+;
+VMEM1:	DB	1	; memory allocation method: 0=upper_to_lower, 1=lower_to_upper	
+;
+; Установка адреса REW из DE. Банк считается автоматически.
+;
+F100:   ld      (REWADDR),de
+;        ld      a,(RG_B)
+	ld      (REWBANK),a
+	ret
+;
+; Копирование сегментoв в буфер.
+; Вход: D=количество сегментов, E=начальный сегмент. Выход:
+; A = 0, если нормально, A = FF если сегмент отсутствует
+;
+F101:   xor     a
+F101A:  push    de
+	push    af
+	push    af
+	call    GETSEGM
+	cp      0fh
+	jp      z,BADRET
+	ex      af,af'
+	exx
+	ld      bc,(REWADDR)    ; куда
+	pop     hl              ; h=A
+	ld      l,0
+	add     hl,hl
+	add     hl,hl
+	add     hl,hl
+	add     hl,hl
+	add     hl,bc           ; hl=(REWADDR)+A*1000h
+	ld      a,(REWBANK)
+	ex      af,af'
+	exx
+	call    f112		; B=0
+	ld      a,l
+	ld      l,b		; ,0             ; откуда
+	ld      bc,1000h        ; сколько
+	call    BLDIR
+	pop     af
+	pop     de
+	inc     e
+	inc     a
+	cp      d
+	jr      c,F101A
+	xor     a
+	ret
+;
+;   Запись сегментов из буфера обмена.
+; Вход: D=количество сегментов, E=начальный сегмент. Выход:
+; A = 0, если нормально, A = FF если сегмент отсутствует
+;
+F102:   xor     a
+F102A:  push    de
+	push    af
+	push    af
+	call    GETSEGM
+	cp      0fh
+	jp      z,BADRET
+	ex      af,af'
+	exx
+	ld      de,(RG_DE)
+	call    f112		; B=0
+	ld      a,l
+	ld      l,b		; ,0     ; куда
+	ex      af,af'
+	exx
+	ld      bc,(REWADDR)    ; откуда
+	pop     hl              ; h=A
+	ld      l,0
+	add     hl,hl
+	add     hl,hl
+	add     hl,hl
+	add     hl,hl           ; hl=(REWADDR)+A*1000h
+	add     hl,bc
+	ld      a,(REWBANK)
+	ld      bc,1000h        ; сколько
+	call    BLDIR
+	pop     af
+	pop     de
+	inc     e
+	inc     a
+	cp      d
+	jr      c,F102A
+	xor     a
+	ret
+;
+;   Резервирование N последовательных сегментов.
+; Вход: D=количество сегментов
+;       E=начальный сегмент (0FFh если любой)
+; Выход: A=начальный сегмент, если резервирование прошло
+;        нормально, A=FF, если области такого размера нет
+;
+F103:   ld      a,e     ;D=1 E=3B
+	cp      0FFh
+	jr      z,IFFF
+	push    af
+	push    de
+	ld      b,d             ; b=кол-во сегм.
+F103A:  push    bc
+	call    GETSEGM         ; е=текущий сегм.
+	or      a
+	jr      nz,NOSPARC
+	pop     bc
+	inc     e
+	djnz    F103A
+	pop     bc              ; b=кол-во сегм.
+F103B:  call    SETSEGM         ; c=текущий сегм.
+	inc     c
+	djnz    F103B
+	pop     af
+	ret
+NOSPARC:pop     af
+NOSP0:  pop     af
+	pop     af
+NOSP1:  xor     a
+	dec     a               ; a = ff
+	ret
+IFFF:   ld	a, (VMEM1)
+	or	a
+	jr	nz, LtoU	
+	dec     e               ; e=0feh..0
+	jr	IFFF1
+LtoU:	inc	e		; e=0..0feh 
+IFFF1:	ld	a, e
+	inc	a
+	jr      z,NOSP1		; if a=e=0FFh
+	push    de
+	call    F103
+	pop     de
+	cp      e
+	ret     z
+	jr      IFFF
+;
+;   Oсвободить N последовательных сегментов
+; Вход: D=количество сегментов, Е=начальный сегмент
+; Выход: A=начальный сегмент, если освобождение прошло
+;        нормально, A=FF, если была ошибка (освобождение
+;        системного или отсутствующего ОЗУ)
+;
+F104:   ld      a,e
+	push    af
+	ld      b,d
+F104A:  push    bc
+	ld      hl,WARMMAP
+	call    GETSEG1
+	cp      0Eh
+	jr      nc,NOSP0
+	ld      c,e
+	xor     a
+	call    SETSEG1
+	ld      e,c
+	inc     e
+	pop     bc
+	djnz    F104A
+	pop     af
+	ret
+;
+;   105(69h) - инсталлировать драйвер пользователя
+; Вход: DE = адрес строки - описателя драйвера
+; Выход: А=номер драйвера в таблице (1..13), если
+;        инсталляция прошла удачно; А=FF - иначе
+; Формат строки - описателя драйвера (в ТРА):
+; +0       - номер банка, где будет расп. драйвер (FF-ЛЮБОЙ)
+; +1..+8   - имя драйвера
+; +9..+10  - начальный адрес драйвера в ОЗУ ТРА СРМ(16 бит)
+; +11..+12 - длина драйвера (16 бит)
+; +13..+14 - адрес п/п захвата векторов (в ОЗУ доп. стр.)
+; +15..+16 - адрес п/п извещения о предстоящем удалении
+; +17..+18 - начальный адрес драйвера (в ОЗУ доп. страницы)
+;            или 0FFFFh если можно сажать на любой адрес
+;
+F105:   ld      A,WORKPAGE
+	ld      hl,MBUF         ; куда
+	exx
+	ex      af,af'
+	ld      a,(RG_B)
+	ld      hl,(RG_DE)      ; откуда
+	ld      bc,40
+	call    BLDIR           ; строка-описатель
+	ld      hl,DRVQN        ;
+	ld      a,(hl)
+	cp      13
+	jp      nc,BADRET
+	call    FINDDRV         ; hl=запись о драйвере
+	inc     a
+	jp      nz,BADRET       ; если уже присутствует
+	ld      a,(EFLAG)
+	or      a
+	jr      nz,EEFLG
+	ld      a,(DRVQN)
+	inc     a
+EEFLG:  ld      (DRVCODE),a
+	push    hl
+	ex      de,hl
+	inc     de
+	ld      hl,DRVNAME
+	ld      bc,16           ; пересылаем имя драйвера
+	ldir
+	push    de
+	ld      hl,(DSTADDR)
+	ld      a,h
+	ld      c,h
+	inc     a
+	jr      nz,NOFFFF
+	ld      h,a
+	ld	l,a		; ld hl,0
+NOFFFF: ld      a,0fh
+	and     h
+	ld      h,a
+	ld      de,(LENGTH)
+	add     hl,de
+	ex      de,hl
+	ld      e,0
+	call    F111
+	inc     a               ; А=полный размер в сегм.
+	pop     de
+	ld      (de),a
+	push    af
+	ld      a,(DRVBANK)
+	ld      d,c
+	ld      e,a
+	call    F111            ; A=начальный сегмент
+	ld      e,a             ; с какого резервировать
+	pop     af
+	ld      d,a             ; сколько резервировать
+	call    RESERVE         ; резервируем место
+	inc     a               ; возвр. нач сегмент или FF
+	jp      z,BADRET
+	dec     a
+	pop     hl
+	push    hl
+	ld      (hl),a          ; начальный сегмент драйв.
+	ld      e,a
+	call    F112            ; B=0  сегмент -> адрес+банк
+	ld      a,(DSTADDR+1)
+	inc     a
+	ld      a,l
+	ld      l,b		; ,0
+	push    af
+	jr      nz,NOFFF2
+	ld      (DSTADDR),hl
+NOFFF2: ld      hl,(DSTADDR)
+	ld      (DRVBANK),a     ; куда
+	exx
+	ex      af,af'
+	ld      hl,(SRCADDR)    ; откуда
+	ld      a,(RG_B)
+	ld      bc,(LENGTH)
+	call    BLDIR           ; BC=0 переслали драйвер
+	pop     af
+	jr      nz,NOFFF3
+	pop     hl
+	push    hl
+	ld      c,13		; bc,13
+	add     hl,bc
+	ld      de,DSTADDR
+	call    SHIFT
+	call    SHIFT
+NOFFF3:
+;
+; ЗДЕСЬ ОБРАБАТЫВАТЬ НАЗВАНИЕ ДЛЯ ДИСПЕТЧЕРА ПРОГРАММ
+;
+;NTAB    EQU     0A000h         ; ТАБЛ.: КОД ДРАЙВ.+КЛАВИША+СТРОКА
+;NTABFLG EQU     MBUF+19
+;NTABKEY EQU     MBUF+20
+;NTABSTR EQU     MBUF+21
+;
+	LD      A,(NTABFLG)
+	CP      7FH
+	JR      NZ,NONTAB
+	LD      HL,NTABQN
+	INC     (HL)
+	LD      B,(HL)
+	LD      HL,NTAB-18
+	LD      DE,18
+ADDLOOP:ADD     HL,DE
+	DJNZ    ADDLOOP
+	LD      A,(EFLAG)
+	OR      A
+	LD      A,(DRVQN)
+	JR      Z,AFTEFIX
+	LD      A,0FFH
+AFTEFIX:INC     A
+	LD      (HL),A
+	INC     HL
+	EX      DE,HL
+	LD      HL,NTABKEY
+	LD      C,17
+	LDIR
+
+NONTAB: ld      hl,SYSVEC
+	ld      de,CMPVEC
+	ld      bc,3*24
+	ld      a,(DRVBANK)     ; addr(DRVBANK)=addr(CMPVEC)
+	ldir
+	pop     hl
+	push    hl
+	CALL    MMDI            ; di
+	call    INSCALL
+	pop     hl
+	ld      iy,SYSVEC       ; массив-операнд1(3*24байт)
+	ld      ix,CMPVEC       ; массив-операнд2(--"--"--)
+	ld      de,9
+	add     hl,de           ; массив-результат (3байта)
+	call    COMPARE
+	ld      hl,DRVQN
+	inc     (hl)
+	LD      A,(HL)
+;	JP      MEI             ; EI
+;
+MEI:    NOP		; DI
+	RET
+;
+SHIFT:  ld      a,(de)
+	add     a,(hl)
+	ld      (hl),a
+	inc     de
+	inc     hl
+	ld      a,(de)
+	adc     a,(hl)
+	ld      (hl),a
+	dec     de
+	inc     hl
+	ret
+;
+; Резерватор памяти. Bxod: DE (как F103) и (DRVBANK)=(MBUF)
+; d=количество е=начальный сег. При BANK=0FFh - e=0Fxh
+;
+RESERVE:ld      a,e
+	inc     a               ; любой банк, любой адрес
+	jp      z,F103
+	ld      a,(DSTADDR+1)
+	inc     a
+	jr      z,ANYADDR
+	ld      a,(MBUF)
+	inc     a
+	jp      nz,F103
+WHILE:  push    de              ; ANYBANK
+	call    F103
+	pop     de
+	inc     a
+	jr      nz,EXWHILE      ; if удалось подобрать ОЗУ
+	ld      a,e
+	sub     10h
+	ld      e,a
+	jr      nc,WHILE
+NOMEM:  xor     a               ; не удалось подобрать ОЗУ
+EXWHILE:dec     a
+	ret
+ANYADDR:push    de
+	call    F103
+	pop     de
+	inc     a
+	jr      nz,EXWHILE      ; if удалось подобрать ОЗУ
+	dec     e
+	ld      a,0fh
+	and     e
+	jr      z,NOMEM         ; if не удалось подобрать
+	jr      ANYADDR
+;
+; Сравниватель. Вход: (IX),(IY). Выход: (hl).
+;
+COMPARE:ld      b,24
+	ld      d,0
+COMP1:  ld      e,3
+COMP2:  ld      a,(ix)
+	xor     (iy)
+	jr      nz,IFNOTEQ
+	inc     ix
+	inc     iy
+	dec     e
+	jr      nz,COMP2
+	scf
+IFNOTEQ:ccf
+	inc     hl
+	inc     hl
+	rl      (hl)
+	dec     hl
+	rl      (hl)
+	dec     hl
+	rl      (hl)
+	add     ix,de
+	add     iy,de
+	djnz    COMP1
+	ret
+;
+INSCALL:ld      de,13
+COMCALL:ld      c,(hl)          ; hl=адрес описателя др., b=начальный сегмент
+	add     hl,de           ; a=банк драйвера
+	ld      e,(hl)
+	inc     hl
+	ld      d,(hl)
+	ld      h,d
+	ld      l,e             ; hl=de=адр. п/п инсталляции    !!!
+	ld	b,c
+	jp      BCALL           ; инсталляция векторов др.
+;
+;   Удалить драйвер пользователя
+; Вход: DE = адрес строки - имени драйвера (8 символов)
+; Выход: А=номер удаленного драйвера в таблице (1..13),
+;        если удаление прошло удачно; А=FF, если драйвера
+;
+F106:   call    NAME_PR         ; поиск имени в таблице
+	push    hl
+	push    af
+	push    hl
+	ld      e,(hl)
+	call    F112
+	CALL    MMDI            ; di
+	ld      a,l             ; банк драйвера
+	pop     hl
+	ld      de,15
+;	ld	c, SIGKILL
+	call    COMCALL         ; оповестить др. о удалении
+	pop     bc              ; b=код драйвера (1..13)
+	push    bc
+	ld      c,0ffh
+F106A:  ld      e,c
+	push    bc              ; освобождение памяти,
+	call    GETSEGM         ; занимаемой драйвером
+	pop     bc
+	cp      0Eh
+	jr      nc,F106A3
+	cp      b
+	jr      z,F106A1
+	dec     a
+	jr      F106A2
+F106A1: ld      a,0
+F106A2: call    nc,SETSEG1
+F106A3: dec     c
+	jr      nz,F106A
+;
+; ЗДЕСЬ УДАЛЯТЬ ЗАПИСЬ В ТАБЛ. СТРОК ДИСПЕТЧЕРА ПРОГРАММ
+;
+	LD      A,(NTABQN)
+	OR      A
+	JR      Z,NONDEL
+	LD      B,A
+	POP     AF              ; A=КОД ДРАЙВЕРА (1..13)
+	PUSH    AF
+	LD      HL,NTAB
+	LD      DE,18
+SRNTAB: CP      (HL)
+	JR      Z,OKNTAB
+	ADD     HL,DE
+	DJNZ    SRNTAB
+	JR      NONDEL
+OKNTAB: PUSH    HL
+	LD      HL,-17
+RONTAB: ADD     HL,DE
+	DJNZ    RONTAB
+	LD      B,H
+	LD      C,L
+	POP     HL
+	PUSH    HL
+	ADD     HL,DE
+	POP     DE
+	LDIR
+	LD      HL,NTABQN
+	DEC     (HL)
+	jr      z,NONDEL
+	LD      B,(HL)
+	POP     AF
+	PUSH    AF              ; A=КОД ДРАЙВЕРА
+	LD      HL,NTAB
+	LD      DE,18
+FINDTAB:CP      (HL)
+	JR      NC,NXTNTAB
+	DEC     (HL)
+NXTNTAB:ADD     HL,DE
+	DJNZ    FINDTAB
+
+NONDEL: pop     bc              ; b=код драйвера (1..13)
+	pop     de              ; de=адр. удаляемой записи
+	ld      a,(DRVQN)
+	sub     b
+	jr      z,F106B1
+	ld      b,a             ; сколько записей сдвинуть
+	xor     a
+F106B:  add     a,ELSIZE
+	djnz    F106B
+	ld      c,a             ; сколько байт сдвинуть
+	ld      hl,ELSIZE
+	add     hl,de
+	ldir                    ; удалили одну запись
+F106B1: ld      hl,DRVQN
+	dec     (hl)            ; драйверов стало на 1 меньше
+	ld      a,(hl)
+	ld      hl,RESVEC
+	ld      de,SYSVEC
+	ld      bc,3*24
+	ldir                    ; вектора до загрузки др-ов
+	or      a
+	jr      z,EXF106
+	ld      b,a
+	ld      hl,DRIVERS
+F106C:  push    bc              ; переинсталлируем все
+	push    hl              ; драйвера после удаляемого
+	ld      e,(hl)          ; нач. сегмент
+	call    F112
+	ld      a,l             ; a=банк след. драйвера
+	pop     hl
+	push    hl              ; hl=описатель след. драйв.
+	call    INSCALL
+	pop     hl
+	ld      de,ELSIZE
+	add     hl,de
+	pop     bc
+	djnz    F106C
+EXF106:
+	JP      MEI             ;ei
+;
+;   Получить список драйверов
+; Выход: в буфер обмена помещается таблица из 0..13
+;        элементов - заголовков записей о драйвере
+;        А=0..13 - количество этих элементов
+;
+F107:   ld      hl,(REWADDR)
+	ld      a,(REWBANK)             ; куда
+	exx
+	ex      af,af'
+	ld      hl,DRIVERS              ; откуда
+	ld      bc,13*ELSIZE            ; сколько
+BLDIRA1:call    BLDIRF1
+	ld      a,(DRVQN)
+	ret
+;
+;   Поиск драйвера по имени драйвера с метасимволами
+; Вход: DE=адрес строки - имени драйвера (8 символов)
+; Выход: в буфере обмена - заголовок драйвера,
+;        если драйвер с таким шаблоном есть;
+;        А=FF если драйвера с таким номером нет.
+;
+F108:   ld      hl,(REWADDR)
+	ld      a,(REWBANK)     ; куда
+	push    de
+	exx
+	ex      af,af'
+	pop     de
+	call    NAME_PR
+	ld      bc,ELSIZE
+	push    af             ; откуда
+	call    BLDIRF1
+	pop     af
+	ret
+;
+;   Получить карту памяти
+; Выход: в буфер обмена помещается 128-байтовая карта пам.
+;
+F109:   ld      a,(REWBANK)
+	ld      hl,(REWADDR)    ; куда
+	exx
+	ex      af,af'
+	ld      hl,MAP          ; откуда
+	ld      bc,128          ; сколько
+	jr      BLDIRA1
+;
+; Поиск драйвера по имени в MBUF+1. Выход A=1..13 или 0FFh
+;   hl=адрес записи о драйвере (если найден)
+;
+FINDDRV:ld      hl,DRVNAME
+	ld      b,8
+FIND@:  ld      a,(hl)
+	cp      '`'
+	jr      c,FIND@1
+	and     5fh
+	ld      (hl),a
+FIND@1: inc     hl
+	djnz    FIND@
+	ld      a,(DRVQN)
+	or      a
+	ld      a,0FFh
+	ld      hl,DRIVERS
+	ret     z
+	ld      c,1
+FINDA:  push    hl              ; hl=начало записи о драйв.
+	ld      de,DRVNAME      ; de=MBUF+1
+	ld      b,8
+FINDB:  inc     hl
+	ld      a,(de)
+	cp      '?'
+	jr      z,FINDC
+	cp      (hl)
+	jr      nz,NOTEQ
+FINDC:  inc     de
+	djnz    FINDB
+	ld      a,c
+	pop     hl
+	ret
+NOTEQ:  pop     hl
+	ld      de,ELSIZE
+	add     hl,de
+	ld      a,(DRVQN)
+	cp      c
+	ld      a,0FFh
+	RET     Z
+	inc     c
+	jr      FINDA
+;
+;   Получить информацию о памяти
+; Выход: H=размер всего исправного ОЗУ в сегментах
+;        L=размер свободного ОЗУ в сегментах
+;
+F110:   ld      hl,0
+	ld      b,l
+F110A:  push    bc
+	push    hl
+	ld      e,b
+	call    GETSEGM
+	pop     hl
+	cp      0Fh
+	jr      z,F110B
+	inc     h
+	or      a
+	jr      nz,F110B
+	inc     l
+F110B:  pop     bc
+	djnz    F110A
+	ret
+;
+;   Пересчет физ. адреса в номер сегмента
+; Вход: DE = старший байт адреса (D) + банк (E)
+; Выход: A = номер сегмента
+;
+F111:   ld      b,4
+	ld      a,e
+F111A:  sla     d
+	rla
+	djnz    F111A
+	ret
+;
+;   Пересчет номера сегмента в физ. адрес
+; Вход: E = номер сегмента
+; Выход: HL = старший байт адреса (H) + банк (L)
+;
+F112:   ld      b,4
+	ld      l,e
+	ld      h,0
+F112A:  srl     l
+	rr      h
+	djnz    F112A
+	ret
+;
+;   Восстановление системного и битого ОЗУ
+; Восстанавливает отметку системного и отсутствующего ОЗУ в
+; карте памяти такой, какой она была при старте ЕММ.
+;
+F113:   ld      b,0FFh
+F113A:  push    bc
+	ld      e,b
+	ld      hl,WARMMAP
+	call    GETSEG1         ; сегмент в холод. карте
+	cp      0Eh
+	jr      nc,F113B
+	call    GETSEGM         ; сегмент в сист. карте
+	cp      0Eh
+	jr      c,F113B
+	xor     a
+	ld      c,e
+	call    SETSEG1         ; освободить сегмент
+F113B:  pop     bc
+	djnz    F113A
+	ret
+;
+; Поменять местами содержимое двух сегментов.
+; Вход: D,E - номера сегментов.
+;
+F114:   ld      b,64            ; 64 цикла
+	ld      hl,0
+	ld      (CALADDR),hl    ; (CALADDR)=0
+F114A:  push    bc
+	ld      A,WORKPAGE	; 1
+	ld      hl,MBUF         ; куда
+	ex      af,af'
+	ld      a,(RG_DE)
+	call    F114SUB         ; откуда & сколько
+	push    hl
+	push    af
+	call    BLDIR           ; E-seg -> MBUF
+
+	pop     af
+	pop     hl              ; куда (E-seg)
+	ex      af,af'
+	ld      a,(RG_DE+1)
+	call    F114SUB         ; откуда & сколько
+	push    bc
+	push    hl
+	push    af
+	call    BLDIR           ; D-seg -> E-seg
+
+	pop     af
+	pop     hl              ; куда (D-seg)
+	exx
+	ex      af,af'
+	pop     bc              ; bc=64
+	ld      hl,(CALADDR)
+	add     hl,bc
+	ld      (CALADDR),hl    ; (CALADDR)=(CALADDR+16)
+	ld      hl,MBUF
+	call    BLDIRA1         ; MBUF -> D-seg
+	pop     bc
+	djnz    F114A
+	ret
+;
+F114SUB:exx
+	ld      e,a
+	call    F112		; B=0
+	ld      a,l
+	ld      l,b		; ,0    ; адрес и банк сегмента
+	ld      de,(CALADDR)
+	add     hl,de           ; откуда
+	ld      c,64            ; bc,64   сколько
+	ret
+;
+;   Получить список диспетчера программ
+; Выход: по (DE) помещается таблица элементов
+;        А=0..хх - количество этих элементов
+;
+F115:   EX      DE,HL
+;        ld      a,(RG_B)             ; куда
+	exx
+	ex      af,af'
+	ld      a,(NTABQN)
+	OR      A
+	RET     Z
+	PUSH    AF
+	LD      B,A
+	LD      HL,0
+	LD      DE,18
+ADDPRO: ADD     HL,DE
+	DJNZ    ADDPRO
+	LD      B,H
+	LD      C,L
+	ld      hl,NTAB                 ; откуда
+	call    BLDIRA1
+	POP     AF
+	RET
+;
+GETSEGM:ld      hl,MAP
+GETSEG1:ld      c,e             ; Вход - рег. E
+	srl     c               ;
+	push    af
+	ld      a,0f0h
+	jr      nc,GETS1
+	ld      a,0fh
+GETS1:  ld      b,0
+	add     hl,bc
+	and     (hl)
+	ld      c,a
+	pop     af
+	ld      a,c
+	ret     c
+	rrca
+	rrca
+	rrca
+	rrca
+	ret
+;
+SETSEGM:ld      a,(DRVCODE)
+SETSEG1:ld      hl,MAP
+	ld      e,c             ; Вход - рег. C
+	srl     e
+	push    af
+	ld      a,0fh
+	jr      nc,SETS0
+	ld      a,0f0h
+SETS0:  ld      d,0
+	add     hl,de
+	and     (hl)
+	ld      e,a
+	pop     af
+	jr      c,SETS1
+	rlca
+	rlca
+	rlca
+	rlca
+SETS1:  or      e
+	ld      (hl),a
+	ret
+;
+NAME_PR:ld      hl,DRVNAME
+	ld      A,WORKPAGE	; 1             ; куда
+	push    de
+	exx
+	ex      af,af'
+	pop     hl
+	ld      a,(RG_B)        ; откуда
+	ld      bc,8            ; сколько
+	call    BLDIR           ; переслали имя
+	call    FINDDRV         ; поиск по имени -
+	cp      0FFh            ; устанавливает hl
+	ret     nz
+BADRET: xor     a
+	ld      h,a
+	ld      l,a             ; hl=0
+	dec     a               ; a=ff
+RETURN: ld      de,(RG_DE)
+	ld      sp,(RG_SP)
+	ret
+
+ush    de
+	push 

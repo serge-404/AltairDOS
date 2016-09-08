@@ -1,0 +1,1167 @@
+PFA     EQU     0FAH
+PRCC    EQU     0F008H          ; ERRORS REPORT
+TTYSETS	EQU	0F3FFh		; default 4800 bod, no interrupts (polling method)
+
+DISKBUF:
+;
+; ΪΔΕΣΨ ΤΕΣΤ οϊυ
+;
+MMTEST: LD      HL,MAP-16	; empty MInfo, LBANUM, IDEDEVx, MAP
+	LD      D, h
+	LD      e, l
+	inc	de
+	LD      BC,7FH+16
+	LD      (HL),B
+	LDIR
+	XOR     A
+	LD      BC,80FFH
+	LD      HL,MARKER
+	CALL    INITEST         ; ϊαπισψ 0FFH χ 0EFFFH
+	XOR     A
+TST1:   PUSH    AF
+	LD      B,15
+	CALL    MTEST
+	POP     AF
+	INC     A
+	CP      10H
+	JR      C,TST1
+	ld	hl, OUTMEM
+	LD      DE,HARDERR      ; χωθοδ πςι πμοθον
+	PUSH    DE              ; σιστενξον οϊυ
+	XOR     A
+	LD      HL,OUTMEM
+	LD      DE,MAP          ; ναςλιςυεν σιστενξοε οϊυ
+	LD      B,4
+	CALL    MARKSYS         ; 0:0000..0:3FFF
+	RET     Z               ; IF BAD
+	LD      DE,MAP+7
+	LD      B,1
+	CALL    MARKSYS         ; 0:E000..0:EFFF
+	RET     Z               ; IF BAD
+	LD      DE,MAP+8
+	LD      B,4
+	CALL    MARKSYS         ; 1:0000..1:3FFF
+	RET     Z               ; IF BAD
+	LD      DE,MAP+12       ; 1:9000..1:9FFF
+	LD      B,1
+	CALL    MARKSYS0
+	RET     Z               ; IF BAD
+	LD      DE,MAP+13
+	LD      B,5
+	CALL    MARKSYS         ; 1:A000..1:EFFF
+	RET     Z               ; IF BAD
+	LD      DE,MAP+16
+	LD      B,15
+	CALL    MARKSYS         ; 2:0000..2:EFFF
+	RET     Z               ; IF BAD
+;	POP     DE
+;	RET
+	jp	COLDST1		; temporary
+;
+MARKSYS:LD      A,(DE)
+	OR      0FH             ; πςοχεςλα σταςϋεηο ξιββμα
+	INC     A
+	RET     Z
+	LD      A,(DE)
+	AND     0FH
+	OR      0E0H
+	LD      (DE),A
+	DEC     B
+	JR      Z,STOPMARK
+;
+MARKSYS0:
+	LD      A,(DE)
+	OR      0F0H            ; πςοχεςλα νμαδϋεηο ξιββμα
+	INC     A
+	RET     Z
+	LD      A,(DE)
+	AND     0F0H
+	OR      0EH
+	LD      (DE),A
+	INC     DE
+	DJNZ    MARKSYS
+STOPMARK:DEC     B               ; Z:=FALSE
+	RET
+;
+MTEST:  LD      HL,0
+MTEST1: PUSH    BC
+	PUSH    HL
+	PUSH    AF
+	LD      BC,2
+	LD      A,(TSTFLAG)
+	OR      A
+	JR      NZ,TEST01
+	CALL    0F812H
+	LD      (TSTFLAG),A
+	LD      BC,0FFEH    ; δμιξα τεστιςυενοηο υώαστλα
+TEST01: POP     AF
+	POP     DE
+	PUSH    DE
+	PUSH    AF
+	LD      HL,MARKER
+	CALL    TESTMEM         ; Z = O.K. NZ = BAD
+	LD      c,0
+	JR      Z,MTEST3
+	LD      c,0FH
+MTEST3: POP     AF
+	POP     HL
+	PUSH    HL
+	PUSH    AF
+	RLCA
+	RLCA
+	RLCA                   ; A=PAGE*8
+	SRL     H
+	SRL     H
+	SRL     H
+	SRL     H
+	SRL     H               ; H=H/32
+	PUSH    AF
+	JR      C,MTEST4
+	SLA     c
+	SLA     c
+	SLA     c
+	SLA     c
+MTEST4: OR      H               ; A=A+H
+	LD      HL,MAP
+	LD      E,A
+	LD      D,0
+	ADD     HL,DE
+	LD      A,(HL)
+	OR      c               ; ναςλιςυεν οϊυ:
+	LD      (HL),A          ; 0-σχοβοδξο, 0FH-BAD
+
+; Π/Π ΔΕΣΡΤΙήΞΟΚ ΛΟÒÒΕΛΓΙΙ -
+;       ΧΘΟΔ : DE - 16-ΒΙΤΞΟΕ ΫΕΣΤΞΑΔΓΑΤΙÒΙήΞΟΕ ήΙΣΜΟ :
+;             ΧΩΘΟΔ : HL - 4-ΪΞΑήΞΟΕ ΔΕΣΡΤΙήΞΟΕ ήΙΣΜΟ :
+;                     (H7..H4; H3..H0; L7..L4; L3..L0)
+	ld      hl,0
+	ex      de,hl
+	INC     HL
+	POP     AF
+	adc     hl,hl
+	add     hl,hl
+	add     hl,hl
+	ld      b,16
+CYCLE:  add     hl,hl
+	ld      a,e
+	adc     a,e
+	daa
+	ld      e,a
+	ld      a,d
+	adc     a,d
+	daa
+	ld      d,a
+	djnz    CYCLE
+	ld      a,c
+	or      a
+	LD      C,0F0H
+	jr      nz,MTEST6
+	LD      C,0E0H
+	PUSH    BC
+	LD      HL,HERRMSG+1
+	LD      A,0F0H
+	AND     D
+	RLCA
+	RLCA
+	RLCA
+	RLCA
+	ADD     A,'0'
+	LD      (HL),A
+	INC     HL
+	LD      A,0FH
+	AND     D
+	ADD     A,'0'
+	LD      (HL),A
+	INC     HL
+	LD      A,0F0H
+	AND     E
+	RLCA
+	RLCA
+	RLCA
+	RLCA
+	ADD     A,'0'
+	LD      (HL),A
+	INC     HL
+	LD      A,0FH
+	AND     E
+	ADD     A,'0'
+	LD      (HL),A
+	LD      HL,HERRMSG
+	PUSH    HL
+	CALL    OUTMSG
+	POP     HL
+	LD      A,(HL)
+	CP      13
+	LD      (HL),13
+	LD      HL,KRAM
+	CALL    NZ,OUTMSG
+	POP     BC
+MTEST6: LD      E,C              ; E=0E0H OR E=0F0H
+	POP     AF
+	POP     HL
+	LD      BC,1000H
+	ADD     HL,BC
+	POP     BC
+	DEC     B
+	JP      NZ,MTEST1
+	RLCA
+	RLCA
+	RLCA
+	ADD     A,7
+	LD      C,A
+	LD      B,0
+	cp      7
+	ld      a,0Eh
+	jr      z,ZEROPAGE
+	inc     a
+ZEROPAGE:or     e
+	LD      HL,MAP
+	ADD     HL,BC           ; ναςλιςυεν ποδ-πϊυϋεώξοε
+	LD      (HL),a          ; οϊυ: 0FH-BAD 0EH-SYSTEM
+	RET
+
+COLD:
+;
+COLDSTACK EQU   COLD-20h
+BUFFILE EQU     COLD-2100H
+ATMP	EQU	COLD-1
+HLTMP	EQU	COLD-3
+BUFWORD EQU     0C0h
+;
+DRIVER: db      0,'DRIVER  SYS'
+;
+coldbeg:
+	LD      SP,COLDSTACK
+	xor	a
+	ld	(TTYCUR), A	; 0F3F3h - current returned pointer from TTYBUF
+	ld	(TTYSETS), A	; 0F3FFh - default 4800 bod, no interrupts (poll)
+	dec	a
+	ld	(TTYPTR), A	; 0F3F4h - next free byte offset in tty buffer for ISR subr. 
+				;          0FFh = POLL mode
+	LD      HL,INTPRG       ; ΠΟΔΛΜΐήΙΤΨΣΡ Λ ΧΕΛΤΟÒΥ
+	LD      (MVprogint),HL  ; ΠÒΟΗÒΑΝΝΞΩΘ ΠÒΕÒ. M-3
+
+	CALL    SETJUMPS
+IF BOOTFDD
+	LD      HL,00095H
+ELSE
+	LD      HL,00295H
+ENDIF
+	LD      (IO_BYTE),HL	; ΥΣΤΑΞΟΧΛΑ ΡήΕΚΛΙ ΞΑΪΞΑήΕΞΙΡ
+				; ΜΟΗ.  ΥΣΤÒΟΚΣΤΧ ΖΙΪΙήΕΣΛΙΝ
+				; (ΠΟ ΑΔÒΕΣΥ 3) Ι ΥΣΤΑΞΟΧΛΑ
+				; ΤΕΛΥέΕΗΟ ΔΙΣΛΑ C (ΠΟ ΑΔÒΕΣΥ 4)
+	call	resetdsk
+;
+; ηςυϊιν σιστενξωκ δςακχες
+;
+	CALL    0F81BH
+	LD      (FCODE),A
+	ld	hl, DRIVER+1
+	CALL    OPENHL
+;	ld      hl, NODRIV
+	jr	z, skipdrv	; nz, ifexst
+;nodrvr:CALL    OUTMSG		; HARDERR ; ΠΕÒΕΘΟΔ, ΕΣΜΙ ΞΕ
+				; ΞΑΚΔΕΞ DRIVER.SYS
+;	push	hl
+	LD      HL,80H
+	LD      BC,100H
+	LD      DE,DRIVER
+	CALL    FREAD           ; σώιτωχαεν DRIVER.SYS
+				; χ TPA σ 100H
+	ld	hl, AVECEND-AVECBEG+BPROC
+	ld	de, TTYBEG
+	ld	bc, mttyend-mttybeg
+	LDIR			; TTY interrupt mode ISR
+;
+	LD      A,(82H)
+	CP      0E7H
+;	pop	hl		; hl=NODRIV
+;	jr      NZ, nodrvr      ; ΠΕÒΕΘΟΔ, ΕΣΜΙ ΞΕΧΕÒΞΩΚ
+				; ΟΠΟΪΞΑΧΑΤΕΜΨ
+	ld	hl,BRET
+	ld	(YCONST+1),HL
+	ld	(YCONIN+1),HL
+	ld	(YCONOUT+1),HL
+	CALL    z, 100H            ; ΙΞΣΤΑΜΜΙÒΟΧΑΤΨ ΔÒΑΚΧΕÒ
+skipdrv:
+;	ld	hl, MMDI
+;	call	BCALL_1
+	call    0F81BH		; inkey
+	ld	hl, FCODE
+	and	(hl)
+	LD      (hl),A
+;	ld	hl, MEI
+;	call	BCALL_1
+;
+	LD      HL,CONFIG
+	CALL    OPENHL          ; open file
+	LD      A,(FCODE)	; ΞΑΚΔΕΞ CONFIG.SYS
+	JR      Z,EX2CONF	; ΠΕÒΕΘΟΔ, ΕΣΜΙ ΞΕ
+	CP      4
+EX2CONF:JR      Z,EXCONF
+FROMUSE:CALL    FILL1A
+	PUSH    HL
+	CALL    FREAD           ; σώιτωχαεν CONFIG.SYS
+	POP     HL
+ANALIS: LD      A,(HL)
+	INC     HL
+	CALL    EOF
+	JR      Z,EXCONF
+	CALL    EOSTR
+	JR      Z,ANALIS
+	DEC     HL
+	PUSH    HL              ; HL=πςεδμοφεξιε CONFIG'A
+	LD      A,(FCODE)
+	CP      3
+	JR      NZ,NOTPRES
+	CALL    BLANK
+OUTLOOP:LD      A,(HL)
+	CALL    EOSTR
+	JR      Z,EXLOOP
+	CALL    CONOUTA
+	INC     HL
+	JR      OUTLOOP
+EXLOOP: LD      DE,YESNO
+	CALL    STRING
+REP:    LD      C,1
+	CALL    BDOS
+	CP      3
+	JR      Z,REP
+	PUSH    AF
+	CALL    CRLF		; LFCR
+	POP     AF
+	CP      4
+	JR      Z,IFF5
+	CP      27
+	JR      NZ,NOESC
+	LD      (FCODE),A
+NOESC:  CALL    UPCASE
+NOTPRES:CP      'N'
+	POP     HL
+	PUSH    HL
+	CALL    NZ,EXEC
+	POP     HL
+SEARC:  LD      A,(HL)
+	INC     HL
+	CALL    EOF
+	JR      Z,EXCONF
+	CALL    EOSTR
+	JR      NZ,SEARC
+	JR      ANALIS
+;
+USE:	CALL	GETWORD
+	xor	a
+	ld	(de),a
+	ld	hl, BUFWORD
+	ld	de, DRIVER 
+	call	MAKEFCB
+	LD      HL,DRIVER+1
+	CALL    OPENHL          ; open file
+	JR	NZ, FROMUSE	; if file exists
+	RET
+;
+IFF5:   POP     HL
+;
+EXCONF: xor	a
+	ld	(DRIVER),a
+	call	resetdsk
+	LD      HL,AUTOEXEC     ;+
+	CALL    OPENHL
+	JR      Z,ERROR         ; ΠΕÒΕΘΟΔ, ΕΣΜΙ ΞΕ
+				; ΞΑΚΔΕΞ AUTOEXEC.SUB
+;
+	CALL    FILL1A
+	CALL    FREAD           ; ώιταεν ζακμ χ βυζες
+	LD      HL,BUFFILE
+	LD      IX,BUFWORD
+	CALL    PROCBAT
+;
+; οβςαβοτώιλ οϋιβολ BDOS
+;
+ERROR:  JP      BIOS+3    ; χωκτι ιϊ  COLD - σταςτεςα
+;
+FILL1A: LD      HL,BUFFILE
+	PUSH    HL
+	LD      DE,BUFFILE+1
+	LD      BC,2000h
+	LD      (HL),1AH
+	LDIR
+	POP     HL
+	LD      C,40H		; 128 * 40h = 2000h
+	LD      DE,DRIVER
+	RET
+;
+OPENHL: LD      DE,DRIVER+1
+	LD      BC,11
+	LDIR
+	LD      H,D
+	LD      L,E
+	INC     DE
+	LD      C,20
+	LD      (HL),B          ;B=0
+	LDIR
+OPENDRV:LD      DE,DRIVER
+FOPEN:  LD      C,0FH
+	CALL    BDOS
+	INC	A
+	RET
+;
+; χωπομξεξιε στςολι  CONFIG'A
+;
+EXEC:   CALL    BLANK           ; πςοπυσλ πςοβεμοχ
+	LD      A,(HL)
+	CP      ';'
+	RET     Z
+	CALL    GETWORD         ; πομυώιτψ σμοχο
+	CALL    BLANK
+	PUSH    HL
+	LD      DE,TABWORD
+FIND:   CALL    CMPSTR
+	EX      (SP),HL
+	RET     NZ           ; εσμι ξακδεξ, το χωϊοχ πο (HL)
+	POP     HL
+	RET
+;
+; χωδεμρετ σμοχο ιϊ ζςαϊω ι πονεύαετ εηο ξα BUFWORD
+;
+GETWORD:LD      DE,BUFWORD
+	LD      C,0
+ABF11:  LD      A,(HL)
+	CALL    UPCASE
+	CP      20H
+	RET     Z
+	CP      9
+	RET     Z
+	CALL    EOSTR
+	RET     Z
+	CP      3DH
+	RET     Z
+	CP      2CH
+	RET     Z
+	LD	(DE),A
+	INC	HL
+	INC	DE
+	INC	C
+	JR      ABF11
+;
+; πςοπυσλ πςοβεμοχ
+;
+BLANK:  LD      A,(HL)
+	CP      ' '
+	JR      Z,BLANK1
+	CP      9
+	RET     NZ
+BLANK1: INC     HL
+	JR      BLANK
+;
+FILLC:  LD      (HL),A
+	INC	HL
+	DEC	C
+	JR      NZ,FILLC
+	RET
+;
+; ταβμιγα χελτοςοχ , ποδνεξρΰύαρ χελτοςα οϋιβολ BDOS
+;
+;ERRVEC: DW      ERROR
+;        DW      ERROR
+;        DW      ERROR
+;        DW      ERROR
+;
+; πεςεχοδ σινχομα ξα βομψϋιε ματιξσλιε σινχομω
+;
+UPCASE: AND     7FH
+	CP      61H
+	RET     C
+	CP      7BH
+	RET     NC
+	SUB     20H
+REM:    RET
+;
+; λοναξδα  CONFIG'A : {RUN} <NAME>[.COM] [PARAMS]
+;
+RUN:    			; hl = source string		
+        LD      de,BUFFMAX
+	ex	de, hl
+	ld	bc, 7FH
+        LD      (HL), c
+        INC     HL
+        LD      (HL),0
+	inc	hl
+	ex	de, hl
+RUN1:	ld	a, (hl)
+	call 	EOSTR
+	jr	z, run2
+	push	hl
+	ld	hl, BUFFMAX+1
+	inc	(hl)
+	pop	hl
+	ldi
+	jp	pe, run1	; jp if bc<>0 after ldi
+run2:	xor	a		; Z = do not input command from terminal
+	ld	(de),a		; eostr	
+	jp	INPSTART	; goto CCP
+;
+; λοναξδα   CONFIG'A : ASSIGN DRIVE <DRIVE> = <DEVICE | DRIVER>
+;
+ASSIGN: CALL    GETWORD
+;	LD      DE,DRIVE	; just skip second word (do not compare with 'DRIVE')
+;	PUSH    HL
+;	CALL    CMPSTR
+;	POP     HL
+;	RET     Z
+	CALL    BLANK
+	LD      A,(HL)
+	and     5fh
+	SUB     'A'
+	RET     C
+	CP      16
+	RET     NC
+	LD      (ATMP),A
+	ld	(FCB1), A	; for REGIDE subroutine - for do not jump RES_NEWD
+	INC     HL
+	CALL    BLANK
+	LD      A,(HL)
+	CP      '='
+	RET     NZ
+	INC     HL
+	CALL    BLANK
+	LD      (HLTMP),HL
+	CALL    GETWORD
+	LD      A,C
+	EXX
+	LD      C,A
+	LD      DE,DEVICES
+	CALL    CMPSTR
+	JR      nz, NOTNAME     ; IF   FDD, IDE, VDISK
+	LD      HL,(HLTMP)	; else - other device driver load
+	CALL    DEVICE1
+	RET     C
+	LD      B,0FEH          ; χξεϋξικ δισλ
+;
+REGIS:  LD      A,(ATMP)
+	jp	REGI1
+;
+NOTNAME:LD      A,H		; LD A,L  // 20090613
+	EXX
+	ld	b, a
+	inc	a
+	jr	z, REGIS	; IF NONE   (b=0ffh)
+	sub	3
+	JR      c, REGIS        ; IF FLOPPY (b=0,1)
+	JR      Z,VDISK         ; IF VDISK  (b=2) 
+	cp	4
+	jr	nc, REGIS	; IF ROM (b>=6)
+;
+; else b=3(IDE_MASTER),4(IDE_SLAVE),5(SDCARD)
+;
+IFIDE:	xor	a		; A:=0 - do not call sd_init for SD-cards - allready inited
+	ex	af, af'
+	push	bc		; b=3,4,5 (device index)
+	CALL    GETNUM		; saves DE
+	pop	hl		; h=3,4,5 (device index)
+	RET     C
+	LD      A,B		; B=partition_N (0..3)
+	CP      4		; only 4 IDE partitions allowed (0,1,2,3 - FDISK scheme)
+	RET     NC
+IF BOOTFDD
+	jp	_IFIDE2
+ELSE
+	call	_IFIDE2
+	LD      A,(ATMP)
+	ld	e,a
+	ld	d,0
+	ld	hl,DRVTAB
+	add	hl,de
+	ld	e,(hl)
+	inc	e
+	ret	z
+	ld	b,a
+	ld	HL, WARMDISK
+	jp	BSTB1
+ENDIF
+;
+VDISK:  LD      A,(INSTE)       ; VDISK ALREADY INSTALLED ?
+	OR      A
+	LD      B, 2		; 2 = VDISK device
+	JR      NZ,REGIS
+	LD      A,(FIXFLAG)
+	OR      A               ; RAMTOP FIXED ?
+	RET     NZ
+	CALL    BLANK
+	PUSH    HL
+	CALL    GETWORD         ; size or inkey
+	LD      DE,INKEYST
+	CALL    CMPSTR
+	POP     HL
+	JR      Z,TOGETNM       ; NOT INKEY
+	CALL    BLANK
+	DEC     HL
+	LD      DE,ENTERVS
+	CALL    STRING
+	PUSH    HL
+	LD      (HL),3
+	INC     HL
+	LD      (HL),0
+	POP     DE
+;	PUSH    HL
+	LD      C,10
+	CALL    XBDOS
+;	POP     HL
+	LD      A,(HL)          ; REAL SIZE
+	ld      (hl),1
+	OR      A
+	LD      E,A
+;        RET     Z
+	ld      a,0FFh
+	jr      z,defvsize
+	LD      D,0
+	INC     HL
+	PUSH    HL
+	ADD     HL,DE
+	LD      (HL),13
+	POP     HL
+TOGETNM:CALL    GETNUM          ; IF VDISK
+	RET     C               ; B=SIZE (kb)
+	LD      A,B
+	CP      4
+	RET     C
+defvsize:
+	PUSH    AF              ; NC
+	LD      A, WORKPAGE 
+	ld	hl, VMEM1
+	call	BLDB
+	ld	a, b
+	or	a
+	jr	nz, RESE1
+	LD      A,0FEh
+RESE:   PUSH    AF
+	LD      E,A
+	LD      HL,GETSEGM      ; χθ. r.E=σεηνεξτ, χωθ. r.A
+	CALL    BCALL_1		; A=WORKPAGE
+	CP      0Eh
+	POP     BC
+	LD      A,B
+	JR      Z,ERESE
+	SUB     10h
+	CP      2Eh             ; δοβςαμισψ δο σιστενω ?
+	JR      NZ,RESE
+RESE1:	LD      C,103
+	LD      DE,1FFh
+	CALL    BDOS
+;   ςΕΪΕÒΧΙÒΟΧΑΞΙΕ N ΠΟΣΜΕΔΟΧΑΤΕΜΨΞΩΘ ΣΕΗΝΕΞΤΟΧ.
+; χΘΟΔ: D=ΛΟΜΙήΕΣΤΧΟ ΣΕΗΝΕΞΤΟΧ
+;       E=ΞΑήΑΜΨΞΩΚ ΣΕΗΝΕΞΤ (0FFh ΕΣΜΙ ΜΐΒΟΚ)
+; χΩΘΟΔ: A=ΞΑήΑΜΨΞΩΚ ΣΕΗΝΕΞΤ, ΕΣΜΙ ÒΕΪΕÒΧΙÒΟΧΑΞΙΕ ΠÒΟΫΜΟ
+;        ΞΟÒΝΑΜΨΞΟ, A=FF, ΕΣΜΙ ΟΒΜΑΣΤΙ ΤΑΛΟΗΟ ÒΑΪΝΕÒΑ ΞΕΤ
+	CP      0FFh
+	JR      NZ,ERESE
+	POP     AF              ; NO SPACE FOR VDISK
+	RET
+ERESE:  LD      B,A             ; B=SEG.ETRACK0
+	LD      HL,ETRACK0
+	CALL    BSTB1
+	XOR     A
+	LD      (DPB_E+5),A
+	LD      HL,ETRACK1
+	POP     AF              ; VDISK SIZE IN GROUPS(KB)
+	LD      B,A
+	SRL     B
+	SRL     B               ; VDISK SIZE IN TRACKS(SEG)
+	AND     3
+	JR      Z,ERES0
+	INC     B
+ERES0:  LD      A,B
+	LD      (VSEGQN),A
+ERES1: ; PUSH    HL
+;	PUSH    BC
+	LD      C,103
+	LD      DE,1FFh
+	CALL    XBDOS
+;	POP     BC
+;	POP     HL
+	CP      0FFH
+	JR      Z,ENOSP
+	PUSH    HL
+	PUSH    BC
+	LD      B,A
+	CALL    BSTB1
+	LD      HL,DPB_E+5
+	INC     (HL)
+	INC     (HL)
+	INC     (HL)
+	INC     (HL)            ; VDISKSIZE:=VDISKSIZE+4
+	POP     BC
+;	ld	b,1
+	LD      HL,INSTE
+	LD      (HL),b
+	CALL    BSTB1
+	POP     HL
+	INC     HL
+	DJNZ    ERES1
+ENOSP:  LD      A,(INSTE)
+	OR      A
+	RET     Z
+	LD      HL,DPB_E+5
+	DEC     (HL)
+	LD      B,(HL)
+	CALL    BSTB1
+	LD      B, 2		; 2 = VDISK device
+	call    REGIS
+	LD      A,(ATMP)        ; μοη. δισλ
+	LD      C,A
+	CALL    TDA1B           ; χωβςατψ δισλ E
+	LD      BC,80H
+	CALL    TDA24           ; υστ. DMA
+; τεστ σιστενξοκ δοςοφλι
+	CALL    TDA18           ; TRACK 0 (HOME)
+	LD      BC,0A01H        ; 10 σελτοςοχ ξαώιξαρ σ 1-ηο
+	CALL    TSTDISK         ; 0-ξε ζοςνατιςοχαξο, 1-ολ
+	LD      (FORMAT0),A
+; τεστ λαταμοηα
+	LD      BC,1
+	CALL    TDA1E           ; TRACK 1
+	LD      BC,1001H        ; 16 σελτοςοχ ξαώιξαρ σ 1-ηο
+	CALL    TSTDISK         ; 0-ξε ζοςνατιςοχαξο, 1-ολ
+	LD      (FORMAT1),A
+	LD      HL,FORMAT0
+	AND     (HL)
+	JR      NZ,XTOREC1      ; οβε οβμαστι ζοςνατιςοχαξω
+	LD      DE,FVDISK
+	CALL    STRING          ; 'FORMAT VDISK'
+	LD      A,(AUTO_FMT)    ; AUTO FORMAT
+	OR      A
+	JR      NZ,AUTOFMT
+	LD      DE,YESNO
+	CALL    STRING          ; '[Y/N/ESC]?'
+REP100: LD      C,1
+	CALL    BDOS
+	CP      27
+	JR      C,REP100
+	JR      Z,XTOREC0
+	AND     5FH
+	CP      'Y'
+XTOREC1:JR      NZ,XTORECC
+AUTOFMT:
+	LD      DE,WAIT
+	CALL    STRING          ; '...'
+; ζοςνατιςοχαξιε σιστενξοκ δοςοφλι
+	xor     a
+	call    LDIR80          ; 128 ξυμεκ
+	LD      A,(FORMAT0)
+	OR      A
+	JR      NZ,FORMCAT
+	LD      DE,0A05H        ; ϊαπισατψ 10 σελτοςοχ
+	CALL    WRVTRK		; B=0
+;
+	ld      hl,vdisknm      ; ΠΕÒΕΣΜΑΤΨ ΙΝΡ vdisk'a Χ DMA
+	ld      de,0A0h
+	ld      c,16		; B=0 after WRVTRK
+	ldir
+	LD      DE,0101H        ; ϊαπισατψ σελτος 1 - "boot" Σ ΙΝΕΞΕΝ ΔΙΣΛΑ
+	CALL    WRVTRK0
+;
+	ld      hl,0FDh
+	ld      (hl),74h        ; λ.σ. ΙΝΕΞΙ ΔΙΣΛΑ
+	inc     hl
+	ld      (hl),78h        ; λ.σ. ΙΝΕΞ ΐΪΕÒΟΧ
+	LD      DE,0102H        ; ϊαπισατψ σελτος 2 - "boot" Σ λ.σ.
+	CALL    WRVTRK0
+;
+	LD      HL,90H
+	LD      a,' '
+	call    XLDIR80         ; 112 λοδοχ ΠÒΟΒΕΜΑ
+	ld      de,11
+	ld      bc,731h         ; Χ C ΛΟΔ "1"
+	call    mksc
+	LD      DE,0103H        ; ϊαπισατψ σελτος 3 - ΙΝΕΞΑ ΐΪΕÒΟΧ
+	CALL    WRVTRK0
+;
+	LD      a,' '
+	call    LDIR80          ; 128 λοδοχ ΠÒΟΒΕΜΑ
+	ld      de,11
+	ld      bc,238h         ; Χ C ΛΟΔ "8"
+	call    mksc
+	ld      bc,641h         ; Χ C ΛΟΔ "A"
+	call    mksc
+	LD      DE,0104H        ; ϊαπισατψ σελτος 4 - ΙΝΕΞΑ ΐΪΕÒΟΧ
+	CALL    WRVTRK0
+
+; ζοςνατιςοχαξιε λαταμοηα
+FORMCAT:LD      A,(FORMAT1)
+XTOREC0:OR      A
+XTORECC:JR      NZ,TORECC
+	LD      a,0E5H
+	call    LDIR80
+	LD      C,1             ; ξαώιξαρ σ 1 δοςοφλι
+FORMC0: LD      DE,2001H        ; πισατψ πο 32 σελτοςα
+	PUSH    BC
+	CALL    WRVTRK
+	LD      HL,PROCESS
+	LD      A,(HL)
+	INC     (HL)
+	AND     3
+	LD      C,A
+;	LD      B,0		; B=0 after WRVTRK
+	LD      HL,SYMBTAB
+	ADD     HL,BC
+	LD      E,(HL)
+	LD      C,6
+	CALL    BDOS
+	LD      E,8
+	LD      C,6
+	CALL    BDOS
+	POP     BC
+	INC     BC
+	LD      HL,VSEGQN
+	DEC     (HL)
+	JR      NZ,FORMC0
+TORECC: LD      DE,RECSTR
+	CALL    STRING
+	LD      C,DEFAULT_DISK
+	JP      TDA1B           ; χωβςατψ δισλ A
+;
+WRVTRK0:ld      bc,0
+WRVTRK: PUSH    DE
+	CALL    TDA1E           ; TRACK N
+	POP     BC
+WRTLOOP:PUSH    BC
+	LD      B,0
+	CALL    TDA21           ; SECTOR N
+	CALL    TDA2A           ; WRITE FROM DMA
+	POP     BC
+	INC     C
+	DJNZ    WRTLOOP
+	RET
+;
+TSTDISK:PUSH    BC
+	LD      B,0
+	CALL    TDA21           ; SECTOR N
+	CALL    TDA27           ; READ TO DMA
+	POP     BC
+	OR      A
+	LD      A,0
+	RET     NZ
+	INC     C
+	DJNZ    TSTDISK
+	LD      A,1
+	RET
+;
+LDIR80: ld      hl,80h
+XLDIR80:push    hl
+	ld      d,h
+	ld      e,l
+	inc     de
+	ld      bc,7Fh
+	ld      (hl),a
+	ldir
+	pop     hl
+	ret
+;
+vdisknm:db      'Virtual disk    '
+;
+mksc:   ld      (hl),'U'
+	inc     hl
+	ld      (hl),'S'
+	inc     hl
+	ld      (hl),'E'
+	inc     hl
+	ld      (hl),'R'
+	inc     hl
+	ld      (hl),'_'
+	inc     hl
+	ld      (hl),c
+	add     hl,de
+	inc     c
+	djnz    mksc
+	ret
+;
+; λοναξδα  CONFIG'A : {AUTOFORMAT_VDISK}
+;
+AUTOFORMAT:
+	LD      HL,AUTO_FMT
+	INC	(HL)
+	RET
+;
+; λοναξδα  CONFIG'A : {DEVICE} = <NAME[.SYS]>
+;
+DEVICE: LD      A,(HL)
+	CP      '='
+	RET     NZ
+	INC	HL
+	CALL    BLANK
+DEVICE1:PUSH    HL
+STRUP:  LD      A,(HL)
+	CALL    UPCASE
+	LD      (HL),A
+	INC     HL
+	CALL    EOSTR
+	JR      NZ,STRUP
+	LD      HL,BUFWORD
+	LD      C,24H
+	XOR	A
+	CALL    FILLC           ; ποώιστιτψ βυζες BUFWORD
+	POP     HL
+	LD      DE,BUFWORD
+	CALL    MAKEFCB
+	RET     C               ; πμοθοε ινρ => χοϊχςατ
+	PUSH    HL
+	LD      DE,BUFWORD+9
+	LD      A,(DE)
+	CP      ' '
+	JR      NZ,NOLDIR
+	LD      HL,SYSSTR
+	LD      BC,3
+	LDIR
+NOLDIR: LD      DE,80H
+	LD      C,1AH
+	CALL    BDOS         ; SET PDP
+	LD      DE,BUFWORD
+	CALL    FOPEN
+	JR      Z,BADDRV     ; πεςεθοδ, εσμι οϋιβλα οτλςωτιρ
+	LD      HL,80H
+	LD      BC,180H
+	LD      DE,BUFWORD
+	CALL    FREAD        ; σώιτωχαεν δςακχες
+	JR      Z,BADDRV
+	LD      A,(82h)
+	CP      0E7H         ; αξαμιϊ οποϊξαχατεμρ δςακχεςα
+	JR      NZ,BADDRV
+	POP     HL           ; HL=στςολα παςανετςοχ
+	PUSH    HL
+	CALL    MKSYSLN
+	POP     HL
+	CALL    100h         ; ϊαπυσλ δςακχεςα
+	OR      A
+	RET
+;
+BADDRV: POP     HL
+	SCF
+	RET
+;
+; λοναξδα  CONFIG'A : {SET} <ινρ> = <ποδνεξα> [& <ποδνεξα> & ...]
+;
+SET:    LD      DE,SYSLINE+2
+	LD      B,250
+	PUSH    BC
+SET1:   LD      A,(HL)
+	CALL    EOSTR
+	JR      Z,SET2
+	LD      (DE),A
+	INC     HL
+	INC     DE
+	DJNZ    SET1
+SET2:   POP     AF
+	SUB     B
+	RET     Z
+	LD      DE,SYSLINE+1
+	LD      (DE),A
+	DEC     DE
+	LD      (DE),A
+	LD      C,31H
+BDOS11:	JP      BDOS
+;
+; Set device definition byte (03h)
+;
+IOBYTE:	call	GETNUM
+	ret	c		; if no IOBYTE provided
+	ld	e, b
+	ld	c, 8
+	jr	BDOS11
+;
+; λοναξδα  CONFIG'A : {PATH} ξονες(ινρ) ΰϊεςα
+;
+PATH:   LD      E,0FFH
+	CALL    SETUSR		; saves HL
+	PUSH    AF
+	CALL    NMUSR
+	OR      A
+	JR      NZ,PATH1
+	LD      E,0FFH
+	CALL    SETUSR
+	LD      E,A
+	LD      C,37H
+	CALL    BDOS
+PATH1:  POP     AF
+	LD      E,A
+	JP      SETUSR
+;
+LPT:    LD      A,(HL)
+	AND     5Fh
+	CP      'F'
+	RET     NZ
+	INC     HL
+	LD      A,(HL)
+	CP      '6'
+	LD      HL,VALUE
+	RES     4,(HL)
+	RET     NZ
+	SET     4,(HL)
+	RET
+;
+BECHO:  CALL    ECHO
+	JP      CRLF		; LFCR
+;
+FIX:    LD      HL,FIXFLAG
+	LD      A,(HL)
+	OR      A
+	RET     NZ              ; ϊαύιτα οτ ποχτοςξοηο
+	LD      A,WORKPAGE
+	LD      (HL),A
+	LD      HL,WARMMAP      ; λυδα (1:WARMMAP)
+	EXX
+	EX      AF,AF'
+	LD      A,WORKPAGE
+	LD      HL,MAP          ; οτλυδα (1:MAP)
+	LD      BC,80h
+	CALL    BLDIR           ; WRITE RESERVE MEMORY MAP
+	LD      HL,RESVEC
+	LD      A,WORKPAGE      ; Kυδα
+	EXX
+	EX      AF,AF'
+	LD      HL,SYSVEC
+	XOR     A               ; οτλυδα
+	LD      BC,3*24
+	CALL    BLDIR           ; WRITE RESERVE SYS-VECTORS
+	LD      HL,EFLAG
+	CALL    TOSBSTB
+	LD      HL,DRVQN
+TOSBSTB:LD      B,0
+BSTB1:	ld	a, WORKPAGE
+	JP      BSTB            ; NO DRIVERS IN LIST
+;
+VMEM:	call	GETNUM
+	RET     C
+	LD      HL,VMEM1
+	jr	BSTB1
+;
+; Set TTY speed
+;
+T4800	equ	020h
+T9600	equ	058h
+T19200	equ	0F0h
+T38400	equ	0D0h
+;
+TTY:	call	GETNUM
+	ret	c		; if no TTY SPEED provided
+	push	bc
+	CALL    BLANK
+	CALL    GETWORD         ; size or inkey
+	LD      DE,INTST
+	CALL    CMPSTR
+	pop	bc
+	ld	a, 0FFh		; TTYBUF_PRT=0FFH for POLL mode
+	ld	c, 0
+	JR      Z,IFPOLL	; NOT INT (POLL MODE)
+	inc	a		; TTYBUF_PRT=0 for INT mode
+	ld	c, 40h		; set D6 = interrupt mode tty
+IFPOLL:	ld	(TTYPTR), a
+	ld	a,b
+	cp	T4800
+	jr	z, storespeed
+	inc	c
+	cp	T9600
+	jr	z, storespeed
+	inc	c
+	cp	T19200
+	jr	z, storespeed
+	inc	c
+storespeed:
+	ld	a, (TTYSETS)
+	and	0BCh
+	or	c		; assume D6,D1,D0 bits
+	ld	(TTYSETS), a
+	ld	(UART_CTL), a
+	ret
+;
+; Flag to do interrupts during IO operations
+;
+INT:	call	GETNUM		; B=0 - pause interrupts while IO, else allow interrupts everytime
+	RET     C
+	ld	a, b
+	or	a
+	jr	z, NOINT1
+	ld	b, 0C9h		; RET opcode - do interrupts allways
+NOINT1:	ld	hl, MDI
+	jr	BSTB1
+;
+; σιστενξωε ζακμω
+;
+AUTOEXEC:
+	db      'AUTOEXECBAT'
+CONFIG: db      'CONFIG  '
+SYSSTR: DB      'SYS'
+COMSTR: DB      'COM'
+;
+ENTERVS:DB      13,10,'Enter VDISK size: $'
+FVDISK: DB      13,10,'Format VDISK$'		;
+YESNO:  DB      ' [Y/N/ESC]? ','$'
+WAIT:   DB      '...',27,';$'				; cursor off
+RECSTR: DB      27,':$'				; cursor on
+SYMBTAB:DB      '|/-\'
+VSEGQN: DB      0
+FORMAT0:DB      0
+FORMAT1:DB      0
+PROCESS:DB      0
+AUTO_FMT:DB     0
+;
+FIXFLAG:DB      0
+FCODE:  DB      0
+TSTFLAG:DB      0
+;
+TABWORD:DB      16,'AUTOFORMAT_VDISK'
+	DW      AUTOFORMAT
+	db      3,'RUN'
+	dw      RUN
+	db      6,'DEVICE'
+	DW      DEVICE
+	DB      4,'USER'
+	DW      USER
+	DB      5,'WIDTH'
+	DW      WIDTH
+	DB      6,'PROMPT'
+	DW      PROMPT
+	DB      3,'REM'
+	DW      REM
+	DB      4,'ECHO'
+	DW      BECHO
+	DB      3,'CLS'
+	DW      CLS
+	DB      5,'COLOR'
+	DW      COLOR
+	DB      6,'ASSIGN'
+	DW      ASSIGN
+	DB      3,'SET'
+	DW      SET
+	DB      4,'PATH'
+	DW      PATH
+	DB      3,'LPT'
+	DW      LPT
+	DB      10,'FIX_RAMTOP'
+	DW      FIX
+	DB	6,'IOBYTE'
+	DW	IOBYTE
+	DB	3,'TTY'
+	DW	TTY
+	DB	4,'VMEM'
+	DW	VMEM
+	DB	3,'USE'
+	DW	USE
+INTST:	DB	3,'INT'
+	DW	INT
+	DB      0
+INKEYST:DB      5,'INKEY'
+	DW      0FFFFH
+	DB      0
+;DRIVE:  DB      5,'DRIVE'
+;	DW      0FFFFH
+;	DB      0
+;
+ENDCOLD:
+IF BOOTFDD
+	DS	801H+MMTEST-ENDCOLD, 0	
+ENDIF
+ENDCOLD1:
+;
+
+

@@ -1,0 +1,445 @@
+;
+; A000..A0FF - éíåîá àúåòï÷
+; A100..A3FF - äáôù æáêìï÷
+; A400..A4FF - âõæåò ôéíðìåôá
+; A500..A5FF - âõæåò ðïäíåî
+; A600..A6FF - 2 ëáòôù ðáíñôé
+; A700..A77F - ðáòáíåôòù ÷áô-æáêìï÷
+;
+; æïòíáô äáô æáêìï÷ : 3 âáêôá (24 âéôá) îá æáêì:
+;çïä:96=0³ íåóñã ³  äåîø   ³  þáóù   ³  íéîõôù
+; 0 0 0 0³0 0 0 0³0 0 0 0 0³0 0 0 0 0³0 0 0 0 0 0
+; D23-D20³D19-D16³D15 - D11³D10 - D6 ³ D5  -  D0
+;
+IF BOOTFDD
+DEFAULT_DISK equ 0
+				; default fdd0 (drive "A")
+ELSE
+DEFAULT_DISK equ 2
+				; default ide0 (drive "C")
+ENDIF
+;
+MARKER  EQU     0EFFFh		; mem page number (for interrupts)
+STACKER	EQU	0EFFDh		; mem page stack reserv (for interrupts)
+MNTBUF	equ	09000h		; temporary buffer for IDEREG and CALC_ALV_D subroutine (while mount drives) > 300h bytes
+xIDEBUF equ	MNTBUF
+
+NTAB    EQU     09480h		; NTAB - BASE ADDRESS (first BDOS buffer)
+SP_BDOS EQU     NTAB-2		; stack grows down
+IDEBUF0	equ	18*14+NTAB	; buffers grows up
+IDEBUF1	equ	IDEBUF0+200h
+IDEBUF2 equ	IDEBUF1+201h	; 20100309
+NEWBUFF EQU     IDEBUF2+201h
+DIRBUF  EQU     NEWBUFF+180h
+CSV_A   EQU     DIRBUF+80h	; ðàçìåð îáëàñòè CSV â DPH äëÿ ñìåííûõ äèñêîâ = (DRM+1)/4
+CSV_B   EQU     CSV_A+40h	; 40h = max 256 çàïèñåé â êàòàëîãå
+CSV_H0  EQU     CSV_B+41h	
+CSV_H1  EQU     CSV_H0+81h	; 80h = max 512 çàïèñåé â êàòàëîãå
+CSV_H2  EQU     CSV_H1+81h	; 80h = max 512 çàïèñåé â êàòàëîãå
+RESVEC  EQU     CSV_H2+81h
+LABEL   EQU     RESVEC+75
+KSS     EQU     LABEL+16
+DRIVERS EQU     KSS+4
+;
+MBUF    EQU     NEWBUFF+40
+CMPVEC  EQU     NEWBUFF+40
+;
+DRVBANK equ     MBUF
+DRVNAME equ     MBUF+1
+SRCADDR equ     MBUF+9
+LENGTH  equ     MBUF+11
+INSTSUB equ     MBUF+13
+KILADDR equ     MBUF+15
+DSTADDR equ     MBUF+17
+NTABFLG EQU     MBUF+19
+NTABKEY EQU     MBUF+20
+NTABSTR EQU     MBUF+21
+;
+ETRACK0 EQU     DRIVERS+100H    ; òáúíåýåîéå VDISK-á
+ETRACK1 EQU     ETRACK0+1
+USERS   EQU     ETRACK0+41H     ; ÎÁÞÁÌÏ ÓÉÓÔÅÍÎÏÊ ÏÂÌÁÓÔÉ
+DATES   EQU     USERS+100H      ; ÄÁÔÙ ÆÁÊÌÏ×
+TIMBUF  EQU     DATES+300H      ; ÂÕÆÅÒ ÔÉÍÐÌÅÔÁ
+REPLBUF EQU     TIMBUF+100H     ; ÂÕÆÅÒ ÐÏÄÍÅÎ
+;
+xBorder equ	REPLBUF+100H
+XPARIDE equ	xBorder+10
+xMInfo  equ	XPARIDE+10
+border0 equ	xMInfo+10
+border1 equ	border0+10
+border2 equ	border1+10
+MInfo	EQU	border2+10
+MasterInfo equ	Minfo-3
+IDEDEV0 EQU	MInfo+6		; move IDEDEVx together with LBABUFx only!!!
+LBABUF0 EQU     IDEDEV0+1
+IDEDEV1 equ	LBABUF0+4
+LBABUF1	equ	IDEDEV1+1	; LBA-ÎÏÍÅÒ ÐÏÓÌÅÄÎÅÇÏ ÐÒÏÞÉÔÁÎÎÏÇÏ IDE ÓÅËÔÏÒÁ
+IDEDEV2 equ	LBABUF1+4
+LBABUF2	equ	IDEDEV2+1	; LBA-ÎÏÍÅÒ ÐÏÓÌÅÄÎÅÇÏ ÐÒÏÞÉÔÁÎÎÏÇÏ IDE ÓÅËÔÏÒÁ
+
+;
+MAP     EQU     LBABUF2+4       ; ËÁÒÔÁ ÐÁÍÑÔÉ
+WARMMAP EQU     MAP+80h         ; ÒÅÚÅÒ×ÎÁÑ ËÁÒÔÁ ÐÁÍÑÔÉ
+BATVAR  EQU     WARMMAP+80H       ; ÐÁÒÁÍÅÔÒÙ ÷áô-ÆÁÊÌÏ×
+SYSADDR EQU     BATVAR+80H      ; ÎÁÞÁÌÏ ËÏÄÁ ÓÉÓÔÅÍÙ
+SYSLOAD EQU     SYSADDR-100H    ; ÁÄÒÅÓ ÚÁÇÒÕÚËÉ ÓÉÓÔÅÍÙ
+; F100 - F153 - Ó×ÏÂÏÄÎÏ
+; F154 - F161 - MOVEXX (14 ÂÁÊÔ)
+; F162 - F1E1 - ÂÕÆÅÒ 128 ÂÁÊÔ / ÂÕÆÅÒ F_BUFF ÄÌÑ driver.sys
+; F1E2 - F1FE - Ð/Ð ÄÌÑ ÄÒÁÊ×ÅÒÁ CONOUT ÉÚ driver.sys (26/1D ÂÁÊÔ)
+MOVEBUF EQU     0F162H
+MOVESP  EQU	0F11EH		; MOVEADDR equ 0F154H   IDEBDOS(F100..F11F)
+WORKPAGE EQU	1
+TPAPAGE  EQU	2
+;
+ERRADR  EQU     0F300H
+MONMSG  EQU     0F818H
+MONSND  EQU     0F83FH
+MVPROGINT EQU   0F3DFH
+MONHEX	equ	0f815h
+MCONST	equ	0F812h
+MCONIN	equ	0F803h
+MCONOUT equ	0F809h
+;
+ide_cmd_read equ 20h
+m_rdide equ      0F834h         ; read 512b sector from ide, inp: HL=DriveInfo_array+8, 
+				;	    d=0=master;  d=10h=slave
+                                ;           e=command_mode (ide_cmd_read,ide_cmd_id)
+                                ; Return: acc=zero on success, non-zero for an error
+;
+CODESIZE equ	ACPMVEC-BDOS1+AVECEND-AVECBEG+EE-EB
+;
+BEGBOOT:
+        .PHASE  0
+;
+        JP      BEGB
+;
+; DISK PARAMETRES BLOCK
+;
+IF BOOTFDD
+;
+; FDD_DEPENDED PART
+;
+RG720:  DW      0       ; PORT F720 COPY (ONE BYTE)
+	DB      0
+	DB      0
+	DB      0
+;
+	DB      001H    ; PHISICAL PARAMETRES
+	DB      001H
+D000A:  DB      003H
+D000B:  DB      001H
+D000C:  DB      005H
+	DB      000H
+	DB      050H
+	DB      000H
+;
+	DB      028H    ; LOGIC PARAMETRES
+	DB      000H
+	DB      004H
+	DB      00FH
+	DB      000H
+	DB      084H
+	DB      001H
+	DB      07FH
+	DB      000H
+	DB      0C0H
+	DB      000H
+	DB      020H
+	DB      000H
+	DB      004H
+	DB      000H
+	DB      0D7H
+;
+	DB      'Altair DOS v3.5r'
+;
+BEGB:   DI
+	LD      SP,0F3C0H
+	XOR     A
+	DEC     A
+	JP      PO,IFZ80
+;
+	LD      HL,ENDBOOT      ; ERROR: NO Z80 CPU
+	LD      DE,ERRADR
+	LD      C,EERR-BERR
+	PUSH    DE
+ASLDIR: LD      A,(HL)
+	LD	(DE),A
+	INC	HL
+	INC	DE
+	DEC     C
+	JP      NZ,ASLDIR
+	RET
+;
+IFZ80:  ld	hl, IFERR
+	push	hl
+	LD      A,(D000A)
+	CP      2
+	RET     Z		; goto IFERR
+	LD      A,30H		; A.D3=0 -> nonHD mode
+	call	FDDBOOT		; return if boot failed
+	LD      A,38H		; A.D3=1 -> HD mode
+;
+FDDBOOT:LD      HL,(LDADDR)     ; SYSTEM LOAD ADDRESS
+	LD      BC,CODESIZE/1024*256+256+2 ; 1102H ; QUANTITY=18, BEG SECTOR=2
+	LD      (RG720),A
+	LD      (YF720),A
+	LD	A,(D000B)
+	OR	A
+	RET     Z		; goto IFERR
+	LD      E,2
+	JR	A006D
+;
+CMD_WG: LD      (YF700),A       ; WG93 COMMAND
+	LD	A,00FH
+CMDWG1: DEC     A               ; DELAY
+	JR      NZ,CMDWG1
+	RET
+;
+RD_WG:  LD      DE,YF700
+	LD      BC,YF703
+A00C5:	LD	A,(DE)
+	RRA
+	RET	NC
+	RRA
+	JR	NC,A00C5
+	LD	A,(BC)
+	LD	(HL),A
+	INC	HL
+	JR	A00C5
+;
+IFERR:  LD      HL,ERRERR
+	JP      PRNERR
+;
+A00A6:  LD      A,58H           ; STEP IN (NEXT TRACK)
+	CALL    CMD_WG
+A00AB:  LD      A,(YF700)
+	RRCA
+	JR	C,A00AB		; 096h 097h
+A0062:  LD      A, (RG720)	; 098h 099h 09Ah
+	LD      (YF720),A	; 09Bh 09Ch 09Dh
+	LD	E,2
+A006B:  LD      C,1             ; BEG TRACK (SECTOR=1) and load page - dummy_byte=1 at 09Fh for BOOT$
+A006D:	LD	A,C
+	LD      (YF702),A
+	LD      A,084H
+	CALL    CMD_WG
+	PUSH	BC
+	PUSH	DE
+	CALL    RD_WG
+A007B:  LD      A,(DE)          ; F700
+	AND	0DDH
+	POP	DE
+	POP	BC
+	RET     NZ		; IF ERROR - goto IFERR
+	DEC	B
+	Jr      Z,tostart
+	INC     C               ; NEXT SECTOR
+	LD	A,(D000C)
+	INC	A
+	CP	C
+	JR	NZ,A006D
+	DEC	E
+	JR	Z,A00A6
+	LD      A,(RG720)
+	AND	0EFH
+	LD      (YF720),A
+	JR	A006B
+ENDBOOT:
+	.DEPHASE
+;
+	.PHASE  ERRADR
+;
+BERR:
+	LD      HL,NOZ80
+PRNERR: XOR     A
+	OUT	(0F9H),A
+	CALL    MONMSG
+BEEPER: CALL    MONSND
+	JP      BEEPER
+;
+NOZ80:  DB      13,'NO Z80 CPU'
+ERRERR: DB      13,'ERROR',0
+EERR:
+
+	.DEPHASE
+
+        DS      0F2H-ENDBOOT-EERR+BERR
+
+	.PHASE	0F2H
+
+tostart:ld	a,5		; BOOT DEVICE=FDD
+	ld	(D000C),a
+	DB	0C3h		; JP coldstart
+;
+ELSE
+;
+; ROM/SD/IDE DEPENDED PART
+;
+LBAbeg: DB      0       ; CRC
+        DW      0       ; LBAbeg low 16bit
+        DB      0       ; LBAbeg high 16bit
+	DB      0	; 0=master
+;
+        DB      001H    ; LBAsize low
+        DB      001H
+	DW      103h	; LABsize high
+	DB      005H	; DEVICE (0=IDEmaster, 10h=IDEslave, 1=SDC, 3=SDHC, 4=ROMdisk)
+        DB      000H
+        DB      060H
+        DB      000H
+;
+        DB      028H    ; LOGIC PARAMETRES
+        DB      000H
+        DB      004H
+        DB      00FH
+        DB      000H
+        DB      0D4H
+        DB      001H
+        DB      07FH
+        DB      000H
+        DB      0C0H
+        DB      000H
+CKS_0:	DB      000H
+        DB      000H
+        DB      004H
+        DB      000H
+        DB      017H
+;
+        DB      'Altair DOS v3.5r'
+;
+BEGB:   DI
+MsInfo: LD      SP,0F3C0H
+buffer: LD      HL,ENDBOOT      ; ERROR: NO Z80 CPU  ; place SYSLOAD here
+        LD      DE,ERRADR
+        LD      C,EERR-BERR
+ASLDIR: LD      A,(HL)
+        LD      (DE),A
+        INC     HL
+        INC     DE
+        DEC     C
+        JP      NZ,ASLDIR
+;
+	ld	hl, MSGCLR	; clrscr
+	call	MSGHEX
+        XOR     A
+        DEC     A
+        JP      PO,IFZ80
+;
+	JP	ERRADR
+;
+;
+; M_RDIDE read 512b sector from ide, inp: HL=DriveInfo_array+8, 
+;	    d=0=master;  d=10h=slave
+;           e=command_mode (ide_cmd_none,ide_cmd_read,ide_cmd_id)
+; Return: acc=zero on success, non-zero for an error
+;         de=IDE PPA base address (0F500h, F600h, etc)  
+;         hl=buffer+512
+;
+IFZ80:  ld	hl, (LDADDR)
+	ld	(buffer), hl
+	ld	hl, 3
+	ld	a,(hl)
+	ld	b,9
+lcycle0:inc	hl
+	sub	(hl)
+	djnz	lcycle0
+	cp	66h			; check partition offset CRC (setted by MBR ZBootLoader)
+	ld	a,b			; error_code=0
+        jr      nz, xPRNERR
+	LD      BC,CODESIZE/512*256+512+2	; 2402h  QUANTITY=36, BEG LBA=2
+ldcycle:push    bc
+	ld      d, 0
+        ld      e, c       
+        ld      hl, (4)                 ; LBA offset low 16 bit
+        add     hl, de
+        ld      (MsInfo+5), hl
+        ld      e, d                    ; de=0
+        ld      hl, (6)                 ; LBA offset high 16 bit
+        adc     hl, de
+        ld      (MsInfo+7), hl		; LBA=LBA+offset
+	ld	a,c
+	ld	hl, MSGSEC
+	call	MSGHEX
+					; (LBAbeg+9)=partition_hash from MBR ZBootLoader 
+	ld      a, (LBAbeg+9)		; a=([d6:d5]=partition_N, [d4:d0]=drv_sign) 
+	and	17h			; remove partition N (D6:D5),  a = 0(Master) | 10h(slave) | 1 (SDC) | 3 (SDHC) | 4 (ROM)
+	ld	d,a
+	ld	e, ide_cmd_read
+        ld      hl, MsInfo+8
+        call    m_rdide			; return  de=IDE PPA base address, c=drive_sign (IDE=0,10h; SD=1,3; ROM=4) 
+	ld	a,c
+        pop     bc
+xPRNERR:LD      HL, ERRERR
+        JP      nz, PRNERR
+        inc     c                       ; next sector
+        ld      hl, buffer+1
+        inc     (hl)
+        inc     (hl)                    ; buffer=buffer+512
+        djnz    ldcycle
+	cp	4
+	jr	nz, removable		; goto if not ROM
+	ld	h,b			
+	ld	l,b 			; hl=0
+	ld	(CKS_0), hl		; if ROM then CKS=0 -> permanent (nonremovable) volume
+removable:
+	ld	hl, (JPADDR)
+	jp	(hl)			; de=IDE PPA base address
+;
+ENDBOOT:
+        .DEPHASE
+;
+        .PHASE  ERRADR
+;
+BERR:   LD      HL,NOZ80
+	ld	a, 80h
+PRNERR: CALL	MSGHEX
+BEEPER: CALL    MONSND
+        JP      BEEPER
+;
+MSGHEX: push	af		; af = code for hexprint ; hl = msg
+	xor	a
+        OUT     (0F9H),A
+        CALL    MONMSG
+	pop	af
+	call	MONHEX
+	ld	a,1
+        OUT     (0F9H),A
+	ret
+;
+NOZ80:  DB      'NO Z',0
+ERRERR: DB      ' ERROR ',0
+MSGCLR: DB	1Fh, 0
+MSGSEC: DB	13,'SECTOR ',0
+EERR:
+
+        .DEPHASE
+
+        DS      0F8H-ENDBOOT-EERR+BERR
+
+        .PHASE  0F8H
+;
+ENDIF
+;
+JPADDR:	DW	COLDSTART
+LDADDR:	DW	SYSLOAD
+	DB	0		; reserved
+        DB      57h             ; volume label crc
+        DB      7EH             ; user names crc
+        DB      0               ; files dates crc
+
+        DS      10H,0           ; àúåò 0 - ÷ìïöåîïóôø
+        DB      'USER_1          ','USER_2          '
+        DB      'USER_3          ','USER_4          '
+        DB      'USER_5          ','USER_6          '
+        DB      'USER_7          ','USER_8          '
+        DB      'USER_9          ','USER_10         '
+        DB      'USER_11         ','USER_12         '
+        DB      'USER_13         ','USER_14         '
+        DB      'USER_15         '
+
+        DS      300H,0          ;äáôù æáêìï÷
+
+        .DEPHASE
+
+

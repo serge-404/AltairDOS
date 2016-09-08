@@ -1,0 +1,910 @@
+;
+; ξοχωε δισλοχωε ζυξλγιι
+;
+;F29 - χ νασσιχ σ αδςεσον χ DE χ τελυύεν βαξλε χοϊχςαύ.16 σινχ.νετλα δισλα
+;F2A - ιϊ νασσιχα (πο DE) ξα δισλ ϊαπισ. 16-ι σινχομψξαρ νετλα δισλα
+;F2B - χ νασσιχ (πο DE) χοϊχςαύ. 16 σινχ. ινρ τελυύεηο ΰϊεςα
+;F2C - τελυύενυ ΰϊεςυ υσταξαχμ. ξοχοε ινρ ιϊ νασσιχα (πο DE) - 16 σινχ.
+;F2D - υσταξοχλα ΰϊεςα πο ινεξι ιϊ νασιχα (πο DE)
+;F2E - πομυώιτψ ιϊ βυζεςα τινπμετα στςολυ χ νασσιχ (πο DE).
+;F2F - δοβαχιτψ στςολυ χ βυζες τινπμετα ιϊ νασσιχα (ΠΟ DE).
+;F30 - πομυώιτψ ιϊ βυζεςα ποδνεξ στςολυ χ νασσιχ (πο DE).
+;F31 - δοβαχιτψ στςολυ χ βυζες ποδνεξ ιϊ νασσιχα (ΠΟ DE).
+;F32 - πομυώιτψ στςολυ ιϊ BAT-βυζεςα χ νασσιχ (πο DE).νασCιχ σολςαύαετσρ
+;F33 - δοβαχιτψ στςολυ χ BAT-βυζες ιϊ νασσιχα (πο DE).
+;F34 - πομυώιτψ δατυ ι χςενρ σοϊδαξιρ ζακμα. χθοδ: DE=ADDR(FCB).
+;F35 - υσταξοχιτψ δατυ σοϊδαξιρ ζακμα. χθοδ: DE=ADDR(FCB).
+;F36 - πομυώιτψ στςολυ υσταξοχλι δισλοχ
+;F37 - υστξοχιτψ/πομυώιτψ PATH-USER . χθοδ: E=(0..0FH)/0FFH
+;F38 - πομυώιτψ δατυ σοϊδαξιρ ποσμεδξεηο ισπομψϊοχαχϋεηοσρ ζακμα.
+;
+XORSUM  EQU     DRVCODE
+NBUFF   EQU     NEWBUFF+80H
+;
+FN29:   PUSH    DE
+	CALL    LOADATE
+	POP     HL
+	LD      A,(RG_B)
+	EXX
+	EX      AF,AF'
+	CALL    LABPRES
+	JP      NZ,BADRET
+	LD      HL,LABEL
+	LD      BC,16
+	call	BLDIRF1		; set A to WORKPAGE
+LABPRES:LD      HL,LABEL
+	LD      DE,KSS
+	LD      B,16
+ANYPRES:XOR     A
+LABXOR: XOR     (HL)
+	INC     HL
+	DJNZ    LABXOR
+	LD      (XORSUM),A
+	EX      DE,HL
+	XOR     (HL)
+	RET
+;
+USRPRES:LD      HL,USERS
+	LD      DE,KSS+1
+	LD      B,0
+	JR      ANYPRES
+;
+FN2A:   CALL    LOADATE
+	CALL    LABPRES
+	JP      NZ,BADRET
+	CALL    TRACK0FLUSH	; set track 0, force flush
+	LD      BC,1
+	CALL    @SELSEC
+	CALL    RDSEC
+	LD      A,WORKPAGE
+	LD      HL,NBUFF+20H
+	EXX
+	EX      AF,AF'
+	LD      A,(RG_B)
+	LD      HL,(RG_DE)
+	LD      BC,16
+	CALL    BLDIR
+	LD      HL,NBUFF+20H
+	LD      DE,LABEL
+	LD      C, 16		; BC,16   ;(BLDIR)->BC=0
+	LDIR
+	CALL    WRSEC
+	LD      BC,2
+	CALL    @SELSEC
+	CALL    RDSEC
+	CALL    LABPRES
+	LD      A,(XORSUM)
+	LD      (NBUFF+07DH),A
+	LD      (KSS),A
+	CALL    WRSEC
+	JP      TRACK1
+;
+TSTINS: XOR     A
+	LD      HL,USERS
+	OR      (HL)            ;λοςξεχοκ χμοφεξ σαν χ σεβρ
+	RET     NZ
+	LD      B,15
+TSTINS0:INC     HL
+	LD      A,(HL)          ; ξε βομεε 15 ΰϊεςοχ
+	AND     0F0H
+	RET     NZ
+	PUSH    BC              ; πςοχεςλα λοχαςξοκ χμοφεξ.
+	PUSH    HL
+	LD      B,15            ; MAX ημυβιξα χμοφεξξοστι
+TSTINS1:LD      A,(HL)
+	OR      A
+	JR      Z,TSTINS2       ; εσμι δοϋμι δο λοςξεχοηο
+	LD      E,A
+	LD      D,0
+	LD      HL,USERS
+	ADD     HL,DE
+	DJNZ    TSTINS1
+	POP     HL
+	POP     BC
+	OR      A               ; NZ - BAD INSERTING
+	RET                     ; χμοφεξξοστψ "σαν χ σεβρ"
+TSTINS2:POP     HL
+	POP     BC
+	DJNZ    TSTINS0
+	XOR     A               ; Z - GOOD INSERTING
+	RET
+;
+FN2B:   PUSH    DE
+	CALL    LOADATE
+	POP     HL
+	LD      A,(RG_B)
+	EXX
+	EX      AF,AF'
+	LD      A,(ACTUSER)
+	ADD     A,A
+	ADD     A,A
+	ADD     A,A
+	ADD     A,A
+	LD      C,A
+	LD      B,0
+	LD      HL,USERS
+	ADD     HL,BC
+	LD      C,16
+	call	BLDIRF1		; set A to WORKPAGE
+	CALL    USRPRES
+	JR      NZ,XBADRET
+	CALL    TSTINS
+	RET     Z
+XBADRET:JP      BADRET
+;
+FN2C:   CALL    LOADATE
+	CALL    USRPRES
+	JR      NZ,XBADRET
+	LD      HL,USERS
+	LD      DE,NBUFF
+	LD      BC,16
+	LDIR
+	LD      A,(ACTUSER)
+	ADD     A,A
+	ADD     A,A
+	ADD     A,A
+	ADD     A,A
+	LD      C,A
+;	LD      B,0		; (LDIR)->BC=0
+	LD      HL,USERS
+	ADD     HL,BC           ; ΛΥΔΑ
+	LD      A,WORKPAGE
+	EXX
+	EX      AF,AF'
+	LD      HL,(RG_DE)
+	LD      A,(RG_B)
+	LD      BC,16
+	CALL    BLDIR
+	LD      HL,USERS
+	PUSH    HL
+	LD      (HL),B		;(HL),0	;(BLDIR)->BC=0
+	LD      B,15
+FN2C0:  INC     HL
+	LD      A,0FH
+	AND     (HL)
+	LD      (HL),A
+	DJNZ    FN2C0
+	CALL    TSTINS
+	POP     DE
+	JR      Z,IFROOT
+	LD      HL,NBUFF
+	LD      BC,16
+	LDIR
+	JR      XBADRET		; χμοφεξξοστψ "σαν χ σεβρ"
+IFROOT: CALL    USRPRES
+	CALL    TRACK0FLUSH	; set track 0, force flush
+	LD      BC,2
+	CALL    @SELSEC
+	CALL    RDSEC
+	LD      A,(XORSUM)
+	LD      (NBUFF+7EH),A
+	LD      (KSS+1),A
+	CALL    WRSEC
+	LD      BC,USERS
+	LD      E,3
+	CALL    WRDMA
+	LD      BC,USERS+80H
+	LD      E,4
+	CALL    WRDMA
+;
+TRACK1: LD      BC,1
+	CALL    @SELTRK
+	LD      BC,NBUFF
+	LD      E,1
+;
+RDDMA:  PUSH    DE
+	CALL    @SETDMA
+	POP     BC
+	LD	B,0
+	CALL    @SELSEC
+	JP      RDSEC
+;
+WRDMA:  PUSH    DE
+	CALL    @SETDMA
+	POP     BC
+	LD	B,0
+	CALL    @SELSEC
+	JP      WRSEC
+;
+FN2D:   CALL    LOADATE
+	CALL    USRPRES
+	JP      NZ,BADRET
+	LD      A,WORKPAGE
+	LD      HL,NBUFF
+	EXX
+	EX      AF,AF'
+	LD      A,(RG_B)
+	LD      HL,(RG_DE)
+	LD      BC,16
+	CALL    BLDIR
+	LD      DE,USERS+10H
+	LD      C,0FH
+COMP0:  LD      B,10H
+	LD      HL,NBUFF
+COMP:   LD      A,(DE)
+	CP      (HL)
+	JR      NZ,NOFOUND
+	INC     HL
+	INC     DE
+	DJNZ    COMP
+	LD      A,10H
+	SUB     C
+	LD      (RG_E),A
+	CALL    F20
+	XOR     A
+	RET
+NOFOUND:INC     DE
+	DJNZ    NOFOUND
+	DEC     C
+	JR      NZ,COMP0
+	LD      A,0FFH
+	RET
+;
+GETSTRING:
+	PUSH    DE
+	LD      A,WORKPAGE             ; λυδα
+	LD      HL,NEWBUFF
+	EX      AF,AF'
+	EXX
+	POP     HL
+	LD      A,(RG_B)        ; ιϊ λαλοκ στςαξιγω χωϊοχ
+	CALL    BLDB
+	LD      C,B
+	LD      B,0
+	INC     C
+	INC     C
+	RET     Z
+	LD      (FALEN),BC
+	LD      A,(RG_B)
+	CALL    BLDIR
+	LD      HL,NEWBUFF+1
+	RET
+;
+; πομυώιτψ στςολυ ιϊ βυζεςα τινπμετα
+; παςανετςω: HL- υλαϊατεμψ ξα αδςεσ βυζεςα+1 (STRING SIZE)
+; χωθοδ:     A - ξονες στςολι τινπμετα (1..9) ιμι 0
+;
+FN2E:   LD      HL,TIMBUF
+	LD      (BEGBUF),HL
+	CALL    GETSTRING
+	CALL    GETTIM0
+	CALL    EXITFA
+	LD      A,(IX)
+	RET
+
+@GETTIM:LD      BC,TIMBUF
+	LD      (BEGBUF),BC
+GETTIM0:LD      IX,FL0
+	LD      IY,FL1
+;
+GETTIM: PUSH    AF
+	LD      BC,(BEGBUF)
+	LD      A,(BC)
+	OR      A
+	JR      Z,FA_NL2    ; χωθοδ, βυζες τινπμετα πυστοκ
+
+	PUSH    HL
+	DEC     HL
+	LD      B,(HL)      ; χ REG.B ναλσ. ςαϊνες βυζεςα
+
+	LD      A,(IX)
+	CP      (IY)
+	JR      C,FA_DL12       ; IF FL0<FL1
+	XOR	A
+FA_DL12:INC     A           ; υστ. χ ςεη. α ξονες στςολι
+	LD      (IX),A      ; ι ϊαξεστι εηο χ FL0
+
+	LD      HL,(BEGBUF)
+	DEC     A
+	JR      Z,ADDROK
+	LD      D,0
+GSTR1:  LD      E,(HL)
+	INC     E
+	ADD     HL,DE       ; χ HL αδςεσ ξυφξοκ στςολι χ
+	DEC     A           ; βυζεςε τινπμετα
+	JR      NZ,GSTR1
+ADDROK:
+	POP     DE          ; DE - αδςεσ STRING SIZE
+	PUSH    DE
+
+	LD      C,(HL)      ; δμιξα τινπμετξοκ στςολι
+	PUSH    BC
+FA_L17: INC     HL
+	INC	DE
+	LD      A,(HL)      ; πεςεσωμλα ιϊ βυζεςα τινπμετα χ
+	LD      (DE),A      ; βυζες στςολι ξυφξοηο στςιξηα
+	DEC	C
+	JR      Z,FA_NL1
+	DJNZ    FA_L17
+FA_NL1: POP     DE          ; D=MAX SIZE  E=REAL SIZE
+	POP     HL          ; HL- αδςεσ STRING SIZE
+	LD      (HL), e
+	LD      A,B
+	OR      A
+	JR      NZ,FA_NL2
+	LD      (HL),D
+FA_NL2: POP     AF
+	LD      B,A
+	RET
+;
+; ϊαξεστι στςολυ χ βυζες ποδνεξ
+; παςανετςω: HL  - αδςεσ βυζεςα χχοδα+1 (BUFFER SIZE)
+;
+FN31:   LD      HL,REPLBUF
+	LD      (BEGBUF),HL
+	LD      HL,REPLBUF+TIMSIZE
+	LD      (ENDBUF),HL
+	CALL    GETSTRING
+	LD      IY,FL3
+	JR      SAVETM2
+
+@SAVETIM:
+	PUSH    HL
+	LD      HL,TIMBUF
+	LD      (BEGBUF),HL
+	LD      HL,TIMBUF+TIMSIZE
+	LD      (ENDBUF),HL
+	POP     HL
+	JR      SAVETIM
+;
+; ϊαξεστι στςολυ χ βυζες τινπμετα
+; παςανετςω: HL  - αδςεσ βυζεςα χχοδα+1 (BUFFER SIZE)
+;
+FN2F:   LD      HL,TIMBUF
+	LD      (BEGBUF),HL
+	LD      HL,TIMBUF+TIMSIZE
+	LD      (ENDBUF),HL
+	CALL    GETSTRING
+
+SAVETIM:LD      IY,FL1
+SAVETM2:
+	PUSH    HL          ; TO STACK - STRING SIZE
+
+	LD      DE,(BEGBUF)
+	LD      A,(DE)  ; FL1 - λομ-χο στςιξηοχ χ βυζεςε
+	OR	A
+	JR      Z,FA_L5 ; πεςεθοδ, εσμι βυζες τινπμετα
+			; πυστοκ
+; πςοχεςλα ξα ποχτοςξωκ στςιξη
+;
+	INC     A
+	LD      B,A
+RPSTR1: LD      A,(DE)
+	CP      (HL)
+	JR      NZ,FA_L5
+	INC     HL
+	INC     DE
+	DJNZ    RPSTR1
+	POP     HL
+	RET
+
+FA_L5:  POP     HL      ; APPEND
+	PUSH    HL
+	LD      C,(HL)  ; C - REAL LENGTH
+	LD      B,0
+	INC     BC      ; BC=LENGTH(LENGTH+STR)
+	PUSH    BC
+	LD      HL,(ENDBUF)
+	LD      D,H
+	LD      E,L
+	OR      A
+	SBC     HL,BC
+	LD      A,TIMSIZE
+	SUB     C
+	LD      C,A
+	INC     BC
+	LDDR                    ; ςαϊδχιξυτψ
+	POP     BC
+	POP     HL
+	LD      DE,(BEGBUF)
+	PUSH    DE
+	LDIR                    ; χσταχιτψ
+
+	POP     HL              ; HL=TIMBUF
+	LD      (IY),B          ; BC=0
+FLL_1:  LD      A,(HL)
+	OR      A               ; ποδσώετ στςολ χ TIMBUF
+	RET     Z
+	ADD     A,C
+	JR      C,FLL_3         ; λοξτςομψ χωθοδα ϊα βυζες
+	CP      TIMSIZE
+	JR      NC,FLL_3        ; --"--"--"--"--"--"--"--
+	LD      C,A
+	INC     BC
+	LD      HL,(BEGBUF)
+	ADD     HL,BC
+	INC     (IY)         ; υχεμιώιτψ σώετώιλ στςιξηοχ
+	JR      FLL_1
+FLL_3:  LD      (HL),B
+	RET
+;
+; πομυώιτψ στςολυ ιϊ βυζεςα ποδνεξ
+; παςανετςω: HL- υλαϊατεμψ ξα αδςεσ βυζεςα+1 (STRING SIZE)
+; χωθοδ:     A - ξονες στςολι τινπμετα (1..9) ιμι 0
+;
+FN30:   LD      HL,REPLBUF
+	LD      (BEGBUF),HL
+	CALL    GETSTRING
+	LD      IX,FL2
+	LD      IY,FL3
+	CALL    GETTIM
+	CALL    EXITFA
+	LD      A,(IX)
+	RET
+;
+; δοβαχιτψ στςολυ χ βατ-βυζες
+;
+FN33:   CALL    GETSTRING       ; σώιτατψ στςολυ χ βυζες
+	LD      A,(HL)
+	OR      A
+	JR      Z,TOBDRET
+	RLA
+	JR      C,TOBDRET
+	PUSH    HL              ; HL=βυζες+1
+	CALL    GETBATSEGM      ; χοϊχς. ςεη.α=ξονες σεην.
+	CALL    GETLASTSTR      ; DE=BEGSTR-1, HL=ADDR(0)
+	LD      A,(DRVCODE)     ; BANK
+	PUSH    AF
+	LD      B,1
+	CALL    BSTB
+	POP     AF
+	LD      C,A             ; C=BANK
+	POP     IX
+	LD      B,(IX)          ; IX=INP_STRING_BUFFER+1
+	LD      E,B
+	LD      D,0             ; DE=APPEND STRING LENGTH
+	PUSH    HL
+	LD      A,H
+	AND     0FH
+	LD      H,A
+	ADD     HL,DE
+	INC     HL
+	INC     HL
+	INC     HL
+	LD      A,H
+	AND     0F0H
+	POP     HL
+	JR      NZ,TOBDRET       ; χ βυζεςε ξετ νεστα
+	ld	d,h
+	ld	e,l
+APPEND: PUSH    BC
+	INC     IX
+	INC     HL
+	LD      B,(IX)
+	ld	a,b
+	call	CPSPTB		; cp ' ', cp 9
+	jr	z, spx1
+	ld	d,h
+	ld	e,l		; (a,de)=last nonspace symbol
+spx1:	LD      A,C
+	push	de
+	CALL    BSTB
+	pop	de
+	POP     BC
+	DJNZ    APPEND		; b=0 at exit from djnz
+	ex	de,hl
+	INC     HL
+;	LD      B,0
+	LD      A,C
+	CALL    BSTB
+	XOR     A
+	RET
+;
+BDRETFA:CALL    EXITFA
+TOBDRET:JP      BADRET
+TFBDRET:CALL    FREESEG
+	JR      TOBDRET
+;
+GETBATSEGM:
+	LD      A,(BATSEGM)
+	CP      0FFH
+	RET     NZ
+	ld	a, (VMEM1)
+	or	a
+	jr	nz, GBS0
+	LD      E,3EH
+	LD      A,(ETRACK0)
+	CP      E
+	JR      Z,GBS0
+	CALL    GETSEGM
+	CP      0EH
+	LD      A,3EH
+	JR      Z,LDBAT
+GBS0:   LD      DE,1FFH       ; ςεϊεςχ. 1 μΰβοκ σεηνεξτ
+	CALL    F103
+LDBAT:  LD      (BATSEGM),A
+	CP      0FFH
+	JR      Z,TOBDRET
+SETNULL:PUSH    AF
+	LD      E,A
+	CALL    F112            ; B=0  ; SEGMENT -> ADDRESS
+	LD      A,L             ; BANK
+	LD      L,B		; B=0
+	CALL    BSTB
+	POP     AF
+	RET
+;
+CLRBAT: LD      A,(BATSEGM)
+	CP      0FFH
+	RET     Z
+	JR      SETNULL
+
+FREESEG:LD      HL,BATSEGM
+	LD      A,(HL)
+	CP      3EH
+	RET     Z
+	LD      C,A
+	LD      (HL),0FFH
+	XOR     A
+	JP      SETSEG1         ; ότο χ BDOS0
+;
+; πομυώιτψ στςολυ. βυζες σολςαύαετσρ.
+;
+FN32:   CALL    GETSTRING       ; C=0
+	LD      (HL),C		; 0
+	LD      A,(BATSEGM)
+	CP      0FFH
+	JR      Z,BDRETFA
+	PUSH    HL
+	CALL    GETLASTSTR
+	JR      Z,TFBDRET
+	LD      A,0FH
+	AND     D
+	OR      E
+	PUSH    DE
+	CALL    Z,FREESEG       ; εσμι ξαώαμο σεηνεξτα
+	POP     HL
+	LD      A,(DRVCODE)     ; υσταξαχμιχαετσρ GETLASTSTR
+	LD      B,0
+	CALL    BSTB            ; υδαμρεν στςολυ
+	LD      HL,MOVEBUF-1
+	POP     DE              ; DE=NEWBUFF+1
+	DEC     DE
+	LD      A,(DE)
+	LD      B,A             ; B=MAX STRING SIZE
+	INC     DE
+	PUSH    DE
+	LD      C,A
+FN321:  INC     HL
+	INC     DE
+	LD      A,(HL)
+	LD      (DE),A
+	OR      A
+	JR      Z,IFEOST
+	DJNZ    FN321
+IFEOST: LD      A,C
+	SUB     B
+	POP     DE
+	LD      (DE),A
+	CALL    EXITFA
+	XOR     A
+	RET
+;
+; πομυώιτψ ποσμεδξΰΰ στςολυ ιϊ χατ-σεηνεξτα σ ξονεςον χ ς.α
+; χωθοδ: α=0+ζμαηι - βυζες πυστ, α=0FFH+ζμαηι- ξε πυστ
+;        DE=ADDR(στςολι χ χατ-βυζ)-1, HL=αδς. 0 (EOSTR)
+;        ξα MOVEBUF λμαδετσρ στςολα, λοξεγ στςολι - 0
+;
+GETLASTSTR:
+	LD      E,A
+	CALL    F112	; B=0
+	LD      A,L     ; A=BANK OF BAT-SEGMENT
+	LD      L,B	; L,0 ; HL=ADDRESS OF BAT-SEGMENT
+	LD      (DRVCODE),A
+	CALL    BLDB
+	LD      A,B
+	OR      A
+	LD      D,H
+	LD      E,L
+	RET     Z       ; βυζες πυστ
+GETLS1: LD      D,H
+	LD      E,L
+	LD      IX,MOVEBUF
+GETLS2: INC     HL
+	PUSH    DE
+	LD      A,(DRVCODE)
+	CALL    BLDB
+	POP     DE
+	LD      (IX),B
+	INC     IX
+	LD      A,B
+	OR      A
+	JR      Z,RETGLS
+	DEC     A
+	JR      NZ,GETLS2
+	JR      GETLS1
+RETGLS: DEC     A
+	RET
+;
+DATAPRES:
+	LD      HL,DATES        ; DATAPRES
+	LD      BC,3H
+	XOR     A
+DATAPR1:XOR     (HL)
+	INC     HL
+	DJNZ    DATAPR1
+	DEC     C
+	JR      NZ,DATAPR1
+	LD      (XORSUM),A
+	LD      HL,KSS+2
+	XOR     (HL)
+	RET
+;
+OOPEN:  LD      A,(COPYEXRGA)
+	CP      4
+	JR      C,OOOPEN
+	CALL    GETFCB    ; πΜΑΗΙΑΤ ζ-ΙΙ 0Fh - ΟΤΛÒΩΤΨ ΖΑΚΜ
+	PUSH    DE
+	LD      HL,NEWBUFF+16
+	LD      DE,NEWBUFF+35
+	LD      BC,5
+	LDIR              ; 5 βακτ: yy+mm+dd+hh+min
+	POP     DE
+	CALL    AD172
+	CALL    SETDSKUSR
+	CALL    AD451     ; SET CNTREC=0..XX, EXITRG_A=0..3
+	LD      A,(EXITRG_A)
+	CP      4
+	JR      NC,EXDATE1
+OOOPEN: PUSH    AF
+	CALL    LOADATE
+	CALL    DATAPRES
+	POP     BC
+	JR      NZ,NODATES
+	LD      A,(CNTREC)
+	ADD     A,A
+	ADD     A,A       ; A=A*4
+	ADD     A,B       ; A=οτξοσιτ. ξονες χ νασσιχε δατ
+	LD      HL,DATES
+	LD      C,A
+	LD      B,0
+	ADD     HL,BC
+	ADD     HL,BC     ; B=0, C=ξονες όμενεξτα
+	ADD     HL,BC     ; HL=αδςεσ όμ-τα χ νασσιχε δατ
+	RET
+;
+NODATES:LD      A,(ISCREAT)
+	OR      A
+	JR      NZ,EXDATE1
+	DEC     A		; A=0FFh
+EXDATES:LD      (EXITRG_A),A
+EXDATE1:XOR     A
+	LD      (RETOK),A
+	JP      EXIT_ST
+;
+FN34:   LD      A,0FFH
+	LD      (COPYEXRGA),A
+FN38:   LD      (FCBADDR),DE
+	CALL    OOPEN
+	XOR     A
+	LD      (NEWBUFF),A
+	LD      DE,NEWBUFF+16
+	LD      A,(HL)  ; ςασπαλοχλα 3-θ βακτοχοκ δατω
+	RRA             ; χ νασσιχ NEWBUFF+16..+20
+	RRA
+	RRA
+	RRA
+	AND     0FH
+	LD      B,96
+	CP      4
+	JR      C,LESS4
+	LD      B,0FCH
+LESS4:  ADD     A,B
+	LD      (DE),A          ; ηοδ
+	INC     DE
+	LD      A,(HL)
+	AND     0FH
+	LD      (DE),A          ; νεσργ
+	INC     HL
+	LD      B,(HL)
+	INC     HL
+	LD      L,(HL)
+	LD      H,B             ; HL= 5ΔΔ + 5ήή + 6ΝΝ
+	CALL    SDVI            ; δεξψ
+	CALL    SDVI            ; ώασω
+	LD      B,6
+	CALL    SDVIG           ; νιξυτω
+	LD      BC,22
+	CALL    RETFCB
+	XOR     A
+	JR      EXDATES
+;
+SDVI:   LD      B,5
+SDVIG:  XOR     A
+SDVIGG: ADD     HL,HL
+	RLA
+	DJNZ    SDVIGG
+	INC     DE
+	LD      (DE),A
+	RET
+;
+FN36:   EX      DE,HL
+	LD      A,(RG_B)
+	EX      AF,AF'
+	EXX
+	LD      HL,DRVTAB
+	LD      BC,16
+BLDIRF2:LD      A, TPAPAGE
+	JP      BLDIR
+;
+FN37:   LD      A,E
+	LD      HL,PATHUSR
+	INC     A
+	LD      A,(HL)
+	RET     Z
+	LD      (HL),E
+	RET
+;
+;ESC,'Z' - ÒΑΒΟΤΑ Σ ήΑΣΑΝΙ:
+; esc,'Z',0 - ΠΟΜΥήΕΞΙΕ ΪΞΑήΕΞΙΡ ήΑΣΟΧ Σ ΛΜΑΧΙΑΤΥÒΩ Χ h,m,s
+; esc,'Z',6 - ΠΟΜ. ΔΑΤΥ Χ ΖΟÒΝΑΤΕ d,m,y
+;
+GTIMSTR:DB      27,'Z',0,'$'
+GDATSTR:DB      27,'Z',6,'$'
+;
+SETDATE:LD      A,(EXITRG_A)
+	CP      4
+	RET     NC
+	PUSH    AF
+	LD      A,1
+	LD      (ISCREAT),A
+	ld	hl, IO_BYTE
+	call	BLDB2
+	ld	a, b
+	and	3
+	jr	z, skipdate		; if TTY - do not ask for datetime
+	LD      DE,GTIMSTR
+	CALL    PRINTT
+	CALL    @CONIN
+	LD      (NEWBUFF+38),A          ; ώασω
+	CALL    @CONIN
+	LD      (NEWBUFF+39),A          ; νιξυτω
+	CALL    @CONIN
+	LD      DE,GDATSTR
+	CALL    PRINTT
+	CALL    @CONIN
+	LD      (NEWBUFF+37),A          ; δεξψ
+	CALL    @CONIN
+	LD      (NEWBUFF+36),A          ; Mεσργ
+	CALL    @CONIN
+	LD      (NEWBUFF+35),A          ; ηοδ
+skipdate:
+	POP     AF
+	CALL    OOOPEN
+	JR      FN351
+;
+FN39:   CALL    GETFCB
+	LD      HL,NEWBUFF+16
+	LD      DE,NEWBUFF+35
+	LD      BC,5
+	LDIR              ; 5 βακτ: yy+mm+dd+hh+min
+	CALL    OOPEN
+	JR      FN351
+;
+FN35:   LD      A,0FFH
+	LD      (COPYEXRGA),A
+	CALL    OOPEN   ; B=0, HL=αδςεσ όμενεξτα.
+FN351:  LD      DE,NEWBUFF+35   ; υπαλοχλα δατ
+	LD      A,(DE)  ; A = ηοδ
+	CP      96
+	JR      NC,MORE96
+	ADD     A,4
+MORE96: RLCA
+	RLCA
+	RLCA
+	RLCA
+	AND     0F0H
+	LD      B,A
+	INC     DE
+	LD      A,(DE)  ; α = νεσργ
+	OR      B
+	LD      (HL),A  ; 4ΗΗ + 4 ΝΝ
+	INC     HL
+	INC     DE
+	PUSH    HL
+	LD      HL,0
+	CALL    SDVIG3  ; δεξψ
+	CALL    SDVIG3  ; ώασ
+	LD      A,(DE)  ; A = νιξυτω
+	LD      B,6
+	CALL    SDVIG2
+	EX      DE,HL   ; DE = 5ΔΔ + 5ήή + 6ΝΙΞ
+	POP     HL
+	LD      (HL),D
+	INC     HL
+	LD      (HL),E
+	LD      HL,(DMAPOINT)
+	PUSH    HL
+	CALL    TRACK0FLUSH	; set track 0, force flush,  BC=NBUFF
+	LD      E,2
+	CALL    RDDMA
+	CALL    DATAPRES
+	LD      A,(XORSUM)
+	LD      (HL),A          ; HL=KSS+2
+	LD      (NBUFF+07FH),A  ; +0FFh
+	CALL    WRSEC
+	LD      BC,DATES
+	LD      DE,605H
+SAVDATE:PUSH    DE
+	PUSH    BC
+	CALL    WRDMA
+	POP     BC
+	LD      HL,128
+	ADD     HL,BC
+	LD      B,H
+	LD      C,L
+	POP     DE
+	INC     E
+	DEC     D
+	JR      NZ,SAVDATE
+	CALL    TRACK1
+	POP     HL
+	LD      (DMAPOINT),HL
+	LD      A,(COPYEXRGA)
+	CP      0FFH
+	RET     NZ
+	XOR     A
+	JP      EXDATES
+;
+SDVIG3: LD      A,(DE)
+	INC     DE
+	LD      B,5
+	RLA
+SDVIG2: RLA
+	RLA
+SDVIG1: RLA
+	ADC     HL,HL
+	DJNZ    SDVIG1
+	RET
+;
+LOADATE:LD      A,(ACTDISK)
+	LD      HL,DATADSK
+	CP      (HL)
+	RET     Z
+	LD      (HL),A
+LOADAT1:LD      HL,(DMAPOINT)
+	PUSH    HL
+	CALL    TRACK0FLUSH	; set track 0, force flush, BC=NBUFF
+	LD      DE,201H
+	CALL    LDDATE		; load bootsector
+	LD      HL,NBUFF+0FDH
+	LD      DE,KSS
+	LD      BC,3
+	LDIR
+	LD      HL,NBUFF+20H
+	LD      DE,LABEL
+	LD      C,16
+	LDIR
+	LD      BC,USERS
+	LD      DE,803H
+	CALL    LDDATE		; load usernames & filedates
+	POP     HL
+	LD      (DMAPOINT),HL
+	RET
+;
+LDDATE: PUSH    DE
+	PUSH    BC
+	CALL    RDDMA
+	POP     BC
+	LD      HL,128
+	ADD     HL,BC
+	LD      B,H
+	LD      C,L
+	POP     DE
+	INC     E
+	DEC     D
+	JR      NZ,LDDATE
+	RET
+;
+TRACK0FLUSH:
+	CALL    TRACK1		; read track 1 sector 1
+	CALL    @SETTR00	; set track 0 - force flush ???
+	LD      BC,NBUFF
+	RET
+;
+FN3A:   LD      HL,(DMAPOINT)
+	RET
+;
+
+
+ SET DMA=NEWBU
