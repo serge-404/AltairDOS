@@ -1,0 +1,916 @@
+; ОБЯЗАТЕЛЬНОЕ УСЛОВИЕ РАБОТЫ ВСЕХ П/П -
+; DISP. OFF
+; INT   ON
+; БУДЕТ РАБОТАТЬ ДАЖЕ НА ГОЛОМ Z80 (БЕЗ КУРСОРА И ЧАСОВ)
+
+TOD_T   EQU      0F3D8h
+TOD_D   EQU      0F3DAh
+
+SOUND_FL:DEFB   1
+FCRS:   DEFB    0
+VAR_6:  DEFB    0
+VAR_7:  DEFB    0
+SNDFL:  DEFB    0FFh    ; после загрузки строчные буквы
+RUSLAT: DEFB    0
+VAR_9:  DEFB    0
+VAR_10: DEFB    0
+VAR_8:  DEFB    14H
+VAR_2:  DEFB    0
+VAR_3:  DEFB    0
+VAR_0:  DEFB    0
+VAR_1:  DEFB    0
+VAR_4:  DEFB    0
+VAR_5:  DEFB    0
+NBUF:   DEFB    0
+BUFFER: DEFS    21,0
+HOUR:   DEFB    0
+MIN:    DEFB    0
+SEC:    DEFB    0
+DAY:    defb    1
+MON:    defb    1
+YEAR:   defb    80h
+COR:    DEFB    1
+SET_CL: DEFB    1       ; часы вкл./выкл.
+VI1:    DEFB    1       ; 0 - программн., 1 - 512ВИ1
+INV_CL: DEFB    0       ; 0 - без инв., FF - с инверсией
+FULLF:  DEFB    1       ; 0 - сокр. формат, 1 - полный
+FL24:   DEFB    1       ; 0 - 12 час. формат, 1 - 24 час.
+LCURCLK:defs    2       ; старые координаты часов
+CLRTIM: defb    0
+CLRL:   defb    0
+CURCLK: DEFW    46h             ; курсор для вывода часов
+CLSOST: defb    0
+; соответствие кол-ва дней в месяце его номеру
+KALEND: defb    31,28,31,30,31,30,31,31,30,31,30,31
+
+; за счет YPROC в BIOS'e уст. стек в F-область
+; вход: C
+PR_OUT: call    MDI             ; DI
+	call    GETPRINT        ; LD      HL,YF602
+M34:    LD      A,(HL)
+	and     8
+	JR      nz,M34
+	LD	A,C
+	LD      (de),A          ; YF600
+	ld      a,10
+WTS:    dec     a
+	jr      nz,WTS
+	LD      (HL),a
+	cpl
+	LD      (HL),a          ; строб принтера
+	ld      a,(ZPROUT)      ; ДАЛЕЕ ПО ЦЕПОЧКЕ
+	ld      hl,(ZPROUT+1)
+	CALL	MEI             ; EI
+	jp      BJMP
+
+; за счет YPROC в BIOS'e уст. стек в F-область
+; выход: C
+PR_STAT:call    GETPRINT
+	ld      b,0
+RDY:    LD      A,(hl)          ; YF602
+	and     8
+	LD      a,0FFH
+	jr	Z,RDY2
+	djnz    RDY
+	xor     a               ; готов - 0FFh, не готов - 0
+RDY2:	LD      C,A
+	ld      a,(ZPRSTAT)      ; ДАЛЕЕ ПО ЦЕПОЧКЕ
+	ld      hl,(ZPRSTAT+1)
+	jp      BJMP
+;
+GETPRINT:
+	ld      hl,VALUE
+	bit     4,(hl)  ; value(d4) - адрес порта LPT
+	ld      de,YF500
+	ld      hl,YF502
+	jr      z,SETP
+	ld      de,YF600
+	ld      hl,YF602
+SETP:   ld      a,(SERV)
+	or      a
+	ret     nz
+	ld      a,83h
+	inc     hl
+	ld      (hl),a
+	dec     hl
+	ld      (hl),a
+	ld      (SERV),a
+	ret
+;
+SERV:   db      0
+;
+
+; за счет YPROC в BIOS'e уст. стек в F-область
+CONIN:  call	MDI		; 2015
+	CALL    CNN
+	LD      C,A
+	ld      a,(ZCONIN)      ; ДАЛЕЕ ПО ЦЕПОЧКЕ
+	ld      hl,(ZCONIN+1)
+	call	MEI		; 2015
+	jp      BJMP
+; за счет YPROC в BIOS'e уст. стек в F-область
+
+CONSTAT:call	MDI		; 2015
+	LD      A,(NBUF)
+	or      a
+	ld	a,0FFh		; 2015	ld      c,0FFh
+;	jr      nz,CNS0         ; ??? БЫЛО  JR  NZ,CNS
+CNS:    CALL    z,SUBR_0
+	LD      C,A
+CNS0:   ld      a,(ZCONST)      ; ДАЛЕЕ ПО ЦЕПОЧКЕ
+	ld      hl,(ZCONST+1)
+	call	MEI		; 2015
+	jp      BJMP
+;
+CNN:    LD      A,(NBUF)
+	OR	A
+	JP      NZ,OUTPAR       ; РАЗГРУЗКА БУФЕРА
+				; ПАРАМЕТРОВ (GET CURSOR,
+				; GET_WINDOW PARAMETRS)
+	push    hl
+	ld      hl,VALUE
+	res     5,(hl)          ; драйвер свободен - в буфере параметров пусто
+	pop     hl
+	
+	di			; 2015	call    MDI             ; DI
+
+	CALL    CURSOR          ; курсор
+
+	ei			; 2015	call    MEI             ; EI
+
+	LD      A,(VAR_0)       ; В БУФЕРЕ ЧТО-ТО ЕСТЬ ?
+	OR	A
+	JR      NZ,M0           ; ДА, ПЕРЕХОД
+
+M1:     CALL    SUBR_0          ; ОПРОС КЛАВЫ
+	OR      A               ; НЕ ГОТОВА - reg.A=0
+	JR      Z,M1
+
+M0:     XOR     A
+	LD      (VAR_0),A
+
+	CALL    CTRL
+	AND     2
+	LD      A,(VAR_1)
+	RET     NZ
+
+	LD      HL,CURTAB       ; ЗАМЕНА КУРСОРНЫХ КОДОВ
+	LD      B,3
+M2:     CP      (HL)
+	INC	HL
+	JR      NZ,M3
+	LD	A,(HL)
+	INC	HL
+	RET
+M3:     INC     HL
+	DJNZ    M2
+	RET
+;
+OUTPAR: DEC     A
+	LD      (NBUF),A
+	LD      HL,BUFFER+1
+	LD      DE,BUFFER
+	LD      BC,19
+	LD	A,(DE)
+	LDIR
+	RET
+;
+CURSOR: LD      A,(FCRS)
+	OR	A
+	JR      Z,M25
+	RET
+;
+COFF:   LD      A,(FCRS)
+	OR	A
+	RET	Z
+	LD      A,1
+	LD      (VAR_8),A
+M25:    LD      A,(CRV)
+	OR	A
+	RET	NZ
+	PUSH	HL
+	PUSH	BC
+	LD      A,(IS8)
+	OR	A
+	JP      NZ,M26
+	LD      HL,(U)
+	LD	A,(HL)
+	CPL
+	LD      (DATA_1),A
+	INC	HL
+	LD	A,(HL)
+	CPL
+	LD      (DATA_2),A
+	INC	HL
+	LD      A,(OFFSX)
+	ADD	A,(HL)
+	LD	H,A
+	LD      A,(CY)
+	DEFB    0C6H
+DATA_0: DEFB    9               ; ADD     A,9
+	LD	L,A
+	DEFB    0EH
+CURST:  DEFB    8               ; LD      C,8
+M27:    LD      A,(HL)
+	DEFB    0EEH
+DATA_2: DEFB    0               ; XOR     0
+	LD	(HL),A
+	DEC	H
+	LD	A,(HL)
+	DEFB    0EEH
+DATA_1: DEFB    0               ; XOR     0
+	LD	(HL),A
+	INC	H
+	DEC	L
+	DEC	C
+	JP      NZ,M27
+M28:    POP     BC
+	POP	HL
+	LD      A,(FCRS)
+	CPL
+	LD      (FCRS),A
+	RET
+;
+M26:    LD      HL,(CY)
+	LD      A,(DATA_0)
+	ADD	A,L
+	LD	L,A
+	LD      A,(CURST)
+	LD	B,A
+M29:    LD      A,(HL)
+	CPL
+	LD	(HL),A
+	DEC	L
+	DJNZ    M29
+	JR      M28
+;
+SUBR_1: PUSH    DE
+	PUSH	BC
+	CALL    SUBR_2
+	CP      0FEH    ; PRESS RUS/LAT
+	JR      NZ,M10
+;
+M11:    CALL    SUBR_2
+	CP	0FFH
+	JR      NZ,M11
+
+	LD      HL,SNDTONE
+	LD      B,5
+M12:    CALL    SP_SOUND
+	DJNZ    M12
+
+M15:    LD      B,2
+M14:    LD      A,(HL)
+	XOR     1FH
+	LD	(HL),A
+	CALL    SP_SOUND
+	LD      DE,2000h
+M13:    DEC     DE
+	LD	A,D
+	OR	E
+	JR      NZ,M13
+	DJNZ    M14
+
+	CALL    SUBR_2
+	CP	0FFH
+	JR      Z,M15
+	LD      B,5
+M16:    CALL    SP_SOUND
+	DJNZ    M16
+	CP	0FEH
+	JR      NZ,M17
+
+	LD      HL,RUSLAT
+	LD	A,(HL)
+	XOR	0A0H
+	LD	(HL),A
+	CALL    COFF
+	LD      HL,DATA_0
+	LD	A,(HL)
+	XOR     0EH
+	LD	(HL),A
+M18:    CALL    SUBR_2
+	CP      0FEH
+	JR      Z,M18
+	JR      M10
+;
+M17:    PUSH    AF
+	LD      HL,SNDFL
+	LD	A,(HL)
+	CPL
+	LD	(HL),A
+	POP	AF
+
+M10:    LD      C,A
+	CP	0FFH
+	JR      Z,M19
+	CP      40H
+	JR      C,M20
+	CP      7FH
+	JR      NC,M20
+	LD      A,(RUSLAT)
+	XOR	C
+	LD	C,A
+	CP      5FH
+	JR      Z,M20
+	LD      A,(SNDFL)
+	AND     20H
+	XOR	C
+	LD	C,A
+
+M20:    LD      HL,VAR_6
+	LD      A,(HL)
+	OR	A
+	JR      NZ,M21
+	LD	(HL),0FFH
+	INC	HL
+	LD	(HL),C
+	LD      HL,(VAR_6)
+	JR      M24
+;
+M19:    CALL    CTRL
+	AND     2
+	JR      NZ,M22
+
+	LD      HL,(VAR_4)
+	LD	A,L
+	OR	A
+	LD      A,0
+	LD      (VAR_4),A
+	LD      (VAR_5),A
+	LD      (VAR_2),A
+	JR      NZ,M23
+M22:    LD      HL,0
+M23:    LD      (VAR_6),HL
+	JR      M24
+;
+M21:    INC     HL
+	LD	A,(HL)
+	CP	C
+	LD      HL,(VAR_6)
+	JR      Z,M24
+	LD	A,C
+	LD      (VAR_7),A
+	LD      HL,0
+M24:    POP     BC
+	POP	DE
+	RET
+;
+SUBR_2: PUSH    HL
+	PUSH	DE
+	PUSH	BC
+	XOR	A
+	LD      (VAR_9),A
+	LD      (VAR_10),A
+
+	CALL    MONINK
+	BIT     7,A
+	JR      NZ,M30
+	LD      HL,VAR_10
+	OR	(HL)
+M30:    LD      C,A
+
+	LD      A,(VAR_9)
+	OR	A
+	JR      Z,M31
+	LD	C,0FFH
+M31:    LD      A,C
+	POP	BC
+	POP	DE
+	POP	HL
+	RET
+;
+KEYB_INT:
+	ld      hl,(0F3DFh)
+	ld      (hl),0C9h
+
+	ld      a,(YKEYINT)
+	ld      hl,(YKEYINT+1)
+	call    Bcall
+
+	LD      A,B
+	CP	0FFH
+	JR      NZ,M32
+	LD      (VAR_9),A
+M32:    LD      A,80H
+	LD      (VAR_10),A
+
+	ld      hl,(0F3DFh)
+	DEFB    36h             ; ld (hl), ...
+	ld      b,a             ; в т.ч. программного
+	RET
+;
+DELSOUND:
+	CALL    SOUND
+	push    af
+	ld      a,(var_1)
+	cp      0dh
+	jr      z,on_delay
+	cp      20h
+	jr      c,skip_dels
+on_delay:
+	PUSH    HL
+	defb    21h
+	defb    0
+DELAYDATA:defb  50h     ; задержка по умолчанию
+DELS_0: LD      A,H
+	OR      L
+	DEC     HL
+	JR      NZ,DELS_0
+	POP     HL
+skip_dels:
+	pop     af
+	RET
+;
+SOUND:  PUSH    AF
+	PUSH	BC
+	PUSH	DE
+	PUSH    HL
+
+	LD      A,(SOUND_FL)
+	OR      A
+	JR      Z,SKSND
+
+	di			; 2015	call    MDI             ; DI
+	CALL    0F83Fh
+	ei			; 2015	call    MEI             ; EI
+
+SKSND:  POP     HL
+	POP	DE
+	POP	BC
+	POP	AF
+	RET
+;
+SP_SOUND:
+	PUSH    AF
+	LD      A,(SOUND_FL)
+	PUSH    AF
+	LD      A,1
+	LD      (SOUND_FL),A
+	CALL    SOUND
+	POP     AF
+	LD      (SOUND_FL),A
+	POP     AF
+	RET
+
+MONINK: JP      0F81BH
+;
+FUNC_0: ld      a,(LOCKCUR)
+	or      a
+	ret     nz
+	LD      HL,VAR_8        ; D3B5H
+	DEC     (HL)
+	JR      NZ,M33
+	CALL    M25
+	LD      (HL),10
+M33:    LD      HL,VAR_2
+	LD	A,(HL)
+	OR	A
+	RET	Z
+	DEC	(HL)
+	RET
+
+; ВНУТРЕННИЙ ВЫЗОВ Ф-ЦИИ СТАТУС
+SUBR_0: CALL    SUBR_1          ; D40A
+	LD      (VAR_0),HL
+	LD	A,L
+	OR	A
+	JR      NZ,M4
+
+	XOR     A
+	LD      (VAR_2),A
+	LD      (VAR_3),A
+	RET
+;
+M4:     LD      HL,VAR_2
+	LD	A,(HL)
+	OR	A
+	JR      Z,M5
+
+	XOR     A
+	LD      (VAR_0),A
+	RET
+;
+M5:     LD      A,(SNDFL)
+	OR	A
+
+	LD      A,32
+	PUSH    AF
+	LD      (SNDTONE),A
+	CALL    NZ,DELSOUND
+	POP	AF
+	LD      A,63
+	LD      (SNDTONE),A
+	CALL    Z,DELSOUND
+	LD      A,(VAR_3)
+	OR	A
+	JR      Z,M6
+	LD      (HL),1
+	JR      M7
+;
+M6:     LD      (HL),19H
+M7:     LD      A,0FFH
+	LD      (VAR_3),A
+
+	CALL    CTRL
+	AND     2
+	RRCA
+	DEC	A
+	RET	NZ
+
+	LD      HL,(VAR_0)
+	LD	A,H
+	CP      7FH
+	JR      Z,M9
+	OR      10H
+	CP      30H
+	JR      C,M8
+	CP      3AH
+	JR      NC,M8
+	SUB     30H
+	LD	B,A
+	LD      HL,VAR_4
+	LD	(HL),0FFH
+	INC	HL
+	LD      A,(HL)
+	ADD	A,A
+	ADD	A,A
+	ADD	A,(HL)
+	ADD	A,A
+	ADD	A,B
+	LD      (HL),A
+	XOR	A
+	RET
+;
+M8:     LD      A,0FFH
+	RET
+;
+M9:     XOR     A
+	LD      (VAR_4),A
+	LD      (VAR_5),A
+	RET
+
+
+; П/П ПРИНТЕРА ПО СХЕМЕ SP-COMPUTER CLUB
+;
+; выход: рег. A
+;PRSTAT: call    GETPRINT
+;        LD      A,(hl)          ; YF602
+;        RLA
+;        LD      A,0FFH
+;        RET     NC
+;        XOR     A
+;        RET
+;
+; вход: рег. C
+;PROUT:  call    MDI             ; DI
+;        call    GETPRINT        ; LD      HL,YF602
+;M34:    LD      A,(HL)
+;        RLA
+;        JR      C,M34
+;        LD      A,C
+;        LD      (de),A          ; YF600
+;        INC     HL
+;        LD      (HL),1
+;        LD      (HL),0          ; строб принтера
+;        call    MEI             ; EI
+;        RET
+;
+;GETPRINT:
+;        ld      hl,VALUE
+;        bit     4,(hl)  ; value(d4) - адрес порта LPT
+;        ld      de,YF500
+;        ld      hl,YF502
+;        ret     z
+;        ld      de,YF600
+;        ld      hl,YF602
+;        ret
+;
+;
+CTRL:
+;	PUSH    BC
+	LD      A,0DFH
+	call    MDI             ; DI	2015-1
+	LD	(YF400),A
+	LD	A,(YF402)
+	RRCA
+	RRCA
+	RRCA
+	RRCA
+	RRCA
+	AND     3
+	XOR     3
+;	LD      B,A
+	call    MEI             ; EI	2015-1
+;	LD      A,B
+;	POP     BC
+	RET
+;
+CURTAB: DEFB    19H,5,18H,4,1AH,18H
+LASTS:  DEFB    0
+LASTH:  DEFB    26
+
+; INTERRUPT TIME COUNTER
+; ВЫЗЫВАЮТСЯ ИЗ ОБРАБОТЧИКА ПРЕРЫВАНИЯ
+;
+MKDAA:  or      a
+	ret     z
+	ld      b,a
+	xor     a
+MKDAA0: inc     a
+	daa
+	djnz    MKDAA0
+	ret
+
+;
+YESCLR: call    0F83Ch  ; set cursor
+	ld      bc,0A3Eh
+YESCLR0:push    bc
+	call    0F809h
+	pop     bc
+	djnz    YESCLR0
+	ret
+;
+PRHOUR: push    af
+	rrca
+	rrca
+	rrca
+	rrca
+	and     0Fh
+	push    af
+	ld      c,18h           ; курс. вправо
+	call    z,0F809h
+	ld      c,'.'           ; пробел
+	call    0F809h
+	pop     af
+	call    nz,PRHOUR1
+	pop     af
+PRHOUR1:and     0Fh
+	add     a,'0'
+	ld      c,a
+	jp      0F809h
+
+; корр. на високосный год
+VISCOR: ld      a,(YEAR)
+VISC2:  or      a
+	jr      z,VISC0
+	cp      4
+	jr      c,VISC1
+	sub     4
+	jr      VISC2
+VISC0:  ld      a,29
+	ret
+VISC1:  ld      a,28
+	ret
+;
+CLOCK:  LD      A,(VI1)
+	OR      A
+	JP      Z,CLCCLC        ; переход, если прг. часы
+
+	LD      A,(SET_CL)
+	OR      A
+	RET     Z
+
+LX:     LD      C,0AH
+	call    VIget
+	RLCA
+	JP      C,LX           ; цикл, если идет обновление
+	LD      C,0
+	call    VIget
+	LD      hl,LASTS
+	CP      (hl)
+	RET     Z              ; выход если не сменилась секунда
+	LD      (hl),A
+	CALL    GETCLC0        ; update HOUR:MIN:SEC
+
+        ld      a,(hour)       ;                      2015 \
+        ld      hl, LASTH      ; раз в час обновляем дату
+        cp      (hl)
+        ld      (hl),a
+	CALL    nz,GETDAT0     ; update YEAR:MON:DAY  2015 /
+;
+; 2015: FOR UZIX - fill time_t tod structure at 0x0f3d8
+;
+; Store TIME:
+;       bit 15:11  Hour (0..23)
+;       bit 10:5   Minute (0..59)
+;       bit  4:0   Second/2 (0..29)
+;
+        ld      a,(MIN)		; a=minute
+        ld      hl,(HOUR-1)	; h=hour
+        rl	a
+	rl	a
+	rl	a
+	rl	h
+	rl	a
+	rl	h
+	rl	a
+	rl	h
+	and	011100000b
+	ld	l, a
+        ld      a,(SEC)		; a=second
+	rra
+	and	000011111b	; a=second/2
+	or	l
+        ld	l, a
+        ld      (TOD_T),hl
+;
+; Store DATE:
+;      bit 15:9  Year from 1980 (0..127)
+;      bit 8:5   Month (1..12)
+;      bit 4:0   Date (1..31)
+;
+        ld      a,(YEAR)	; year: 96=1996, 07=2007
+	sub	80
+	jr	nc, XGETDT1
+	add	a,100           ; year from 1980
+XGETDT1:ld	hl,(MON)	; l=month
+	rl	l
+	rl	l
+	rl	l
+	rl	l
+	rl	l
+	rla			; A.0 := older bit from month
+	ld	h, a
+	ld	a, l
+	and	011100000b
+	ld	l, a
+        ld      a,(DAY)  	; day
+	and	000011111b
+	or	l
+        ld	l, a
+        ld      (TOD_D),hl
+;
+	JP      CLCCLC0
+
+CLCCLC: LD      HL,COR
+	DEC     (HL)
+	RET     NZ
+	LD      (HL),50
+
+	LD      HL,L0
+	PUSH    HL
+
+	LD      HL,SEC
+	LD      A,(HL)
+	INC     A
+	LD      (HL),A
+	CP      60
+	RET     NZ
+	LD      (HL),0
+	LD      HL,MIN
+	LD      A,(HL)
+	INC     A
+	LD      (HL),A
+	CP      60
+	RET     NZ
+	LD      (HL),0
+	LD      HL,HOUR
+	LD      A,(HL)
+	INC     A
+	LD      (HL),A
+	CP      24
+	RET     NZ
+	LD      (HL),0
+
+; здесь будет вызов 1 раз в сутки
+	ld      a,(MON)
+	dec     a
+	ld      e,a
+	ld      d,0
+	ld      hl,KALEND
+	add     hl,de
+	ld      a,(hl)  ; в A количество дней в месяце
+	cp      28      ; февраль
+	call    z,VISCOR; корр. на високосный год
+	ld      hl,DAY
+	cp      (hl)
+	jr      z,NEWMES ; переход, если новый месяц
+	ld      a,(hl)
+	inc     a
+	ld      (hl),a
+	ret
+NEWMES: ld      hl,MON
+	ld      a,(hl)
+	inc     a
+	ld      (hl),a
+	cp      13
+	ret     nz
+	ld      (hl),1
+; Новый Год !!!
+	ld      hl,YEAR
+	ld      a,(hl)
+	inc     a
+	ld      (hl),a
+	POP     HL
+
+L0:     LD      A,(SET_CL)
+	OR      A
+	RET     Z
+
+CLCCLC0:LD      HL,(0F3D1H)
+	PUSH    HL
+	LD      HL,SPECIAL_FONT-112
+	LD      (0F3D1H),HL
+
+	call    0F81Eh  ; get cursor
+	push    hl
+	ld      hl,0F3D3h
+	ld      a,(hl)  ; get inverse flag
+	push    af
+	ld      (hl),0  ; NO inverse
+
+	ld      hl,(CURCLK)
+	push    hl
+
+; удалить время с экрана, если надо
+	ld      a,(CLRTIM)
+	or      a
+	ld      a,0
+	ld      (CLRTIM),a
+	call    nz,YESCLR ; убрать часы по тек. координатам
+
+	ld      hl,(LCURCLK)
+	ld      a,(CLRL)
+	or      a
+	ld      a,0
+	ld      (CLRL),a
+	call    nz,YESCLR ; убрать часы по ст. координатам
+
+	pop     hl
+	call    0F83Ch    ; set cursor
+	ld      a,(INV_CL)
+	ld      (0F3D3h),a; set inverse mode
+
+	ld      a,(HOUR)
+	call    MKDAA
+	call    PRHOUR
+
+	ld      a,(FULLF)
+	or      a
+	push    af
+	ld      c,'/'   ; двоеточие
+	call    nz,0F809h
+	pop     af
+	jr      nz,SKPMIG
+
+	ld      a,(SEC) ; вывод двоеточия или пробела
+	rra
+	push    af
+	ld      c,'/'   ; двоеточие
+	call    c,0F809h
+	pop     af
+	ld      c,'.'   ; пробел
+	call    nc,0F809h
+
+SKPMIG: ld      a,(MIN)
+	call    MKDAA
+	call    0F815h  ; print MIN
+
+	ld      a,(FULLF)
+	or      a
+	jr      z,ENDTMOUT
+
+			; если полный вывод, то
+	ld      c,'/'   ; вывод разделителя ( : )
+	call    0F809h
+	xor     a
+	ld      a,(SEC)
+	call    MKDAA
+	call    0F815h  ; print SEC
+
+ENDTMOUT:
+	ld      c,'.'   ; пробел
+	call    0F809h
+
+	pop     af
+	ld      (0F3D3h),a  ; repair inverse mode
+
+	pop     hl
+	call    0F83Ch  ; repair cursor
+
+	pop     hl
+	ld      (0F3D1h),hl
+
+	ret
+
+SPECIAL_FONT:     ;14*8
+	DB      000H,000H,000H,000H,000H,000H,000H,000H ;пробел, код 2Eh
+	DB      000H,00CH,00CH,000H,000H,00CH,00CH,000H ;двоеточие, код 2Fh
+
+	DB      00EH,011H,013H,015H,019H,011H,00EH,000H ;0
+	DB      004H,00CH,004H,004H,004H,004H,00EH,000H ;1
+	DB      00EH,011H,001H,006H,008H,010H,01FH,000H ;2
+	DB      01FH,001H,002H,006H,001H,011H,00EH,000H ;3
+	DB      002H,006H,00AH,012H,01FH,002H,002H,000H ;4
+	DB      01FH,010H,01EH,001H,001H,011H,00EH,000H ;5
+	DB      007H,008H,010H,01EH,011H,011H,00EH,000H ;6
+	DB      01FH,001H,002H,004H,008H,008H,008H,000H ;7
+	DB      00EH,011H,011H,00EH,011H,011H,00EH,000H ;8
+	DB      00EH,011H,011H,00FH,001H,002H,01CH,000H ;9
+;
+ORPRO:  DEFB    0
+EDRV:
+	.DEPHASE
+
+     @ @        

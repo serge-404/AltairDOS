@@ -1,0 +1,1421 @@
+LOCKCUR:DEFB    0
+
+; * Вывод символа на экран из рег. С          *
+; за счет YPROC в BIOS'e уст. стек в F-область
+
+L_CNT:  call	MDI
+	ld      HL,LOCKCUR      ; блокировать курсор
+	LD      (HL),1
+	call    CONOUT
+	ld      HL,LOCKCUR      
+	LD      (HL),0          ; разблокировать курсор
+	ld      a,(ZCONOUT)
+	ld      hl,(ZCONOUT+1)
+	call	MEI
+	jp      BJMP
+
+CONOUT: PUSH    BC
+	ld      a,(NPAR)
+	or      a
+	jp      nz,SERVP        ; переход на раздачу
+
+	ld      a,(IS8)
+	or      a
+	jp      nz,M8BITS
+
+	push    bc
+	ld	hl,(U)
+	ld	a,(hl)
+	ld      (MASK2),a
+	ld      (MASK4),a
+	ld      (MASK6),a
+	cpl
+	ld      (MASK8),a
+	ld      (MASK0),a
+	inc     hl
+	ld	a,(hl)
+	ld      (MASK1),a
+	ld      (MASK3),a
+	ld      (MASK5),a
+	cpl
+	ld      (MASK7),a
+	ld      (MASK9),a
+	inc     hl
+	ld      a,(OFFSX)
+	add	a,(hl)
+	inc	hl
+	ld	b,(hl)
+	ld	h,a
+	ld      a,(CY)
+	ld	l,a
+	ld	a,b
+	ld	(SHFT),a
+	ld	(SCRADR),hl
+	pop     bc
+	ld      a,(DIRFLG)
+	or      a
+	ld      a,0
+	ld      (DIRFLG),a
+	jr      nz,MB0
+	ld      a,c
+	cp      ' '
+	jp      c,MET
+
+MB0:    ld      a,c
+	cp      ' '
+	jp      z,ISPACE
+	ld      l,a
+	ld	h,0
+	add	hl,hl
+	ld	b,h
+	ld      c,l
+	add	hl,hl
+	add     hl,hl
+	add     hl,bc
+; в HL
+; получено смещение от начала фонта до кодов нужной литеры
+	ld      bc,FONT6
+	defb    18h             ; JR
+EXTR_F6:defb    EEX6-BEX6       ; флаг внешн./внутр. фонт
+; внешний фонт, скопировать из него 10 байт в F-область
+BEX6:   defb    1               ;ld bc,адрес внешнего фонта
+EXTR_A6:defs    2
+	add     hl,bc
+	ld      de,F_BUFF       ; буфер в F-области
+	ld      bc,10
+	xor	a		; 20081004
+	ex	af,af'		; 20081004 - bank where to return
+	defb    3Eh
+EXTR_B6:defs    1               ; ld a,банк внешнего фонта
+	call    MOVES
+	ld      hl,F_BUFF       ; буфер в F-области
+EEX6:   add     hl,bc
+	ex      de,hl
+	xor	a
+	ld      (FCRS),a
+	defb    21h
+SCRADR: defw    0
+	ld      c,10
+	push	hl
+L1:     ld      a,(MODE)
+	cp      2
+	ld      a,(de)
+	jp      z,MB1
+	defb	0EEh
+INV1:   defb    0
+MB1:    ld      l,a
+	ld	h,0
+	defb	3Eh
+SHFT:	defb	0
+L2:	or	a
+	jp      z,L3
+	add	hl,hl
+	dec	a
+	jp      L2
+
+L3:     ld      a,(MODE)
+	cp      2
+	jp      z,COLR1
+; переход, если 4-х цветный режим
+
+; вывод графики
+	ex      de,hl
+	ex	(sp),hl
+; адрес по фонту на стек, со стека в HL SCRADR, данные в DE
+	ld      a,(hl)
+
+OR6_L0: defb    0E6h    ; FE в режиме наложения
+MASK1:  defb    0       ; очистка правой полов. знакоместа
+	or	e
+	ld	(hl),a
+	dec     h
+	ld	a,(hl)
+
+OR6_L1: defb    0E6h    ; FE в режиме наложения
+MASK2:  defb    0       ; очистка левой полов. знакоместа
+	or	d
+	ld      (hl),a
+
+	ld      a,(MODE)
+	and     2
+	jp      z,COLR2
+; переход, если  режим без вывода цвета
+
+; ВЫВОД ЦВЕТА
+	ld      a,(CURCOL)
+	CALL    PUTSCR          ; ЗАНЕСТИ В B1:(HL) <- A
+
+	jp      COLR2
+
+; 4-х цветный режим
+; ВЫВОД ГРАФИКИ
+
+COLR1:  ex      de,hl
+	ex      (sp),hl
+; адрес по фонту на стек, со стека в HL SCRADR, данные в DE
+COLOR2: ld      a,e     ;ld a,e  ; ld a,e  ; xor a  ; xor a
+COLOR1: nop             ; nop    ; cpl     ; nop    ; cpl
+	ld      b,a
+	ld	a,(hl)
+
+OR6_L2: defb    0E6h    ; FE в режиме наложения
+MASK5:  defb    0
+COLOR4: defb    0FEh    ; 0FEh   ; 0EEh    ; 0FEh   ; 0EEh
+MASK9:  defb    0
+COLOR3: or      b       ; or b   ; and b   ; or b   ; and b
+	ld      (hl),a  ;  01    ;   10    ;   00   ;   11
+	dec     h
+COLOR6: ld      a,d
+COLOR5: nop
+	ld      b,a
+	ld	a,(hl)
+
+OR6_L3: defb    0E6h    ; FE в режиме наложения
+MASK6:  defb    0
+COLOR8: defb    0FEh
+MASK0:  defb    0
+COLOR7: or      b
+	ld      (hl),a
+	inc	h
+
+; ВЫВОД ЦВЕТА
+COLORA: ld      a,e    ; ld a,e  ; ld a,e  ; xor a  ; xor a
+COLOR9: nop            ; nop     ; cpl     ; nop    ; cpl
+	ld      b,a
+
+	xor	a		; 20081004
+	ex	af,af'		; 20081004 - bank where to return
+	CALL    GETSCR ; ПОЛУЧИТЬ В A <- B1:(HL)
+
+OR6_L4: defb    0E6h   ; FE в режиме наложения
+MASK3:  defb    0
+COLORC: defb    0FEh   ; 0FEh    ; 0EEh    ; 0FEh   ; 0EEh
+MASK7:  defb    0
+COLORB: or      b      ; or b    ; and b   ; or b   ; and b
+		       ;  10     ;  01     ;  00    ;  11
+	CALL    PUTSCR ; ЗАНЕСТИ В B1:(HL) <- A
+	dec     h
+COLORE: ld      a,d
+COLORD: nop
+	ld      b,a
+	xor	a		; 20081004
+	ex	af,af'		; 20081004 - bank where to return
+	CALL    GETSCR ; ПОЛУЧИТЬ В A <- B1:(HL)
+
+OR6_L5: defb    0E6h            ; FE в режиме наложения
+MASK4:  defb    0
+COLORG: defb    0FEh
+MASK8:  defb    0
+COLORF: or      b
+
+	CALL    PUTSCR         ; ЗАНЕСТИ В B1:(HL) <- A
+
+COLR2:  inc     h
+	inc     l
+	ex	(sp),hl
+	ex	de,hl
+	inc	de
+	dec	c
+	jp      nz,L1
+	pop     hl
+M8L1:   call    IRGH
+RET:    POP     BC
+    ;    LD      HL,LCOL
+    ;    LD      A,0BBH
+    ;    CP      (HL)
+    ;    RET     NC
+    ;    LD      (HL),A
+	ret
+
+;
+M8L2:   ld      hl,(ADR8)
+	ld      de,(LLIN)
+	ld      a,h
+	inc     h
+	cp      d
+	jp      nz,M8L3
+	ld      a,(FCOL)
+	ld      h,a
+	ld      a,(SCRLDS)
+	or      a
+	jp      z,M8L3
+	ld      a,l
+	add     a,10
+	cp      e
+	push    hl
+	call    nc,SCROLL
+	pop     hl
+	jp      nc,M8L3
+	ld      l,a
+M8L3:   ld      (ADR8),hl
+	ret
+;
+IRGH:   ld      a,(IS8)
+	or      a
+	jp      nz,M8L2
+	ld      hl,(U)
+	inc	hl
+	inc	hl
+	inc	hl
+	inc	hl
+	ld	(U),hl
+	ld	a,(P1)
+	inc     a
+	and     3               ; 7
+	ld	(P1),a
+	jp      nz,L4
+	ld      hl,TABK
+	ld	(U),hl
+	ld      a,(OFFSX)
+	add     a,3             ; 6
+	ld      (OFFSX),a
+L4:     ld      a,(P2)
+	inc	a
+	ld      (P2),a
+	ld	hl,CHARS
+	cp	(hl)
+	ret     c
+	xor	a
+	ld      (P2),a
+	ld	a,(FCOL)
+	ld      (OFFSX),a
+	ld      a,(SCRLDS)
+	or      a
+	ret     z
+ILF:    ld      a,(CY)
+	add     a,10
+	ld      hl,LLIN
+	cp	(hl)
+	call    nc,SCROLL
+	ret     nc
+	ld      (CY),a
+	ret
+;
+ISPACE:	xor	a
+	ld      (FCRS),a
+	call    CLEAR
+	call    IRGH
+	jp      RET
+;
+CLRL3:  defb    3Eh
+CLINV1: defb    0
+	ld      (CINV2),a
+	ld      (CINV3),a
+	defb    3Eh
+CLINV2: defb    0E6h
+	ld      (CINV4),a
+	ld      (CINV5),a
+	XOR     A
+	call    CLRL2   ; GRAFIX
+
+	defb    3Eh
+CLINV3: defb    0
+	ld      (CINV2),a
+	ld      (CINV3),a
+	defb    3Eh
+CLINV4: defb    0E6h
+	ld      (CINV4),a
+	ld      (CINV5),a
+	LD      A,1
+	jp      CLRL2   ; COLOR
+;
+CLEAR:  ld      a,(MODE)
+	cp      2
+	jp      z,CLRL3
+
+	defb    3Eh
+INV2:   defb    0
+	ld      (CINV2),a
+	ld      (CINV3),a
+	defb    3Eh
+INV4:   defb    0E6h
+	ld      (CINV4),a
+	ld      (CINV5),a
+	XOR     A
+;
+CLRL2:  LD      (SB0),A
+	LD      (SB01),A
+	LD      (SB02),A
+	LD      (SB03),A
+	ld      hl,(U)
+	ld	a,(hl)
+	defb	0EEh
+CINV2:  defb    0
+	ld      (CLM2),a
+	inc	hl
+	ld	a,(hl)
+	defb	0EEH
+CINV3:  defb    0
+	ld	(CLM1),a
+	inc	hl
+	ld      a,(OFFSX)
+	add	a,(hl)
+	ld	h,a
+	ld      a,(CY)
+	ld	l,a
+
+	ld      c,10
+CLRL1:  
+	ex	af,af'		; 20081004 - bank where to return
+	xor	a		; 20081004
+	ex	af,af'		; 20081004 - bank where to return
+	DEFB    3EH
+SB0:    DEFB    0
+	CALL    GETSCR0
+	LD      B,A
+CINV4:  defb    0E6h
+CLM1:	defb	0
+OR6_L6: nop                 ; в режиме наложения - or B
+	EX      AF,AF'
+	DEFB    3EH
+SB01:   DEFB    0
+	CALL    PUTSCR0
+	dec	h
+	ex	af,af'		; 20081004 - bank where to return
+	xor	a		; 20081004
+	ex	af,af'		; 20081004 - bank where to return
+	DEFB    3EH
+SB02:   DEFB    0
+	CALL    GETSCR0
+	LD      B,A
+CINV5:  defb    0E6h
+CLM2:	defb	0
+OR6_L7: nop                 ; в режиме наложения - or B
+	EX      AF,AF'
+	DEFB    3EH
+SB03:   DEFB    0
+	CALL    PUTSCR0
+	ld      a,(MODE)
+	and     2
+	jp      z,MB2
+
+	ld      a,(CURCOL)
+	CALL    PUTSCR
+
+MB2:    inc     h
+	inc	l
+	dec	c
+	jp      nz,CLRL1
+	ret
+;
+M8BITS: ld      a,(DIRFLG)
+	or      a
+	ld      a,0
+	ld      (DIRFLG),a
+	jp      nz,MB3
+
+	ld      a,c
+	cp      ' '
+	jp      c,MET           ; переход, если меньше 20h
+
+MB3:    ld      b,0
+	ld      l,c
+	ld      h,b
+	add     hl,hl
+	add     hl,hl
+	add     hl,bc
+	add     hl,hl
+	ld      bc,FONT8
+
+	defb    18h             ; JR
+EXTR_F8:defb    EEX8-BEX8       ; флаг внешн./внутр. фонт
+
+; внешний фонт, скопировать из него 10 байт в F-область
+BEX8:   defb    1
+EXTR_A8:defs    2               ;ld bc,адрес внешнего фонта
+	add     hl,bc
+	ld      de,F_BUFF       ; буфер в F-области
+	ld      bc,10
+	xor	a		; 20081004
+	ex	af,af'		; 20081004 - bank where to return
+	defb    3Eh
+EXTR_B8:defs    1               ; ld a,банк внешнего фонта
+	call    MOVES
+	ld      hl,F_BUFF       ; буфер в F-области
+EEX8:   add     hl,bc
+	ld      de,(ADR8)
+	ld      b,10
+	ld      a,(MODE)
+	cp      2
+	jp      nz,M8L4
+	push    hl
+	push    de
+C81:    ld      a,(hl)          ; GRAFIX
+C82:    nop
+OR8_L0: nop                     ; ld    c,a  \
+	nop                     ; ld    a,(de)> в режиме
+	nop                     ; or    c    /  наложения
+	ld      (de),a
+	inc     hl
+	inc     e
+	djnz    C81
+	pop     de              ; COLOR
+	pop     hl
+	ld      b,10
+
+C830:   
+	xor	a		; 20081004
+	ex	af,af'		; 20081004 - bank where to return
+	CALL    GETSCR
+C83:    NOP
+C84:    nop
+	EX      DE,HL
+	CALL    PUTSCR
+	EX      DE,HL
+	inc     hl
+	inc     e
+	djnz    C830
+
+M8L5:   xor     a
+	ld      (FCRS),a
+	jp      M8L1
+;
+M8L4:   push    de              ; GRAFIX
+M8L6:   ld      a,(hl)
+	defb    0EEh
+INV17:  defb    0
+OR8_L1: nop                     ; ld    c,a  \
+	nop                     ; ld    a,(de)> в режиме
+	nop                     ; or    c    /  наложения
+	ld      (de),a
+	inc     hl
+	inc     e
+	djnz    M8L6
+	pop     de
+	ld      a,(MODE)
+	and     2
+	jp      z,M8L5
+
+	ld      b,10            ; COLOR
+	EX      DE,HL
+
+	ld      a,(CURCOL)
+M8L7:   CALL    PUTSCR
+	inc     L
+	djnz    M8L7
+
+	EX      DE,HL
+	jp      M8L5
+;
+SERVP:  dec     a
+	ld      (NPAR),a
+	ld      hl,(@PAR)
+	ld      (hl),c
+	inc     hl
+	ld      (@PAR),hl
+	ld      hl,RET
+	push    hl
+	ret     nz              ; выход - взят очередной параметр из ESC-строки
+;
+	ld      hl,VALUE
+	res     5,(hl)          ; Драйвер свободен - ESC-строка выбрана вся
+	ld      hl,(SUBRAD)
+	call    COFF
+	jp      (hl)
+;
+FNTAB:  defb    7,0
+	defw    SP_SOUND        ;
+	defb    0Dh,0
+	defw    ICR             ;
+	defb    0Ah,0
+	defw    ILF             ;
+	defb    0Ch,0
+	defw    ICLS            ;
+	defb    1Fh,0
+	defw    ICLS            ;
+	defb    8,0
+	defw    IBACK           ;
+	defb    1Bh,1
+	defw    IESC            ;
+	defb    18h,0
+	defw    IRGH            ;
+	defb    19h,0
+	defw    IUP             ;
+	defb    1Ah,0
+	defw    ILF             ;
+	defb    9,0
+	defw    ITAB            ;
+	defb    0FFh
+;
+MET:    ld      hl,FNTAB
+	call    COMINI
+	jp      RET
+;
+COMINI: ld      a,(hl)
+	inc     hl
+	cp      0FFh
+	ret     z
+	cp      c
+	jp      z,COMIN1
+	inc     hl
+	inc     hl
+	inc     hl
+	jp      COMINI
+;
+COMIN1: ld      a,(hl)
+	ld      (NPAR),a
+	or      a
+	inc     hl
+	ld      a,(hl)
+	inc     hl
+	ld      h,(hl)
+	ld      l,a
+	ld      (SUBRAD),hl
+	push    hl
+	ld      hl,PARBUF
+	ld      (@PAR),hl
+	pop     hl
+	jp      nz,COMIN2
+	call    COFF
+	jp      (hl)
+;
+COMIN2: push    af
+	ld      a,(VALUE)
+	set     5,a     ; драйвер занят - начало выборки ESC-строки
+	pop     af
+	ret
+;
+IHOM1:  ld      (ADR8),a
+	jp      ICR
+;
+IHOM:   ld      a,(IS8)
+	or      a
+	ld      a,(FLIN)
+	jp      nz,IHOM1
+	ld      (CY),a
+ICR:    ld      a,(IS8)
+	or      a
+	jp      nz,ICR1
+	ld      hl,0
+	ld      (P1),hl
+	ld      hl,TABK
+	ld	(U),hl
+	ld	a,(FCOL)
+	ld      (OFFSX),a
+	ret
+;
+ICR1:   ld      a,(FCOL)
+	ld      (ADR8+1),a
+	ret
+;
+IBACK1: ld      hl,(ADR8)
+	ld      de,(FLIN)
+	ld      a,h
+	dec     h
+	cp      d
+	jp      nz,IBACK2
+	ld      a,(LCOL)
+	ld      h,a
+	ld      a,(SCRldS)
+	or      a
+	jp      z,IBACK2
+IUP2:   ld      a,l
+	sub     10
+	cp      e
+	jp      c,IBACK2
+	ld      l,a
+IBACK2: ld      (ADR8),hl
+	ret
+;
+IUP1:   ld      hl,(ADR8)
+	ld      de,(FLIN)
+	jp      IUP2
+;
+IBACK:  ld      a,(IS8)
+	or      a
+	jp      nz,IBACK1
+	ld      hl,(U)
+	dec	hl
+	dec	hl
+	dec	hl
+	dec	hl
+	ld	(U),hl
+	ld	a,(P1)
+	dec	a
+	and     3               ; 7
+	ld	(P1),a
+	xor     3               ; 7
+	jp      nz,LBACK4
+	ld      hl,TABK+12      ; 28
+	ld      (U),hl
+	ld      a,(OFFSX)
+	sub     3               ; 6
+	ld      (OFFSX),a
+LBACK4: ld      a,(P2)
+	sub	1
+	ld      (P2),a
+	ret     nc
+	ld	a,(CHARS)
+	dec	a
+	ld      (P2),a
+	ld	a,(LCOL)
+	sub     2
+	ld      (OFFSX),a
+	ld      a,(SCRLDS)
+	or      a
+	ret     z
+IUP:    ld      a,(CY)
+	sub     10
+	ld      hl,FLIN
+	cp	(hl)
+	ret     c
+	ld      (CY),a
+	ret
+;
+IBACKCLS:
+	ld      a,(MODE)
+	cp      2
+	jp      nz,MI19
+; 4C
+	LD      HL,(CLINV6)
+	ld      (CINV11),hl
+	LD      A,1
+	jp      ICLS_2
+
+; OTHERS
+MI19:   ld      a,(CURCOL)
+	ld      h,a
+	ld      l,a
+	ld      (CINV11),hl
+	LD      A,1
+	jp      ICLS_2
+;
+CLINV6: DEFW    0
+;
+ICLS:   ld      a,(MODE)
+	cp      2
+	jp      nz,ICLS_1
+; 4C
+	defb    21h
+CLINV5: defw    0
+	ld      (CINV11),hl
+	XOR     A
+	call    ICLS_2          ; GRAFIX
+	LD      HL,(CLINV6)
+	ld      (CINV11),hl
+	LD      A,1
+	CALL    ICLS_2          ; COLOR
+	jp      IHOM
+
+; OTHERS
+ICLS_1: defb    21h
+INV11:  defb    0
+INV12:  defb    0
+	ld      (CINV11),hl
+	XOR     A
+	call    ICLS_2          ; GRAFIX
+
+	ld      a,(MODE)
+	or      a
+	jp      z,IHOM
+
+	ld      a,(CURCOL)
+	ld      h,a
+	ld      l,a
+	ld      (CINV11),hl
+	LD      A,1
+	CALL    ICLS_2
+	jp      IHOM
+;
+;FLIN:   defb    0
+;FCOL:   defb    0
+;LLIN:   defb    0FAh   ; NEXT LINE
+;LCOL:   defb    03Bh
+;
+CINV11: defb    0
+CINV12: defb    0
+;
+
+ICLS_2: CP      1
+	PUSH    AF
+	LD      BC,(FLIN)
+	PUSH    BC
+	LD      HL,(LLIN)
+	OR      A
+	SBC     HL,BC
+	LD      B,H
+	LD      C,L             ; C - ВЫСОТА, B - ШИРИНА
+	INC     B
+	DEC     C               ; т.к. очистка LDIR'ами
+	ld      a,c
+	cp      0FAh-1
+	jr      nz,icls_20
+	ld      c,0FFh          ; очистка грязи под окном 80*XX
+icls_20:POP     HL              ; HL = Л.В.У.
+	LD      E,L
+	LD      D,H
+	INC     E               ; DE = HL+1
+	POP     AF
+	LD      A,(CINV11)
+	JP      Z,IICLS_2C
+
+IICLS_2:PUSH    HL
+	PUSH    DE
+	PUSH    BC
+	LD      (HL),A
+	LD      B,0
+	LDIR
+	POP     BC
+	POP     DE
+	POP     HL
+	INC     H
+	INC     D
+	DJNZ    IICLS_2
+	RET
+
+IICLS_2C:
+	CALL    PUTSCR
+	PUSH    AF
+	PUSH    HL
+	PUSH    DE
+	PUSH    BC
+	LD      B,0
+	xor	a		; 20081004
+	ex	af,af'		; 20081004 - bank where to return
+	LD      A,1
+	CALL    MOVES
+	POP     BC
+	POP     DE
+	POP     HL
+	POP     AF
+	INC     H
+	INC     D
+	DJNZ    IICLS_2C
+	RET
+
+ITAB:   ld      c,' '
+ITAB1:  call    CONOUT
+	ld      a,(IS8)
+	or      a
+	jp      nz,ITAB2
+	ld      a,(P2)
+	and     7
+	jp      nz,ITAB1
+	ret
+;
+ITAB2:  ld      a,(ADR8+1)
+	ld      hl,FCOL
+	sub     (hl)
+	and     7
+	jp      nz,ITAB1
+	ret
+;
+;
+ESCTAB: defb    'Y',2
+	defw    SETCOR          ;
+	defb    'N',0
+	defw    RETCOR          ;
+	defb    '6',0
+	defw    IINV            ;
+	defb    '7',0
+	defw    NOINV           ;
+	defb    ':',0
+	defw    ICRON           ;
+	defb    ';',0
+	defw    ICROFF          ;
+	defb    'E',0
+	defw    ICLS            ;
+	defb    'H',0
+	defw    IHOM            ;
+	defb    'J',0
+	defw    IDELL           ; ОЧИСТКА ДО КОНЦА ЭКРАНА
+	defb    'K',0
+	defw    IDELS           ; ОЧИСТКА ДО КОНЦА СТРОКИ
+	defb    'R',1
+	defw    ICTFL           ;
+	defb    'L',0
+	defw    INSSTR          ; ВСТАВИТЬ СТРОКУ
+	defb    'M',0
+	defw    DELSTR          ; УДАЛИТЬ СТРОКУ
+	defb    'W',1
+	defw    WND             ;
+	defb    'P',1
+	defw    SETCOL          ;
+	defb    'C',1
+	defw    COLONF          ;
+	defb    '@',0
+	defw    DIROUT          ;
+	defb    'Q',1
+	defw    SWIDTH          ;
+	defb    '4',0
+	defw    ENSCRL          ;
+	defb    '5',0
+	defw    DSSCRL          ;
+
+; новые коды
+	defb    'D',1           ; задержка
+	defw    SETDELAY
+	defb    'Z',1           ; часы
+	defw    ICLOCK
+	defb    'S',1           ; звук
+	defw    SETSOUND
+	defb    'X',1           ; наложение
+	defw    SET_OR
+	defb    'F',1           ; фонты
+	defw    SET_FONT
+	defb    'B',0
+	defw    IBACKCLS        ; очистка атрибутов цвета
+	defb    'I',1
+	defw    ISCR            ; активный экран
+	defb    'V',1
+	defw    IVIS            ; видимый экран
+	defb    'U',1           ; получить/восстановить состояние драйвера
+	defw    ICTRLOG
+	defb    0FFh
+;
+IESC:   ld      hl,ESCTAB
+	jp      COMINI
+
+; установка задержки (ввода с клавиатуры) 0-9
+SETDELAY:ld     a,(PARBUF)
+	cp      11
+	ret     nc
+	cp      10
+	jr      z,GETDELAY
+	add     a,a
+	add     a,a
+	add     a,a
+	add     a,a
+	ld      (DELAYDATA),a
+	ret
+
+; получить текущую задержку с клавиатуры
+GETDELAY:
+	ld      A,(DELAYDATA)
+	srl     a
+	srl     a
+	srl     a
+	srl     a
+	jp      OUT_1
+
+; процедуры работы с часами
+CLESC:  defb    0,0     ; 0 - возвратить время в формате
+	defw    IGETCL  ;     ЧЧ:ММ:СС
+	defb    1,3     ; 1 - установить время в формате
+	defw    ISETCL  ;     ЧЧ:ММ:СС
+	defb    2,0     ; 2 - получить состояние часов
+	defw    IGETSOST
+	defb    3,1     ; 3 - установить состояние часов
+	defw    ISETSOST
+	defb    4,0     ; 4 - пол. позицию вывода времени
+	defw    ICLRET
+	defb    5,2     ; 5 - уст. позиции вывода времени
+	defw    ICLPOS  ;
+	defb    6,0     ; 6 - пол. дату в формате
+	defw    IGETDT  ;     ДД:ММ:ГГ
+	defb    7,3     ; 7 - уст. дату в формате
+	defw    ISETDT  ;     ДД:ММ:ГГ
+	defb    0FFh
+ICLOCK: ld      hl,CLESC
+	jp      COMINI
+
+; получить часы с клавиатуры в формате ЧЧ:ММ:СС
+IGETCL: ld      hl,BUFFER+17
+	ld      de,BUFFER+20
+	ld      bc,17
+	lddr
+	CALL    GETCLC0
+	ld      hl,HOUR
+	ld      de,BUFFER
+	ld      bc,3
+	ldir
+	ld      a,3
+	jp      ADDNBF
+;
+GETCLC0:LD      A,(VI1)         ; 0 - программ., 1 - 512ВИ1
+	OR      A
+	RET     Z               ; выход, если прогр. часы
+GETCLC1:LD      C,0AH
+	call    VIget
+	RLCA
+	JR      C,GETCLC1       ; цикл, если идет обновление
+	LD      C,0
+	call    VIget
+	ld      (SEC),a
+	ld      C,2
+	call    VIget
+	ld      (MIN),a
+	ld      C,4
+	call    VIget
+	ld      (HOUR),a
+	ret
+
+; установка часов
+ISETCL: ld      hl,PARBUF
+	ld      de,HOUR
+	ld      bc,3
+	ldir
+	LD      A,(VI1)         ; 0 - програм., 1 - 512ВИ1
+	OR      A
+	RET     Z
+
+; инициализация апп. часов
+	LD      BC,270AH      ; ПИШЕМ В РЕГ. А    Q=32768 Гц   SQW=512 Гц
+	call    VIset
+	LD      BC,860BH      ; ЗАПРЕТИТЬ СЧЕТ, ДВОИЧНЫЙ ФОРМАТ
+	call    VIset
+	LD      C,0        ; УСТАНОВИТЬ СЧЕТЧИКИ:
+	LD      A,(SEC)
+	LD      B,A        ; СЕКУНД
+	call    VIset
+	LD      C,2
+	LD      A,(MIN)
+	LD      B,A        ; МИНУТ
+	call    VIset
+	LD      C,4
+	LD      A,(HOUR)
+	LD      B,a        ; ЧАСОВ
+	call    VIset
+	LD      BC,060Bh      ; РАЗРЕШИТЬ СЧЕТ
+	jp      VIset
+
+; CLRTIM - стереть часы по текущим координатам
+; CLRL   - стереть часы по старым координатам
+
+; состояние часов:
+; d0 - 1/0 - разрешен/запрещен вывод времени
+; d1 - 1/0 - вывод времени с инверсией/без инверсии
+; d2 - 1/0 - полный/сокращенный формат вывода времени
+; d3 - 1/0 - 24/12 часовой режим
+
+; установить состояние часов
+ISETSOST:
+;	call    MDI
+	ld      hl,PARBUF
+	ld      a,(hl)
+	ld      (CLSOST),a
+	bit     0,(hl)
+	call    z,TIME_OFF
+	call    nz,ICLRUN
+	bit     1,(hl)
+	call    z,INOINV
+	call    nz,IYESINV
+	bit     2,(hl)
+	call    z,INFULLT
+	call    nz,IFULLT
+	bit     3,(hl)
+	call    z,I12H
+	call    nz,I24H
+	ld      a,1
+	ld      (CLRTIM),a      ; убрать часы
+;	jp      MEI
+	ret			; 2015
+
+; получить состояние часов
+IGETSOST:
+	ld      a,(CLSOST)
+	jp      OUT_1
+
+; выключить вывод времени
+TIME_OFF:
+	ld      a,0
+	LD      (SET_CL),A      ; запретить вывод
+	RET
+
+; установить вывод времени без инверсии
+INOINV: ld      a,0
+	ld      (INV_CL),a      ; запретить инверсию
+	ret
+
+; установить вывод времени с инверсией
+IYESINV:ld      a,0FFh
+	ld      (INV_CL),a      ; включить инверсии
+	ret
+
+; разрешить вывод времени
+ICLRUN: LD      A,1
+	ld      (SET_CL),a      ; разрешить вывод
+	ret
+
+; Установить полный формат вывода времени ЧЧ:ММ:СС
+IFULLT: ld      a,1
+	ld      (FULLF),a
+	ret
+
+; Установить сокращенный формат вывода времени ЧЧ:ММ
+INFULLT:ld      a,0
+	ld      (FULLF),a
+	ret
+
+; уст. 24-х часовой режим
+I24H:   ld      a,1
+	ld      (FL24),a
+	ret
+
+; уст. 12-ти часовой режим
+I12H:   ld      a,0
+	ld      (FL24),a
+	ret
+
+; установить позицию вывода на экран
+ICLPOS: ld      hl,(CURCLK)
+	ld      (LCURCLK),hl
+	ld      a,1
+	ld      (CLRL),a        ; флаг - стереть старые
+	ld      hl,(PARBUF)
+	ld      (CURCLK),hl
+	RET
+
+; пол. позицию вывода времени
+ICLRET: ld      hl,BUFFER+18
+	ld      de,BUFFER+20
+	ld      bc,18
+	lddr
+	ld      hl,(CURCLK)
+	ld      (BUFFER),hl
+	ld      a,2
+	jp      ADDNBF
+
+; получить дату в формате ДД:ММ:ГГ
+IGETDT: ld      hl,BUFFER+17
+	ld      de,BUFFER+20
+	ld      bc,17
+	lddr
+	CALL    GETDAT0
+	ld      hl,DAY
+	ld      de,BUFFER
+	ld      bc,3
+	ldir
+	ld      a,3
+	jp      ADDNBF
+
+GETDAT0:LD      A,(VI1)         ; 0 - программ., 1 - 512ВИ1
+	OR      A
+	RET     Z               ; выход, если прогр. часы
+GETDAT1:LD      C,0Ah
+	call    VIget
+	RLCA
+	JR      C,GETDAT1       ; цикл, если идет обновление
+	LD      C,7
+	call    VIget
+	ld      (DAY),a
+	ld      C,8
+	call    VIget
+	ld      (MON),a
+	ld      C,9
+	call    VIget
+	ld      (YEAR),a
+	ret
+
+
+; установить дату в формате ДД:ММ:ГГ
+ISETDT: ld      hl,PARBUF
+	ld      de,DAY
+	ld      bc,3
+	ldir
+	LD      A,(VI1)         ; 0 - програм., 1 - 512ВИ1
+	OR      A
+	RET     Z
+; установка даты апп. часов
+SETDAT1:LD      C,0Ah
+	call    VIget
+	RLCA
+	JR      C,SETDAT1       ; цикл, если идет обновление
+	LD      C,7        ; УСТАНОВИТЬ СЧЕТЧИКИ:
+	LD      A,(DAY)
+	LD      B,A        ; дней месяца
+	call    VIset
+	LD      C,8
+	LD      A,(MON)
+	LD      B,A        ; месяцев
+	call    VIset
+	LD      C,9
+	LD      A,(YEAR)
+	LD      B,a        ; лет
+	jp      VIset
+;
+; Get byte from 512VI1 CMOS. Inp: C=register(address), Out:A=value
+;
+VIget:
+GetVI128:
+	ld	a,c
+	ld	(ADDRVI),a
+	ld	a,(ADDRVI+1)
+	ret
+;
+; Set byte to 512VI1 CMOS. Inp: C=register(address), B=value
+;
+VIset:
+SetVI128:
+	ld	(ADDRVI),bc
+	ret
+	defs	2,0
+;
+LASTSCR:db      0       ; активный экран
+VIDEOSCR:db     0       ; видимый экран
+SCRCOLM:ds      6,0     ; акт. экран - код цвет. режима
+;
+SCRSHIFT:db     0       ; 0-00h, 1-40h, 2-80h  
+SCROFFS:db	2	; сдвинуть изображение в памяти на 0..3 столбцов вправо
+
+; установить/получить активный экран (0..2/FF)
+ISCR:   ld      a,(LASTSCR)
+	ld      b,a
+	ld      a,(PARBUF)      ; код экрана
+	cp      0FFh
+	jr      z,ISCRGET
+	cp      b
+	ret     z               ; выход, тот же экран
+ISCR_P: ld      (LASTSCR),a
+;
+	ld      b,a
+	inc     b
+	ld      c,84h
+	ld	a,(SCROFFS)
+	and	3
+	sub	40h
+ISCR0:  add     a,40h
+	dec     c
+	djnz    ISCR0
+	ld      (0F3CFh),a
+	ld      (SCRSHIFT),a        ; 0-00h, 1-40h, 2-80h
+	ld      b,a
+	ld      a,(FCOL)
+	and     3Fh
+	or      b
+	ld      (FCOL),a
+	ld      a,(LCOL)
+	and     3Fh
+	or      b
+	ld      (LCOL),a
+	ret
+
+; получить номер активного экрана
+ISCRGET:ld      a,(LASTSCR)
+; выдать 1 байт на консоль
+OUT_1:  ld      hl,BUFFER+19
+	ld      de,BUFFER+20
+	ld      bc,19
+	lddr
+	ld      (BUFFER),a
+	ld      a,1
+	jp      ADDNBF
+
+; Установить/получить номер видимого экрана (0..2/FF)
+; Одновременно устанавливается цветовой режим
+IVIS:   ld      a,(PARBUF)
+	cp      0FFh
+	jr      z,IVISGET
+	cp      3
+	ret     nc
+;
+IVIS_P: ld      (VIDEOSCR),a
+	ld      b,a
+	add     a,a
+	ld      e,a
+	ld      a,b
+	cpl
+	and     3
+	or      80h
+	ld      (sysPFA),a      ; включить портом нужный
+	out     (PFA),a         ; экран
+	ld      d,0
+	ld      hl,SCRCOLM
+	add     hl,de
+	ld      a,(hl)
+	call    SETPF8          ; включить портом нужный
+	inc     hl              ; цветовой режим
+	ld      a,(hl)
+	ld      (MODE),a
+	ret
+
+;
+IVISGET:ld      a,(VIDEOSCR)
+	jr      OUT_1
+;
+;Состояние драйвера консоли: 10 байт
+;byte0:D0,D1 - код цветового режима      (00b-mono/01b..11b-color)
+;      D2 - инверсия                     (0-нет/1-есть)
+;      D3 - погашен/видимый курсор       (0-нет/1-есть)
+;      D4 - шрифт 6/8 бит                (0-6_бит/1-8_бит)
+;      D5 - наложение для 6 бит          (0-нет/1-есть)
+;      D6 - наложение для 8 бит          (0-нет/1-есть)
+;      D7 - auto_CRLF                    (0-нет/1-есть)
+;byte1,byte2: позиция курсора            (Y+20h/X+20h)
+;byte3 - форма курсора                   (1..8)
+;byte4 - код цвета                       (byte)
+;byte5 - y
+;byte6 - x  - параметры
+;byte7 - dy
+;byte8 - dx
+;byte9  - номер АКТИВНОГО экрана (D0..D1) (00b..10b)
+;       - номер ВИДИМОГО экрана  (D2..D4) (00b..10b)
+;
+CTRLESC:defb    0,0     ; 0 - возвратить состояние драйвера (10 байт)
+	defw    IGETLOG ;
+	defb    1,10    ; 1 - установить состояние драйвера
+	defw    ISETLOG ;
+	defb    0FFh
+;
+ICTRLOG:ld      hl,CTRLESC
+	jp      COMINI
+;
+IGETLOG:ld      hl,BUFFER+10
+	ld      de,BUFFER+20
+	ld      bc,10
+	lddr
+	ld      a,(MODE)        ; 00b..11b
+	and     3
+	ld      b,a
+	ld      a,(FLINV)       ; 1 - есть / 0 - нет инверсии
+	or      a               ;     IINV / NOINV -
+	jr      z,log0          ;
+	set     2,b
+log0:   ld      a,(CRV)
+	or      a
+	jr      nz,log1         ; 0 - виден / FF - не виден курсор
+	set     3,b             ;      ICRON / ICROFF
+log1:   ld      a,(IS8)         ; 8 - шрифт_8 / 0 - шрифт_6
+	or      a
+	jr      z,log2
+	set     4,b
+log2:   ld      a,(OR6_L6)      ; <>0 - наложение / 0 - нет наложения
+	or      a               ;          ( для шрифта 6 )
+	jr      z,log3          ;         SET_OR6 / SET_NOR6
+	set     5,b
+log3:   ld      a,(OR8_L1)      ; <>0 - наложение / 0 - нет наложения
+	or      a               ;          ( для шрифта 8 )
+	jr      z,log4          ;         SET_OR8 / SET_NOR8
+	set     6,b
+log4:   ld      a,(SCRLDS)
+	or      a
+	jr      z,log5          ; FF - разрешен / 0 - запрещен скроллинг
+	set     7,b             ;        ENSCRL / DSSCRL
+log5:   ld      hl,BUFFER
+	ld      (hl),b
+	inc     hl
+; Возвращает по (HL) - курсор Y+20h, (HL+1) - курсор X+20h
+	call    RETCOR0
+	inc     hl
+	ld      a,(CURST)
+	ld      (hl),a
+	inc     hl
+	ld      a,(COLCUR)
+	ld      (hl),a
+	inc     hl
+	push    hl
+	push    ix
+;
+	push    hl
+	pop     ix
+	call    GETWIN_P
+;
+	pop     ix
+	pop     hl
+	inc     hl
+	inc     hl
+	inc     hl
+	inc     hl
+	ld      a,(VIDEOSCR)    ; видимый экран
+	add     a,a
+	add     a,a
+	ld      b,a
+	ld      a,(LASTSCR)     ; акт. экран
+	or      b
+	ld      (hl),a
+	ld      a,10
+	jp      ADDNBF
+; восстановление состояния драйвера
+ISETLOG:ld      a,(PARBUF)
+	push    af
+;
+	bit     2,a
+	push    af
+	call    nz,IINV
+	pop     af
+	push    af
+	call    z,NOINV
+	pop     af
+;
+	bit     3,a
+	push    af
+	call    nz,ICRON
+	pop     af
+	push    af
+	call    z,ICROFF
+	pop     af
+;
+	bit     4,a
+	push    af
+	ld      a,0
+	jr      z,slog1
+	ld      a,8
+slog1:  ld      (IS8),a
+	pop     af
+;
+	bit     5,a
+	push    af
+	call    nz,SET_OR6
+	pop     af
+	push    af
+	call    z,SET_NOR6
+	pop     af
+;
+	bit     6,a
+	push    af
+	call    nz,SET_OR8
+	pop     af
+	push    af
+	call    z,SET_NOR8
+	pop     af
+;
+	bit     7,a
+	push    af
+	call    nz,ENSCRL
+	pop     af
+	call    z,DSSCRL
+;
+	ld      hl,PARBUF+3
+;
+	ld      a,(hl)
+	ld      (CURST),a
+	inc     hl
+;
+	push    hl
+	ld      a,(hl)
+	call    SETCOL_P
+	pop     hl
+	inc     hl
+;
+	push    hl
+	push    ix
+;
+	push    hl
+	pop     ix
+	call    DEFWIN_P
+;
+	pop     ix
+	pop     hl
+	inc     hl
+	inc     hl
+	inc     hl
+	inc     hl
+	ld      a,(hl)
+	push    af
+	and     3
+	ld      hl,LASTSCR
+	cp      (hl)
+	call    nz,ISCR_P
+	pop     af
+	rrca
+	rrca
+	and     3
+	call    IVIS_P
+	pop     af
+	and     3
+	ld      (MODE),a
+	or      a
+	jr      z,slog0 ; mono
+	rlca
+	cp      4
+	jr      z,slog0 ; 4C
+	ld      a,6
+slog0:  call    SETPF8  ; уст. порт цвета (F8)
+	push    ix
+	ld      ix,PARBUF+1
+	call    SETCOR_P
+	pop     ix
+	ret
+;
+
+

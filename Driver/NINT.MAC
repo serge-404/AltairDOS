@@ -1,0 +1,69 @@
+	jp      DRV_INT_SERVICE
+	jp      KEYB_INT
+;
+ZCONST: DEFS    3
+ZCONIN: DEFS    3
+ZCONOUT:DEFS    3
+ZPROUT: DEFS    3
+ZPRSTAT:DEFS    3
+STACKDOS:ds     2
+	defs    96
+INT50_SP:
+; вызывается из обработчика прерывания INT_50
+drv_int_service:
+	ld      (STACKDOS),sp
+	ld      sp,INT50_SP
+;
+	ld      hl,VALUE        ; системный флаг
+	set     6,(hl)
+	push    bc
+	push    de
+	exx
+	ex      af,af'
+	push    af
+	push    bc
+	push    de
+	push    hl
+	push    ix
+	push    iy
+
+	ld      hl,(0F2FFh)
+	defb    36h
+	ret                     ; ld    (hl),ret
+
+	ld      hl,(0F3DFh)
+	defb    36h
+	ret                     ; ld    (hl),ret
+
+	call    FUNC_0          ; ОБСЛ. КУРСОРА, СТАТУСА,
+				; МЫШИ
+	call    CLOCK           ; ОБСЛ. ЧАСОВ
+
+	ld      a,(YINTVEC)
+	ld      hl,(YINTVEC+1)
+	call    BCALL           ; пошли по цепочке втор-
+				; ичных обработчиков
+
+	DI                      ; на случай, если резидент
+				; выдал EI
+	ld      hl,(0F2FFh)
+	defb    36h
+	di
+
+	ld      hl,(0F3DFh)
+	defb    36h
+	ld      b,a             ; в т.ч. программного
+
+	pop     iy
+	pop     ix
+	pop     hl
+	pop     de
+	pop     bc
+	pop     af
+	ex      af,af'
+	exx
+	POP     DE
+	pop     bc
+	ld      sp,(STACKDOS)
+	ret
+

@@ -1,0 +1,1727 @@
+; Вкл./выключить звук
+SETSOUND:ld     a,(PARBUF)
+	cp      3
+	ret     nc
+	cp      2
+	jr      z,GETSOUND
+	ld      (SOUND_FL),a
+	ret
+
+; получить код управления звуком (0-1)
+GETSOUND:
+	ld      a,(SOUND_FL)
+	jp      OUT_1
+;
+ORTAB:  defb    0,0
+	defw    SET_NOR6
+	defb    1,0
+	defw    SET_NOR8
+	defb    2,0
+	defw    SET_OR6
+	defb    3,0
+	defw    SET_OR8
+	defb    0FFh
+SET_OR: ld      hl,ORTAB
+	jp      COMINI
+
+; уст. режим "без наложения" для фонта 6
+SET_NOR6:
+	xor     a
+	ld      (OR6_L6),a
+	ld      (OR6_L7),a
+	ld      a,0E6h
+SET_NORX:
+	ld      (OR6_L0),a
+	ld      (OR6_L1),a
+	ld      (OR6_L2),a
+	ld      (OR6_L3),a
+	ld      (OR6_L4),a
+	ld      (OR6_L5),a
+	ret
+; уст. режим "без наложения" для фонта 8
+SET_NOR8:
+	ld      hl,OR8_L0
+	call    SET_NOR81
+	ld      hl,OR8_L1
+SET_NOR81:
+	ld      (hl),0
+	inc     hl
+	ld      (hl),0
+	inc     hl
+	ld      (hl),0
+	ret
+
+; уст. режим "наложение" для фонта 6
+SET_OR6:
+	DEFB    3EH
+	OR      B
+	ld      (OR6_L6),a
+	ld      (OR6_L7),a
+	ld      a,0FEh
+	jp      SET_NORX
+
+; уст. режим "наложение" для фонта 8
+SET_OR8:
+	ld      hl,OR8_L0
+	call    SET_OR81
+	ld      hl,OR8_L1
+SET_OR81:
+	ld      (hl),4Fh        ; ld c,a
+	inc     hl
+	ld      (hl),1Ah        ; ld a,(de)
+	inc     hl
+	ld      (hl),0B1h       ; or c
+	ret
+
+FONTTAB:defb    0,0
+	defw    SET_STF6
+	defb    1,0
+	defw    SET_STF8
+	defb    2,3
+	defw    SET_NEW6
+	defb    3,3
+	defw    SET_NEW8
+	defb    4,0     ; получить адрес 6-бит фонта
+	defw    GET_F6
+	defb    5,0     ; получить адрес 8-бит фонта
+	defw    GET_F8
+	defb    0FFh
+SET_FONT:ld     hl,FONTTAB
+	jp      COMINI
+;
+; уст. стандартный фонт 6
+SET_STF6:
+	ld      a,EEX6-BEX6
+	ld      (EXTR_F6),a
+	ret
+;
+; уст. стандартный фонт 8
+SET_STF8:
+	ld      a,EEX8-BEX8
+	ld      (EXTR_F8),a
+	ret
+;
+; уст. внешний фонт 6
+SET_NEW6:ld     a,(PARBUF+1)    ; (h=)
+	cp      0FFh
+	jr      z,SET_STF6      ; попытка уст. сист. фонт
+	ld      hl,(PARBUF)
+	ld      (EXTR_A6),hl
+	ld      a,(PARBUF+2)
+	ld      (EXTR_B6),a
+	xor     a
+	ld      (EXTR_F6),a
+	ret
+;
+; уст. внешний фонт 8
+SET_NEW8:ld     a,(PARBUF+1)    ; (h=)
+	cp      0FFh
+	jr      z,SET_STF8      ; попытка уст. сист. фонт
+
+	ld      hl,(PARBUF)
+	ld      (EXTR_A8),hl
+	ld      a,(PARBUF+2)
+	ld      (EXTR_B8),a
+	xor     a
+	ld      (EXTR_F8),a
+	ret
+
+;
+GET_FNT:ld      hl,BUFFER+17
+	ld      de,BUFFER+20
+	ld      bc,17
+	lddr
+	ld      h,0FFh
+	ret
+
+; получить адрес 6-бит фонта (если сист., то адрес FFXX)
+GET_F6: call    GET_FNT
+	ld      a,(EXTR_F6)
+	or      a               ; 0 - внешний фонт
+	jr      nz,GET_FSYS
+
+	ld      hl,(EXTR_A6)
+	ld      a,(EXTR_B6)
+GET_FSYS:
+	ld      (BUFFER),hl
+	ld      (BUFFER+2),a
+	ld      a,3
+	jp      ADDNBF
+
+; получить адрес 8-бит фонта
+GET_F8: call    GET_FNT
+	ld      a,(EXTR_F8)
+	or      a               ; 0 - внешний фонт
+	jr      nz,GET_FSYS
+
+	ld      hl,(EXTR_A8)
+	ld      a,(EXTR_B8)
+	jr      GET_FSYS
+;
+SETCR1: ld      l,(ix+0)
+	ld      h,(ix+1)
+	ld      de,2020h
+	or      a
+	sbc     hl,de
+	ld      a,l
+	add     a,a
+	add     a,a
+	add     a,l
+	add     a,a
+	ld      l,a
+	ld      de,(FLIN)
+	add     hl,de
+	ex      de,hl
+	ld      hl,(LLIN)
+	ld      a,h
+	cp      d
+	ret     c
+	ld      a,l
+	cp      e
+	ret     c
+	ret     z
+	ld      (ADR8),de
+	ret
+;
+SETCOR: push    ix
+	ld      ix,PARBUF
+	call    SETCOR_P
+	pop     ix
+	ret
+SETCOR_P:
+	ld      a,(IS8)
+	or      a
+	jp      nz,SETCR1
+	ld      a,(ix+0)
+	sub	' '
+	ret     c
+	ld	c,a
+	add	a,a
+	add	a,a
+	add	a,c
+	add	a,a
+	ld	hl,FLIN
+	add     a,(hl)
+	ld      hl,LLIN
+	cp	(hl)
+	ret     nc
+	ld      (CY),a
+	ld      a,(ix+1)
+	sub	' '
+	ld	hl,CHARS
+	cp	(hl)
+	ret     nc
+	ld      (P2),a
+	ld	c,a
+	and     3               ; 7
+	ld	(P1),a
+	add	a,a
+	add	a,a
+	ld	e,a
+	ld	d,0
+	ld      hl,TABK
+	add	hl,de
+	ld	(U),hl
+	ld	a,c
+;       rra
+	rra
+	rra
+	and     3Fh
+	ld	b,a
+	add	a,a
+	add	a,b
+;       add     a,a
+	ld      hl,FCOL
+	add	a,(hl)
+	ld      (OFFSX),a
+	ret
+;
+RETCOR: ld      hl,BUFFER+16
+	ld      de,BUFFER+20
+	ld      bc,16
+	lddr
+	ld      hl,BUFFER
+	ld	(hl),1Bh
+	inc	hl
+	ld	(hl),'Y'
+	inc	hl
+	CALL    RETCOR0
+	ld      a,4
+	jp      ADDNBF
+;
+; Возвращает по (HL) - курсор Y+20h, (HL+1) - курсор X+20h
+;
+RETCOR0:ld      a,(CY)
+	ld	c,-1
+MB4:    inc     c
+	sub     10
+	jp      nc,MB4
+	ld	a,c
+	add	a,20h
+	ld	(hl),a
+	inc	hl
+	ld	a,(FLIN)
+;        SUB     80H
+	ld      b,a
+	ld      a,(IS8)
+	or      a
+	ld      a,(P2)
+	jp      z,MB5
+	ld      a,(ADR8+1)
+MB5:    add     a,20h
+	sub	b
+	ld	(hl),a
+	RET
+;
+IINV:   ld      a,(FLINV)
+	inc     a
+	ret     z
+	ld      a,3Fh
+	ld      (INV1),a
+	ld	a,0FFh
+	ld      (INV2),a
+	ld      (INV6),a
+	ld      (INV11),a
+	ld      (INV12),a
+	ld      (INV13),a
+	ld      (INV14),a
+	ld      (INV16),a
+	ld      (INV17),a
+	ld      (FLINV),a
+	ld	a,0F6h
+	ld      (INV4),a
+	ld      (INV8),a
+	ld      a,(CURCOL)
+	jp      SETCL1
+;
+NOINV:  ld      a,(FLINV)
+	or      a
+	ret     z
+	ld      a,0
+	ld      (INV1),a
+	ld      (INV2),a
+	ld      (INV6),a
+	ld      (INV11),a
+	ld      (INV12),a
+	ld      (INV13),a
+	ld      (INV14),a
+	ld      (INV16),a
+	ld      (INV17),a
+	ld      (FLINV),a
+	ld	a,0E6h
+	ld      (INV4),a
+	ld      (INV8),a
+	ld      a,(CURCOL)
+	jp      SETCL1
+;
+SETCOL: ld      a,(PARBUF)
+SETCOL_P:ld     (CURCOL),a
+;        jp      SETCL1
+;
+SETCL1: ld      c,a
+	ld      a,(FLINV)
+	or      a
+	ld      a,c
+	jp      z,MB6
+	rrca
+	rrca
+	rrca
+	rrca
+MB6:    push    af
+	ld      b,4
+MB7:    add     a,a
+	jp      c,MB8
+	djnz    MB7
+MB8:    ld      a,b
+	and     3       ; 00 - черный,  01 - синий,
+			; 10 - зеленый, 11 - красный
+	add     a,a
+	add     a,a
+	ld      c,a
+	pop     af
+	add     a,a
+	add     a,a
+	add     a,a
+	add     a,a
+	ld      b,4
+MB9:    add     a,a
+	jp      c,MB10
+	djnz    MB9
+MB10:   ld      a,b
+	and     3
+	add     a,c
+	ld      c,a
+	ld      b,0
+	ld      hl,COLTAB
+	add     hl,bc
+	add     hl,bc
+	ld      a,(hl)
+	inc     hl
+	ld      h,(hl)
+	ld      l,a
+	jp      (hl)
+;
+COLTAB: defw    BLCBLC,BLCBLU,BLCGRN,BLCRED
+	defw    BLUBLC,BLUBLU,BLUGRN,BLURED
+	defw    GRNBLC,GRNBLU,GRNGRN,GRNRED
+	defw    REDBLC,REDBLU,REDGRN,REDRED
+;
+BLCBLC: call    SC000
+	call    SC100
+	jp      STBLC
+;
+BLCBLU: call    SC001
+	call    SC101
+	jp      STBLC
+;
+BLCGRN: call    SC001
+	call    SC100
+	jp      STBLC
+;
+BLCRED: call    SC000
+	call    SC101
+	jp      STBLC
+;
+;
+BLUBLC: call    SC010
+	call    SC110
+	jp      STBLU
+;
+BLUBLU: call    SC011
+	call    SC111
+	jp      STBLU
+;
+BLUGRN: call    SC011
+	call    SC110
+	jp      STBLU
+;
+BLURED: call    SC010
+	call    SC111
+	jp      STBLU
+;
+;
+GRNBLC: call    SC010
+	call    SC100
+	jp      STGRN
+;
+GRNBLU: call    SC011
+	call    SC101
+	jp      STGRN
+;
+GRNGRN: call    SC011
+	call    SC100
+	jp      STGRN
+;
+GRNRED: call    SC010
+	call    SC101
+	jp      STGRN
+;
+;
+REDBLC: call    SC000
+	call    SC110
+	jp      STRED
+;
+REDBLU: call    SC001
+	call    SC111
+	jp      STRED
+;
+REDGRN: call    SC001
+	call    SC110
+	jp      STRED
+;
+REDRED: call    SC000
+	call    SC111
+	jp      STRED
+;
+;
+;
+SC000:  call    STC00
+	jp      STC10
+;
+SC001:  call    STC01
+	jp      STC10
+;
+SC010:  call    STC01
+	jp      STC11
+;
+SC011:  call    STC00
+	jp      STC11
+;
+SC100:  call    STC20
+	jp      STC30
+;
+SC101:  call    STC21
+	jp      STC30
+;
+SC110:  call    STC21
+	jp      STC31
+;
+SC111:  call    STC20
+	jp      STC31
+;
+;
+;
+;
+STC00:  defb    3Eh
+	xor     a
+	ld      (COLOR2),a
+	ld      (COLOR6),a
+	ld      (C81),a
+	ret
+;
+STC01:  defb    3Eh
+	ld      a,e
+	ld      (COLOR2),a
+	defb    3Eh
+	ld      a,d
+	ld      (COLOR6),a
+	defb    3Eh
+	ld      a,(hl)
+	ld      (C81),a
+	ret
+;
+STC10:  defb    3Eh
+	nop
+	ld      (COLOR1),a
+	ld      (COLOR5),a
+	ld      (C82),a
+	defb    3Eh
+	defb    0FEh
+	ld      (COLOR4),a
+	ld      (COLOR8),a
+	defb    3Eh
+	or      b
+	ld      (COLOR3),a
+	ld      (COLOR7),a
+	ret
+;
+STC11:  defb    3Eh
+	cpl
+	ld      (COLOR1),a
+	ld      (COLOR5),a
+	ld      (C82),a
+	defb    3Eh
+	defb    0EEh
+	ld      (COLOR4),a
+	ld      (COLOR8),a
+	defb    3Eh
+	and     b
+	ld      (COLOR3),a
+	ld      (COLOR7),a
+	ret
+;
+STC20:  defb    3Eh
+	xor     a
+	ld      (COLORA),a
+	ld      (COLORE),a
+	ld      (C83),a
+	ret
+;
+STC21:  defb    3Eh
+	ld      a,e
+	ld      (COLORA),a
+	defb    3Eh
+	ld      a,d
+	ld      (COLORE),a
+	defb    3Eh
+	NOP
+	ld      (C83),a
+	ret
+;
+STC30:  defb    3Eh
+	nop
+	ld      (COLOR9),a
+	ld      (COLORD),a
+	ld      (C84),a
+	defb    3Eh
+	defb    0FEh
+	ld      (COLORC),a
+	ld      (COLORG),a
+	defb    3Eh
+	or      b
+	ld      (COLORB),a
+	ld      (COLORF),a
+	ret
+;
+STC31:  defb    3Eh
+	cpl
+	ld      (COLOR9),a
+	ld      (COLORD),a
+	ld      (C84),a
+	defb    3Eh
+	defb    0EEh
+	ld      (COLORC),a
+	ld      (COLORG),a
+	defb    3Eh
+	and     b
+	ld      (COLORB),a
+	ld      (COLORF),a
+	ret
+;
+;
+;
+STBLC:  xor     a
+	ld      (CLINV1),a
+	ld      (CLINV3),a
+	ld      (CLINV7),a
+	ld      (CLINV8),a
+	ld      (CLINV9),a
+	ld      (CLINVB),a
+	ld      a,0E6h
+	ld      (CLINV2),a
+	ld      (CLINV4),a
+	ld      (CLINVA),a
+	ld      (CLINVC),a
+	ld      hl,0
+	ld      (CLINV5),hl
+	ld      (CLINV6),hl
+	ld      (CLINVD),hl
+	ld      (CLINVE),hl
+	ret
+;
+STBLU:  ld      a,0FFh
+	ld      (CLINV1),a
+	ld      (CLINV3),a
+	ld      (CLINV7),a
+	ld      (CLINV8),a
+	ld      (CLINV9),a
+	ld      (CLINVB),a
+	ld      a,0F6h
+	ld      (CLINV2),a
+	ld      (CLINV4),a
+	ld      (CLINVA),a
+	ld      (CLINVC),a
+	ld      hl,0FFFFh
+	ld      (CLINV5),hl
+	ld      (CLINV6),hl
+	ld      (CLINVD),hl
+	ld      (CLINVE),hl
+	ret
+;
+STGRN:  ld      a,0FFh
+	ld      (CLINV1),a
+	ld      (CLINV7),a
+	ld      (CLINV9),a
+	xor     a
+	ld      (CLINV3),a
+	ld      (CLINV8),a
+	ld      (CLINVB),a
+	ld      a,0F6h
+	ld      (CLINV2),a
+	ld      (CLINVA),a
+	ld      a,0E6h
+	ld      (CLINV4),a
+	ld      (CLINVC),a
+	ld      hl,0FFFFh
+	ld      (CLINV5),hl
+	ld      (CLINVD),hl
+	inc     hl
+	ld      (CLINV6),hl
+	ld      (CLINVE),hl
+	ret
+;
+STRED:  xor     a
+	ld      (CLINV1),a
+	ld      (CLINV7),a
+	ld      (CLINV9),a
+	dec     a
+	ld      (CLINV3),a
+	ld      (CLINV8),a
+	ld      (CLINVB),a
+	ld      a,0E6h
+	ld      (CLINV2),a
+	ld      (CLINVA),a
+	ld      a,0F6h
+	ld      (CLINV4),a
+	ld      (CLINVC),a
+	ld      hl,0
+	ld      (CLINV5),hl
+	ld      (CLINVD),hl
+	dec     hl
+	ld      (CLINV6),hl
+	ld      (CLINVE),hl
+	ret
+;
+ICRON:  xor     a
+	ld      (CRV),a
+	ret
+;
+ICROFF: ld      a,0FFh
+	ld      (CRV),a
+	ret
+;
+INV16:  defw    0
+CLINVD: defw    0
+CLINVE: defw    0
+;
+; Очистка до конца экрана
+;
+IDELL:  ld      a,(LCOL)
+	ld	hl,FCOL
+	sub	(hl)
+	inc	a
+	ld      B,a          ; B - ШИРИНА
+	ld      hl,CY
+	ld      a,(LLIN)
+	sub	(hl)
+	DEC     C            ; т.к. очистка LDIR'ами
+	LD      C,A          ; C - ВЫСОТА
+	ld      hl,(FLIN)    ; HL - Л.В.У.
+
+	ld      a,(MODE)
+	cp      2
+	jp      z,IDELL3     ; ПЕРЕХОД, ЕСЛИ 4C
+
+	LD      A,(INV16)
+	LD      E,A
+	XOR     A            ; GRAFIX
+	PUSH    BC
+	PUSH    HL
+	call    IDELL4
+	POP     HL
+	POP     BC
+
+	ld      a,(MODE)
+	AND     2
+	RET     Z
+
+; РЕЖИМ 16C
+
+	ld      a,(CURCOL)
+	ld      E,a
+	LD      A,1             ; COLOR
+	JP      IDELL4
+
+; IDELL - 4C
+IDELL3: LD      A,(CLINVD)
+	LD      E,A
+	XOR     A               ; GRAFIX
+	PUSH    BC
+	PUSH    HL
+	call    IDELL4
+	POP     HL
+	POP     BC
+
+	LD      A,(CLINVE)
+	LD      E,A
+	LD      A,1             ; COLOR
+
+; B - ШИРИНА (БАЙТ)
+; C - ВЫСОТА
+; HL - ЛЕВ. НИЖН. УГОЛ
+; A - BANK
+; E - CODE
+
+IDELL4: CP      1
+	LD      A,E
+	LD      E,L
+	LD      D,H
+	PUSH    AF
+	INC     E
+	POP     AF
+	JR      Z,IDELL2
+
+IDELL1: PUSH    BC
+	PUSH    DE
+	PUSH    HL
+	LD      (HL),A
+	LD      B,0
+	LDIR
+	POP     HL
+	POP     DE
+	POP     BC
+	INC     H
+	INC     D
+	DJNZ    IDELL1
+	RET
+
+IDELL2: PUSH    AF
+	CALL    PUTSCR
+	PUSH    BC
+	PUSH    DE
+	PUSH    HL
+	xor	a		; 20081004
+	ex	af,af'		; 20081004 - bank where to return
+	LD      A,1
+	CALL    MOVES
+	POP     HL
+	POP     DE
+	POP     BC
+	INC     H
+	INC     D
+	POP     AF
+	DJNZ    IDELL2
+	ret
+;
+; Очистка до конца строки
+;
+CINV10: defb    0
+IDELS_B:DEFB    0
+
+IDELS:  ld      a,(MODE)
+	cp      2
+	jp      z,LDLS5
+;
+; MONO, 16C
+;
+	defb    3Eh
+INV6:   defb    0
+	ld      (CINV6),a
+	ld      (CINV7),a
+	ld      (CINV10),a
+	defb    3Eh
+INV8:   defb    0E6h
+	ld      (CINV8),a
+	ld      (CINV9),a
+
+	XOR     A
+	LD      (IDELS_B),A
+
+	PUSH    HL
+	call    LDLS6           ; GRAFIX
+	POP     HL
+
+	ld      a,(MODE)
+	AND     2
+	RET     Z
+; 16C
+	LD      A,1
+	LD      (IDELS_B),A
+
+	ld      a,(IS8)
+	or      a
+	LD      HL,(MV0)        ;!
+	jp      z,MB11
+	ld      hl,(ADR8)
+MB11:   ld      a,(CURCOL)
+	ld      (CINV10),a
+	jp      M8L0
+
+; ONLY 4C
+LDLS5:  defb    3Eh
+CLINV9: defb    0
+	ld      (CINV6),a
+	ld      (CINV7),a
+	ld      (CINV10),a
+	defb    3Eh
+CLINVA: defb    0E6h
+	ld      (CINV8),a
+	ld      (CINV9),a
+	XOR     A
+	LD      (IDELS_B),A
+	push    hl
+	call    LDLS6           ; GRAFIX
+	pop     hl
+
+	defb    3Eh
+CLINVB: defb    0
+	ld      (CINV6),a
+	ld      (CINV7),a
+	ld      (CINV10),a
+	defb    3Eh
+CLINVC: defb    0E6h
+	ld      (CINV8),a
+	ld      (CINV9),a
+; 4C COLOR
+	LD      A,1
+	LD      (IDELS_B),A
+
+LDLS6:  ld      a,(IS8)
+	or      a
+	jp      z,MB12
+	ld      hl,(ADR8)
+	jp      M8L0
+
+MB12:   ld      hl,(U)
+	ld      a,(hl)
+	defb	0EEh
+CINV6:  defb    0
+	ld      (DLMSK2),a
+	inc	hl
+	ld	a,(hl)
+	ld	b,0
+LDLS1:  inc     b
+	rrca
+	jp      c,LDLS1
+LDLS2:  add     a,a
+	dec	b
+	jp      nz,LDLS2
+	defb    0EEh
+CINV7:  defb    0
+	ld      (DLMSK1),a
+	inc	hl
+	ld      a,(OFFSX)
+	add	a,(hl)
+	ld      h,a
+	ld      a,(CY)
+	ld      l,a
+	push    hl
+	ld      c,10
+LDLS3:  
+	ex	af,af'		; 20081004
+	xor	a		; 20081004 - bank where to return
+	ex	af,af'		; 20081004
+	LD      A,(IDELS_B)
+	CALL    GETSCR0
+CINV8:  defb    0E6h
+DLMSK1: defb    0
+	EX      AF,AF'
+	LD      A,(IDELS_B)
+	CALL    PUTSCR0
+	dec	h
+	ex	af,af'		; 20081004
+	xor	a		; 20081004 - bank where to return
+	ex	af,af'		; 20081004 
+	LD      A,(IDELS_B)
+	CALL    GETSCR0
+CINV9:  defb    0E6h
+DLMSK2: defb    0
+	EX      AF,AF'
+	LD      A,(IDELS_B)
+	CALL    PUTSCR0
+	inc     h
+	inc	l
+	dec	c
+	jp      nz,LDLS3
+	pop	hl
+	inc     h
+	LD      (MV0),HL
+
+M8L0:   LD      D,H
+	LD      E,L
+	INC     E
+	LD      A,(IDELS_B)
+	CP      1
+	JR      Z,IM8L0
+
+LDLS4:  ld      a,(LCOL)
+	inc	a
+	cp	h
+	ret     z
+	ld      BC,9
+	LD      A,(CINV10)
+	LD      (HL),A
+	PUSH    HL
+	PUSH    DE
+	LDIR
+	POP     DE
+	POP     HL
+	INC     H
+	INC     D
+	JP      LDLS4
+
+IM8L0:  ld      a,(LCOL)
+	inc	a
+	cp	h
+	ret     z
+	ld      BC,9
+	LD      A,(CINV10)
+	CALL    PUTSCR
+	PUSH    HL
+	PUSH    DE
+	xor	a		; 20081004
+	ex	af,af'		; 20081004 - bank where to return
+	LD      A,1
+	CALL    MOVES
+	POP     DE
+	POP     HL
+	INC     H
+	INC     D
+	JP      IM8L0
+
+;
+ICTFL:  ld      a,(PARBUF)
+	and	0Fh
+	ret     z
+	cp	9
+	ret     nc
+	ld      (CURST),a
+	ret
+
+; ВСТАВИТЬ СТРОКУ
+INSSTR: PUSH    AF
+	ld      a,(LLIN)
+	ld      e,a
+	DEC     E
+	ld      hl,CY
+	sub     (hl)
+	SUB     10
+	ld      C,a
+	ld	a,(LCOL)
+	ld	hl,FCOL
+	sub	(hl)
+	inc     a
+	ld      B,a
+	ld      d,(hl)
+				; B  - dX  C - dY
+	EX      DE,HL
+	PUSH    HL
+	LD      DE,-10
+	ADD     HL,DE
+	POP     DE              ; DE = LLIN-1, HL = LLIN-11
+	LD      A,0B8H          ; EDB8 -  КОД LDDR
+	LD      (MOVES_C+1),A
+
+DWSCR2: ld      a,(MODE)
+	cp      2
+	jp      z,DWSCR5
+; ПЕРЕХОД, ЕСЛИ 4C
+
+; ПРОЧИЕ
+	defb    3Eh
+INV14:  defb    0
+	ld      (CINV14),a
+	XOR     A
+
+	PUSH    BC
+	PUSH    DE
+	PUSH    HL
+	CALL    DWSCR6          ; GRAFIX
+	POP     HL
+	POP     DE
+	POP     BC
+
+	ld      a,(MODE)
+	and     2
+	jp      z,DWSCR7
+; 16C
+	ld      a,(CURCOL)
+	ld      (CINV14),a
+	LD      A,1
+	CALL    DWSCR6          ; COLOR
+	JP      DWSCR7
+;
+; 4C
+DWSCR5: defb    3Eh
+CLINVF: defb    0
+	ld      (CINV14),a
+	XOR     A
+
+	PUSH    BC
+	PUSH    DE
+	PUSH    HL
+	CALL    DWSCR6          ; GRAFIX
+	POP     HL
+	POP     DE
+	POP     BC
+
+	defb    3Eh
+CLINVG: defb    0
+	ld      (CINV14),a
+	LD      A,1
+	CALL    DWSCR6          ; COLOR
+	JP      DWSCR7
+;
+CINV14: defb    0
+;
+DWSCR6: CP      1
+	JP      Z,IDWSCR6       ; COLOR
+
+DWSCR60:PUSH    BC
+	PUSH    DE
+	PUSH    HL
+	LD      B,0
+	LD      A,C
+	OR      A
+	JR      Z,DWSCR1
+	LDDR
+DWSCR1: EX      DE,HL
+	LD      D,H
+	LD      E,L
+	DEC     E
+	LD      A,(CINV14)
+	LD      (HL),A
+	LD      C,9
+	LDDR
+	POP     HL
+	POP     DE
+	POP     BC
+	INC     H
+	INC     D
+	DJNZ    DWSCR60
+	RET
+
+IDWSCR6:PUSH    BC
+	PUSH    DE
+	PUSH    HL
+	LD      B,0
+	LD      A,C
+	OR      A
+	JR      Z,IDWSCR1
+	xor	a		; 20081004
+	ex	af,af'		; 20081004 - bank where to return
+	LD      A,1
+	CALL    MOVES
+IDWSCR1:EX      DE,HL
+	LD      D,H
+	LD      E,L
+	DEC     E
+	LD      A,(CINV14)
+	CALL    PUTSCR
+	LD      C,9
+	xor	a		; 20081004
+	ex	af,af'		; 20081004 - bank where to return
+	LD      A,1
+	CALL    MOVES
+	POP     HL
+	POP     DE
+	POP     BC
+	INC     H
+	INC     D
+	DJNZ    IDWSCR6
+	RET
+;
+DWSCR7: LD      A,0B0H          ; EDB0 - LDIR
+	LD      (MOVES_C+1),A
+	POP     AF
+	ret
+
+; УДАЛИТЬ СТРОКУ
+DELSTR: push    af
+	ld      a,(LLIN)
+	ld      hl,CY
+	sub     (hl)
+	SUB     10
+	LD      C,A
+	ld	a,(LCOL)
+	ld	hl,FCOL
+	sub	(hl)
+	inc	a
+	ld	b,a
+	ld	a,(FCOL)
+	ld	h,a
+	LD      A,(CY)
+	LD      L,A
+	jp      UPSCR2M
+;
+CINV13: DEFB    0
+;
+SCROLL: push    af
+	ld      hl,FCOL
+	ld	a,(LCOL)
+	sub	(hl)
+	inc     a
+	ld      b,a             ; B - ШИРИНА
+	ld      A,(LLIN)
+	LD      HL,FLIN
+	SUB     (HL)
+	SUB     10
+	ld	c,a
+	ld      hl,(FLIN)
+
+UPSCR2M:PUSH    HL
+	LD      DE,10
+	ADD     HL,DE
+	POP     DE
+
+UPSCR2: ld      a,(MODE)        ; B  - dX;  C - dY
+	cp      2
+	jp      z,UPSCR5
+; ПЕРЕХОД, ЕСЛИ 4C
+
+; ПРОЧИЕ
+	defb    3Eh
+INV13:  defb    0
+	ld      (CINV13),a
+	XOR     A
+
+	PUSH    HL
+	PUSH    DE
+	PUSH    BC
+	CALL    UPSCR6          ; GRAFIX
+	POP     BC
+	POP     DE
+	POP     HL
+
+	ld      a,(MODE)
+	and     2
+	jp      z,UPSCR7
+; 16C
+	ld      a,(CURCOL)
+	ld      (CINV13),a
+
+	LD      A,1
+	CALL    UPSCR6          ; COLOR
+	JP      UPSCR7
+
+; 4C
+UPSCR5: defb    3Eh
+CLINV7: defb    0
+	ld      (CINV13),a
+	XOR     A
+	PUSH    HL
+	PUSH    DE
+	PUSH    BC
+	CALL    UPSCR6          ; GRAFIX
+	POP     BC
+	POP     DE
+	POP     HL
+	defb    3Eh
+CLINV8: defb    0
+	ld      (CINV13),a
+	LD      A,1
+	CALL    UPSCR6          ; COLOR
+	JP      UPSCR7
+;
+UPSCR6: CP      1
+	JP      Z,IUPSCR6
+
+UPSCR60:PUSH    BC
+	PUSH    DE
+	PUSH    HL
+	LD      B,0
+	LD      A,C
+	OR      A
+	JP      Z,UPSCR3
+	LDIR
+UPSCR3: EX      DE,HL
+	LD      E,L
+	LD      D,H
+	INC     E
+	LD      A,(CINV13)
+	LD      (HL),A
+	LD      C,9
+	LDIR
+	POP     HL
+	POP     DE
+	POP     BC
+	INC     H
+	INC     D
+	DJNZ    UPSCR60
+	RET
+
+IUPSCR6:PUSH    HL
+	PUSH    DE
+	PUSH    BC
+	LD      B,0
+	LD      A,C
+	OR      A
+	JP      Z,IUPSCR3
+	xor	a		; 20081004
+	ex	af,af'		; 20081004 - bank where to return
+	LD      A,1
+	CALL    MOVES
+IUPSCR3:EX      DE,HL
+	LD      E,L
+	LD      D,H
+	INC     E
+	LD      A,(CINV13)
+	CALL    PUTSCR
+	LD      C,9
+	xor	a		; 20081004
+	ex	af,af'		; 20081004 - bank where to return
+	LD      A,1
+	CALL    MOVES
+	POP     BC
+	POP     DE
+	POP     HL
+	INC     H
+	INC     D
+	DJNZ    IUPSCR6
+	RET
+;
+UPSCR7: POP     AF
+	RET
+;
+COLONF: ld      a,(PARBUF)
+	or      a
+	jp      z,COLM2  ; 0
+	dec     a
+	jp      z,COLM4  ; 1
+	dec     a
+	jp      z,COLM16 ; 2
+	dec     a
+	jp      z,COLMF  ; 3
+	ret
+;
+COLM2:  LD      C,0             ; MONO -> MODE = 0
+	LD      A,0
+	JP      COMCOL
+;
+COLM4:                          ; 4C -> MODE = 2
+	ld      c,0     ; код цветового байта
+	call    CLEAN
+	ld      a,4
+	LD      C,2
+	jp      COMCOL
+;
+COLMF:  ld      c,1             ; 16C FAST -> MODE = 1
+	jp      XCOL
+;
+COLM16: ld      c,3             ; 16C -> MODE = 3
+XCOL:   PUSH    BC
+	ld      hl,MODE
+	BIT     0,(HL)
+	JP      NZ,COMCOL0
+	LD      A,(CURCOL)
+	ld      c,a
+	call    CLEAN
+COMCOL0:LD      A,6
+	POP     BC
+
+; A - ПОРТ F8, C - MODE
+COMCOL: ld      b,a
+	LD      A,C
+	LD      (MODE),A
+;
+	ld      hl,SCRCOLM      ; таблица соответствия:
+	ld      a,(LASTSCR)     ; акт. экран - режим PF8
+	push    af              ;            - MODE
+	add     a,a             ; * 2
+	ld      e,a             ;
+	ld      d,0
+	add     hl,de
+	ld      (hl),b
+	inc     hl
+	ld      (hl),c
+	pop     de
+;
+	ld      a,(VIDEOSCR)
+	cp      d       ; ACTIVESCREEN = VIDEOSCREEN ?
+	ret     nz      ; нет - выход
+	ld      a,b
+;
+SETPF8: and	7
+	ld      (sysPF8),a
+	out     (0F8h),a
+	ret
+
+; Вход: C - цвет
+CLEAN:  LD      L,0            ; 8000H
+	LD      E,1            ; 8001H
+	ld      a,(SCRSHIFT)
+	ld      h,a
+	ld      d,a
+	ld      b,60    ; столбцов ( по байту )
+
+CLN:    push    bc
+	push    de
+	push    hl
+	ld      a,c
+	CALL    PUTSCR
+	xor	a		; 20081004
+	ex	af,af'		; 20081004 - bank where to return
+	LD      A,1
+	ld      bc,249
+	CALL    MOVES
+	xor     a
+	CALL    PUTSCR
+	xor	a		; 20081004
+	ex	af,af'		; 20081004 - bank where to return
+	ld      a,1
+	ld      bc,6
+	CALL    MOVES
+	pop     hl
+	pop     de
+	pop     bc
+	inc     h
+	inc     d
+	djnz    CLN
+	ret
+;
+DIROUT: ld      a,0FFh
+	ld      (DIRFLG),a
+	ret
+;
+SWIDTH: ld      a,(PARBUF)
+	cp      8
+	jp      z,SWD8
+	sub     6
+	ret     nz
+SWD8:   ld      (IS8),a
+	ret
+;
+ENSCRL: ld      a,0FFh
+	ld      (SCRLDS),a
+	ret
+;
+DSSCRL: xor     a
+	ld      (SCRLDS),a
+	ret
+;
+WINTAB: defb    0,4
+	defw    DEFWIN          ; define window
+	defb    1,0
+	defw    GETWIN          ; get windows parameters
+	defb    2,0
+	defw    GSZWIN          ; get size of window
+	defb    3,3
+	defw    SVWIN           ; save window
+	defb    4,3
+	defw    LDWIN           ; load window
+	defb    0FFh
+;
+WND:    ld      hl,WINTAB
+	jp      COMINI
+;
+DEFWN1: ld      a,(ix+3)    ; dX
+	ld      (CHARS),a
+
+	ld      a,(ix+2)    ; dY
+	or	a
+	ret     z
+	ld      (LINES),a
+
+	ld      b,a
+	ld      a,(ix)      ; Y
+	ld	c,a
+	add	a,a
+	add	a,a
+	add	a,c
+	add	a,a
+	ld	c,a
+	ld      (FLIN),a
+	ld      a,b
+	add	a,a
+	add	a,a
+	add	a,b
+	add	a,a
+	add	a,c
+	ld      (LLIN),a
+	ld      a,(ix+1)    ; X
+	ld      c,a
+	ld      a,(SCRSHIFT)
+	add     a,c
+;        ADD     A,80H
+	ld	c,a
+	ld      (FCOL),a
+	ld      a,(ix+3)
+	add	a,c
+	dec	a
+	ld      (LCOL),a
+	ret
+;
+DEFWIN: push    ix
+	ld      ix,PARBUF
+	call    DEFWIN_P
+	pop     ix
+	ret
+;
+DEFWIN_P:ld     a,(IS8)
+	or      a
+	jp      nz,DEFWN1
+	ld      a,(ix+3)    ; dX
+	add     a,3
+	and     0FCh
+	ret     z
+	ld      (ix+3),a
+	ld	(CHARS),a
+	ld      a,(ix+2)    ; dY
+	or	a
+	ret     z
+	ld      (LINES),a
+	ld	b,a
+	ld      a,(ix)      ; Y
+	ld	c,a
+	add	a,a
+	add	a,a
+	add	a,c
+	add	a,a
+	ld	c,a
+	ld      (FLIN),a
+	ld	a,b
+	add	a,a
+	add	a,a
+	add	a,b
+	add	a,a
+	add	a,c
+	ld      (LLIN),a
+	ld      a,(ix+1)    ; X
+	srl     a
+	srl	a
+	ld	c,a
+	add	a,a
+	add     a,c
+	ld      c,a
+	ld      a,(SCRSHIFT)
+	add     a,c
+;        ADD     A,80H
+	ld	(FCOL),a
+	ld      c,a
+	ld      a,(ix+3)
+	srl	a
+	srl	a
+	ld	b,a
+	add	a,a
+	add	a,b
+	add	a,c
+	dec	a
+	ld      (LCOL),a
+	ret
+;
+GETWIN_P:
+	ld      hl,FLIN
+	ld      a,(hl)
+	ld      b,0FFh
+MB17:   inc     b
+	sub     10
+	jp      nc,MB17
+	ld      a,b
+	ld      (ix+0),a
+	ld      a,(LLIN)
+	inc     a
+	sub     (hl)
+	ld      b,0FFh
+MB18:   inc     b
+	sub     10
+	jp      nc,MB18
+	ld      a,b
+	ld      (ix+2),a
+	ld      hl,FCOL
+	ld      a,(IS8)
+	or      a
+	jp      nz,GETWN1
+	ld      a,(SCRSHIFT)
+	ld      b,a
+	ld      a,(hl)
+	sub     b
+;        SUB     80H
+	ld      b,0FFh
+MB19:   inc     b
+	sub     3
+	jp      nc,MB19
+	ld      a,b
+	add     a,a
+	add     a,a
+	ld      (ix+1),a
+	ld      a,(LCOL)
+	inc     a
+	sub     (hl)
+	ld      b,0FFh
+MB20:   inc     b
+	sub     3
+	jp      nc,MB20
+	ld      a,b
+	add     a,a
+	add     a,a
+	jp      GETWN2
+;
+GETWN1: ld      a,(SCRSHIFT)
+	ld      b,a
+	ld      a,(hl)
+	sub     b
+;        SUB     80H
+	ld      (ix+1),a
+	ld      a,(LCOL)
+	inc     a
+	sub     (hl)
+GETWN2: ld      (ix+3),a
+	ret
+;
+GETWIN: ld      hl,BUFFER+16
+	ld      de,BUFFER+20
+	ld      bc,16
+	lddr
+	push    ix
+	ld      ix,BUFFER
+	call    GETWIN_P
+	pop     ix
+	ld      a,4
+	jp      ADDNBF
+;
+GSZWIN: ld      hl,BUFFER+18
+	ld      de,BUFFER+20
+	ld      bc,18
+	lddr
+	ld      de,(FLIN)
+	ld      hl,(LLIN)
+	or      a
+	sbc     hl,de
+	inc     h
+	ld      a,h
+	ld      h,0
+	ex      de,hl
+	ld      hl,0
+	ld      b,8
+MB22:   add     hl,hl
+	rla
+	jp      nc,MB21
+	add     hl,de
+MB21:   djnz    MB22
+	ld      a,(MODE)
+	or      a
+	jp      z,MB23
+	add     hl,hl
+MB23:   ld      (BUFFER),hl
+	ld      a,2
+;
+ADDNBF: ld      c,a
+	ld      hl,VALUE
+	set     5,(hl)          ; драйвер занят - вывод на консоль
+	ld      hl,NBUF
+	add     a,(hl)
+	ld      (hl),a
+	ret
+
+; Запись окна в буфер
+;PARBUF: +0: address +2:page
+BSR:    DEFB    0               ; BANK - SOURCE
+
+SVWIN:  XOR     A
+	call    SVWIN1          ; запись графики в буфер
+
+	ld      a,(MODE)
+	or      a
+	RET     Z
+
+	ld      a,1             ; ЗАПИСЬ ЦВЕТА В БУФЕР
+SVWIN1: LD      (BSR),A
+
+	ld      hl,FCOL
+	ld      a,(LCOL)
+	sub     (hl)
+	inc     a
+	ld      b,a
+	ld      a,(LINES)       ; число строк в окне
+	ld      c,a
+	ld      hl,(FLIN)       ; адрес верхней строки окна
+	ld      de,(PARBUF)     ; адрес по буферу
+
+; reg.B=количество символов(столбцов) окна в байтах
+; reg.C=количество строк высотой 10 байт в окне
+; reg.HL=л.в.у окна (абсолютный адрес) - источник
+; reg.DE=текущий адрес по буферу
+
+SVWIN3: push    hl      ; счетчик по столбцам
+	push    bc
+SVWIN2: push    bc      ; счетчик по строкам
+	xor	a		; 20081004
+	ex	af,af'		; 20081004 - bank where to return
+	LD      A,(BSR) ; БАНК - ИСТОЧНИК
+	PUSH    DE
+	LD      DE,F_BUFF
+	LD      BC,10
+	CALL    MOVES
+	POP     DE
+	xor	a		; 20081004
+	ex	af,af'		; 20081004 - bank where to return
+	LD      A,(PARBUF+2) ; БАНК - БУФЕР
+	PUSH    HL
+	LD      HL,F_BUFF
+	LD      C,10		; BC,10
+	CALL    MOVES
+	POP     HL
+	pop     bc
+	dec     c
+	JP      nz,SVWIN2
+	pop     bc
+	pop     hl
+	inc     h
+	djnz    SVWIN3
+	ld      (PARBUF),DE
+	ret
+
+;
+; Чтение окна из буфера
+;PARBUF: +0: address +2:page
+BDS:    DEFB    0               ; BANK - DESTIN.
+
+LDWIN:  XOR     A
+	call    LDWIN1          ; чтение графики из буфера
+
+	ld      a,(MODE)
+	or      a
+	RET     Z
+
+	ld      a,1             ; ЧТЕНИЕ ЦВЕТА ИЗ БУФЕРА
+LDWIN1: LD      (BDS),A
+	ld      hl,FCOL
+	ld      a,(LCOL)
+	sub     (hl)
+	inc     a
+	ld      b,a
+	ld      a,(LINES)       ; число строк в окне
+	ld      c,a
+	ld      de,(FLIN)       ; адрес верхней строки окна
+	ld      hl,(PARBUF)     ; адрес по буферу
+
+; reg.B=количество символов(столбцов) окна в байтах
+; reg.C=количество строк высотой 10 байт в окне
+; reg.DE=л.в.у окна (абсолютный адрес) - приемник
+; reg.HL=текущий адрес по буферу
+
+LDWIN3: push    de      ; счетчик по столбцам
+	push    bc
+LDWIN2: push    bc      ; счетчик по строкам
+	xor	a		; 20081004
+	ex	af,af'		; 20081004 - bank where to return
+	LD      A,(PARBUF+2) ; БАНК - БУФЕР
+	PUSH    DE
+	LD      DE,F_BUFF
+	LD      BC,10
+	CALL    MOVES
+	POP     DE
+	xor	a		; 20081004
+	ex	af,af'		; 20081004 - bank where to return
+	LD      A,(BDS) ; БАНК - ПРИЕМНИК
+	PUSH    HL
+	LD      HL,F_BUFF
+	LD      C,10		; BC,10
+	CALL    MOVES
+	POP     HL
+	pop     bc
+	dec     c
+	jp      nz,LDWIN2
+	pop     bc
+	pop     de
+	inc     d
+	djnz    LDWIN3
+	ld      (PARBUF),hl
+	ret
+;
+TABK:
+;		Формат:
+
+;		0-1 Маска
+;		2   Координата X (мл. байт)
+;		3   Сдвиг
+
+	defb	0FFh,003h,0,2
+	defb	0FCh,00Fh,1,4
+	defb	0F0h,03Fh,2,6
+	defb    0FFh,0C0h,2,0
+;
+OFFSX:  defb    0
+U:	defw	TABK
+P1:	defb	0
+P2:	defb	0
+CRV:    defb    0
+DIRFLG: defb    0
+IS8:    defb    0
+CY:
+ADR8:   defw    0
+MODE:   defb    0
+SCRLDS: defb    0FFh
+;
+;                       Windows
+;
+DSTADR: defw    0
+FLIN:   defb    0
+FCOL:   defb    0
+LLIN:   defb    0FAh
+LCOL:   defb    03Bh
+;FLIN:   defb    0
+;FCOL:   defb    80h             ; 0
+;LLIN:   defb    0FAh
+;LCOL:   defb    0BBh            ; 03Bh
+;
+CHARS:  defb    80
+LINES:	defb	25
+;
+PARBUF: defs    10
+@PAR:   defw    PARBUF
+NPAR:   defb    0
+SUBRAD: defw    0
+;
+FLINV:  defb    0
+;
+MV0:    DEFW    0
+
+
+ AN
+	ld      a,4
+	LD      C,2
+	jp      COMCOL
+;
+COLMF:  ld      c,1             ; 16C FAST -> MODE = 1
+	jp      X

@@ -1,0 +1,641 @@
+; DRIVER.SYS
+	      .Z80
+;******************************************************
+DRIVER  EQU     1        ;  ЖФВПХНУЗКУ 0 - COM ЦВЛН   *
+			 ;             1 - ДФВЛЮЕФ    *
+VERS    equ     0B5h     ;                            *
+ADDRVI  EQU     0F760H   ;                            *
+;******************************************************
+
+;
+; НПЦОП ЙУРПМШЪПЧБФШ F3C9...F3DE
+;
+BDOS    equ     5
+ADR     equ     0C000h   ; фвчракл вдфех дфвлюефв
+MARKER  EQU     0EFFFH   ; УАЕЛМВ, ТР МРЖРФРЛ РТФ.
+			 ; ПРОЕФ ЧВПМВ
+;
+STAR    EQU     0F1E2h	; 0F13Eh  ; Т/Т ФВЧРЖЭ Х ЧВПМРО 1 (ЗЮЕЖРО)
+;
+BLDIR   EQU     0F201H  ;
+BJMP    EQU     0F204H  ;
+BCALL   EQU     0F207H  ;
+BRET    EQU     0F20AH  ;
+BLDB    equ     0F20Dh  ;
+BSTB    equ     0F210h  ;
+MEI     equ     0F2C7h  ; 0F2C1h  ; юпещпуу т/т MEI
+MDI     equ     0F2E6h	; 0F2DEh  ; юпещпуу т/т MDI
+F_BUFF	equ	0F33DH	; 10-bytes buffer for transfer symbol from external font
+;
+YCONST  EQU     0F307H  ; хрхжрупке мнвюквжифэ
+YCONIN  EQU     0F30AH  ; ююрд х мнвюквжифэ
+YCONOUT EQU     0F30DH  ; юэюрд пв дкхтнел
+YPROUT  EQU     0F310H  ; юэюрд пв тфкпжеф
+YPRSTAT EQU     0F32EH  ; хрхжрупке тфкпжефв
+YINTVEC EQU     0F331H  ; юемжрф южрфкапрър рчфвчржакмв
+			; INT 50 Ъз
+YKEYINT EQU     0F334H  ; юемжрф тфръфвоопрър тфефэювпку
+;
+SNDTONE EQU     0F3E7H   ; жрп яюимв
+VALUE   equ     0F3F6h   ; хкхжеопэл цнвъ
+DRVvers equ     0F3F7h   ; проеф юефхкк дфвлюефв
+sysPF8  equ     0F3F8h
+sysPFA  equ     0F3FAh
+PFA     equ     0FAh
+sysPFB  EQU     0F3FBH
+PFB     EQU     0FBH
+YF3FC   EQU     0F3FCH
+CURCOL  EQU     0F3FEH
+COLCUR  EQU     0F3FEH   ; зюеж хкоюрнв
+YF400   EQU     0F400H
+YF402	EQU	0F402H
+YF500   EQU     0F500H
+YF502   EQU     0F502H   ; трфжэ LPT
+YF600   EQU     0F600H
+YF602   EQU     0F602H   ; трфжэ LPT
+
+GetVI	EQU	GetVI128-BDRV+DRVR
+SetVI	EQU	SetVI128-BDRV+DRVR
+VI1EXISTS EQU	VI1-BDRV+DRVR
+ORIONPRO  EQU	ORPRO-BDRV+DRVR
+
+VIDATA50 EQU	50h		; RTC data CMOS   - Orion-Pro
+VIADDR51 EQU	51h
+
+	aseg
+
+	IF      DRIVER
+	org     80h
+	defb    0AAh,55h,0E7h
+	defs    125,0
+	ENDIF
+
+	org     100h
+
+BEGIN:  ld      a, 0C0h
+        out     (0Ah),a      ; switch OrionPRO to Orion128 mode
+        XOR     A
+	DEC     A
+	ld      de,NOZ80
+	jp      pe,MSG
+	ld      c,12
+	call    BDOS
+	exx
+	ld      a,h
+	cp      0ABh
+	ld      de,BADSYS       ; тфрюефмв BEST DOS
+	jp      nz,MSG
+	ld      a,l
+	cp      035h
+	jp      c,MSG
+
+	ld      hl,DRVvers
+	xor     a
+	cp      (hl)
+	jp      z,SKPALR
+
+	ld      de,ALREADY
+	jp      MESS
+;
+NOZ80:  defb    10,13,'ONLY Z80 CPU',10,13,'$'
+BADSYS: defb    10,13,'SORRY, ONLY FOR ALTAIR-DOS v3.x.',13,10,'$'
+NOMEM:  defb    10,13,'CAN NOT ALLOCATE MEMORY AT 0:C000..0:DFFF',13,10,'$' 
+ALREADY:defb    'Warning: console driver already installed'
+	defb    10,13,'$'
+;
+W8:     defb    27,'I',1,27,'I',0,27,'Q',8,' ',13,10,'$'
+PROMSG: defb    'Orion-PRO detected!',13,10,'$'
+VI1MSG: defb    'Real Time Clock KP512','W'+160,'I'+160,'1 $'
+NFOUND: defb    'not '
+FOUND:  defb    'found',10,13,'$'
+TMNOW:  defb    10,13,'Please enter clock time <HH>:<MM>[:<SS>] $'
+DTNOW:  defb    10,13,'Please enter date <DD>:<MM>:<YY> $'
+ERRINP: defb    10,13,'Pardon ?',10,13,'$'
+VI1OKAY:defb    'Clock time OK',10,13,'$'
+TIMEBF:
+DATEBF: defb    8,0
+	defs    10
+SETCLT: defb    27,'Z',1
+HH:     defb    0
+MM:     defb    0
+SS:     defb    0
+SETDAT: defb    27,'Z',7
+DD:     defb    0
+ME:     defb    0
+YY:     defb    0
+
+; хрржюежхжюке мрн-юв дпел ю оехузе еър проефи
+SKALEND:defb    31,28,31,30,31,30,31,31,30,31,30,31
+
+; мрфф. пв юкхрмрхпэл ърд
+; юэдвеж ю фъ. A акхнр дпел ю цеюфвне
+
+SVISCOR:ld      a,(YY)
+SVISC2: or      a
+	jr      z,SVISC0
+	cp      4
+	jr      c,SVISC1
+	sub     4
+	jr      SVISC2
+SVISC0: ld      a,29
+	ret
+SVISC1: ld      a,28
+	ret
+;
+; Get byte from 512VI1 CMOS. Inp: C=register(address), Out:A=value
+;
+GETVIPRO:			; 8 bytes
+	ld	a,c
+	out	(VIADDR51),a
+	in	a,(VIDATA50)
+	ret
+	defs	2,0
+;
+; Set byte to 512VI1 CMOS. Inp: C=register(address), B=value
+;
+SETVIPRO:			; 7 bytes
+	ld	a,c
+	out	(VIADDR51),a
+	ld	a,b
+	out	(VIDATA50),a
+	ret
+ENDVIPRO:
+;
+SKPALR: ld      (hl),VERS	; hl=DRVvers
+	DI
+	ld      hl,(1)
+	ld      de,9
+	add     hl,de
+	ld      (CONCAL),hl     ; bios - conout
+
+	ld	c, 67h		; reserve memory segment(s)
+	ld	de, 020Ch	; 2 segments starting from 0:C000h
+	call	BDOS
+	cp	0ffh
+	ld	de, NOMEM
+	jp	z, MESS
+
+	ld      hl,YCONST
+	ld      de,DRVR+1400h+6     ; тфртихжкжы 2 JUMPa
+				    ; к црпжэ ;ZCONST
+	ld      bc,12
+	ldir                        ; мртку юемжрфрю
+	ld      hl,YPRSTAT
+	ld      c,3
+	ldir
+
+	xor     a
+	ld      (sysPF8),a
+	out     (0F8h),a            ; monochrome
+
+	ld      a,83H		; screen=0000h (D0,D1), width=480/512 (D7)
+	ld      (sysPFA),a
+	out     (0FAh),a
+;
+; platform-depended init (Orion-PRO / Orion-128)
+;
+	IN	a,(0BH)		; 08H..0AH ports control register PPA 8255 (Orion-PRO)
+	inc	a
+	ld	(ORIONPRO),a
+	jr	nz,OPRO
+        LD      (SCROFFS-BDRV+DRVR),A	; screen offset = 0  for 480pix scheme
+	LD      A,0F2h
+	LD      I,A
+        jr      O128
+OPRO:
+	ld	hl,GETVIPRO	; set 512Vi1 subroutines to Orion-PRO mode
+	ld	de,GETVI
+	ld	bc,ENDVIPRO-GETVIPRO
+	ldir
+;
+; fill ISR vectors
+;
+	ld	a,0C9h
+	ld	b,a
+	ld	c,a
+	ld	hl,0F800h
+	cpir
+	dec	hl
+PRO1:	ld	a,(MARKER)
+	out	(08h),a		; Orion-PRO memory pages port
+	in	a,(0Ah)		; Orion-PRO RAM/ROM dispatchers on/off config register
+	ld	c,a		; C=config port backup
+	ld	a,40h		; reset D7, set D6  (set Orion-PRO mode: F800...FFFF is RAM), all dispatchers is off (=0)
+	out	(0Ah),a
+	ld	de,0F90Fh
+	ex	de,hl
+	ld	b,7
+loop1:	ld	(hl),d
+	dec	hl
+	ld	(hl),e
+	dec	hl
+	djnz 	loop1
+	ld	de,(0F2FFh)
+	ld	(hl),d
+	dec	hl
+	ld	(hl),e		; hl=0F900h
+	LD      A,h		; I=0F9h
+	LD      I,A
+	ld	a,c
+	out 	(0Ah),a		; restore config register (to Orion-128 mode)
+	ex	de,hl		; hl=F2D0
+	ld	(MEI+5),hl	
+	ld	(MDI+5),hl	
+	ld	a,(hl)
+	inc	hl
+	ld	h,(hl)
+	ld	l,a
+	ld	(MEI+2),hl
+	ld	hl,1D18h
+	ld	(MDI+2),hl
+;
+O128:	call    TESTVI
+	ld      a,1
+	jr      z,XXL          ; nz - no 512vi1
+	xor	a
+XXL:    ld      (VI1EXISTS),a
+;
+	ld      hl,ADR       ; еър фвчракл вдфех
+	xor     a            ; к чвпм
+	ex      af,af'
+	exx
+	ld      a,(MARKER)
+	ld      hl,DRVR      ; пвавнр дфвлюефв
+	ld      bc,EDRV-BDRV ; фвяоеф
+	call    BLDIR        ; тефехэнмв дфвлюефв пв оехжр
+	xor     a
+	ld      (YCONST),a
+	ld      (YCONOUT),a
+	ld      (YCONIN),a
+	ld      (YPROUT),a
+	ld      (YPRSTAT),a
+
+	ld      hl,CONSTAT
+	ld      (YCONST+1),hl
+	ld      hl,L_CNT
+	ld      (YCONOUT+1),hl
+	ld      hl,CONIN
+	ld      (YCONIN+1),hl
+	ld      hl,PR_OUT
+	ld      (YPROUT+1),hl
+	ld      hl,PR_STAT
+	ld      (YPRSTAT+1),hl
+
+	ld      (0F3E5h),a
+        LD      A,(SCROFFS-BDRV+DRVR)	; screen offset
+	ld      (0F3CFh),a
+	ld      a,3Ch
+	ld      (0F3D0h),a
+
+	ld      hl,BEGMOVES
+	ld      de,STAR
+	ld      bc,EFP-STAR	; MOVES
+	ldir			; bc:=0
+
+	ld	a,b		; bank=0
+	ld	h, a
+	ld      l, a		; screen[3][addr=0]
+;	ld	b, a		; value to put
+	call	BSTB		; [0:0000]:=0
+	ld	a, (MARKER)	; bank where to return
+	ex	af, af'
+	xor     a		; destination bank=0
+;	ld	h, a
+;	ld      l, a		; screen[3][addr=0]
+	ld      de,1		; screen[3][addr=1]
+	ld      bc,3FFFh	; 3BFFh	; count to ldir (fill)
+	call    MOVES		; clear screen
+;
+	ld	a,1		; bank=1
+	ld	h,b		; screen[3][addr=0]
+	ld	l,b	
+;	ld	b, 0		; value to put
+	call	BSTB		; [0:0000]:=0
+;	ld	h, b
+;	ld      l, b		; screen[3][addr=0]=hl
+	ld	a,1		; page=1
+	ld	d,b
+	ld	e,a		; de=1	
+	ld	b,3
+	call    MOVES		; clear left-screen
+;
+;	ld	b,0		; value to put
+	ld	a,1		; bank=1
+	ld	hl, 3BF0h	; 
+	call	BSTB		; [0:0000]:=0
+	ld	a,1		; page=1
+	ld	d,h
+	ld	e,l
+	inc	de		; de=hl+1	
+	ld	bc,40Fh
+	call    MOVES		; clear right-screen
+;	
+	LD      A,0C0H
+	LD      (sysPFB),A
+	OUT     (PFB),A
+	ld      hl,VALUE
+	res     6,(hl)  ; хчфрхкжы цнвъ тфефэювпкл
+	IM      2
+;
+NEXT1:	ld	a,(ORIONPRO)
+	or	a
+	ld      de,PROMSG
+	call    nz,MESS
+	ld      de,VI1MSG
+	call    MESS
+	ld      a,(VI1EXISTS)
+	or	a
+	ld      de,NFOUND
+	call    z,MSG
+	jr      z,RTCERR       	; z - no 512VI1
+	ld      de,FOUND
+	call    MSG
+	call    TESTVIMSG       
+	ld      de,VI1OKAY
+	call    z,MSG
+       	EI
+        ret
+RTCERR:	EI
+	call    TMINPUT         ; ююрд юфеоепк
+	jp      DTINPUT         ; ююрд двжэ
+
+; тнрйке двппэе ю чицефе ююрдв
+IERR:   ld      de,ERRINP
+	call    MSG
+; ююрд япваепку авхрю, ехнк тфръфвоопэе кнк втт., пр хчкжэе
+TMINPUT:ld      de,TMNOW
+	call    MSG
+
+	xor     a
+	ld      (HH),a
+	ld      (MM),a
+	ld      (SS),a
+
+	ld      de,TIMEBF
+	ld      c,10
+	call    BDOS
+
+	ld      hl,TIMEBF+1
+	ld      a,(hl)
+	or      a
+	jr      z,TMSET ; ююрд тр иорнавпкб 00:00:00
+
+	ld      de,IERR
+	push    de      ; вдфех юэйрдв тфк рщкчме
+
+	cp      9
+	ret     nc
+	ld      b,a
+
+	call    GETDATA ; юряюфвьвеж ю A 00.99, hl - имвяв-
+	ret     nc      ; жены пв фвяденкжены ':'
+	cp      25
+	ret     nc
+	ld      (HH),a
+	call    GETDIV
+	ret     nz
+	call    GETDATA
+	ret     nc
+	cp      60
+	ret     nc
+	ld      (MM),a
+	call    GETDIV
+	pop	de
+	jr      nz,TMSET
+	push	de
+	call    GETDATA
+	ret     nc
+	cp      60
+	ret     nc
+	ld      (SS),a
+
+	inc     b
+	ret     nz
+
+	pop     de
+TMSET:  ld      hl,SETCLT
+	ld      b,6
+	jr      WRBIOS
+
+GETDIV: ld      a,(hl)
+	cp      ':'
+	ret
+
+; тнрйке двппэе ю чицефе ююрдв
+IIERR:  ld      de,ERRINP
+	call    MSG
+; ююрд япваепку двжэ, ехнк тфръфвоопэе кнк втт., пр хчкжэе
+DTINPUT:ld      de,DTNOW
+	call    MSG
+
+	ld      a,1
+	ld      (DD),a
+	ld      (ME),a
+	ld      a,96
+	ld      (YY),a
+
+	ld      de,DATEBF
+	ld      c,10
+	call    BDOS
+
+	ld      hl,DATEBF+1
+	ld      a,(hl)
+	or      a
+	jr      z,DTSET ; ююрд тр иорнавпкб 01:01:96
+
+	ld      de,IIERR
+	push    de      ; вдфех юэйрдв тфк рщкчме
+
+	cp      9
+	ret     nc
+	ld      b,a
+
+	call    GETDATA
+	ret     nc
+	or      a
+	ret     z
+	ld      (DD),a
+	call    GETDIV
+	ret     nz
+	call    GETDATA
+	ret     nc
+	or      a
+	ret     z
+	ld      (ME),a
+	call    GETDIV
+	ret     nz
+	call    GETDATA
+	ret     nc
+	ld      (YY),a
+
+	inc     b
+	ret     nz
+
+	ld      a,(ME)
+	cp      13
+	ret     nc
+
+	dec     a
+	ld      e,a
+	ld      d,0
+	ld      hl,SKALEND
+	add     hl,de
+	ld      a,(hl)  ; ю A мрнкаехжюр дпел ю оехузе
+	cp      28      ; цеюфвны
+	call    z,SVISCOR; мрфф. пв юкхрмрхпэл ърд
+	ld      hl,DD
+	sub     (hl)
+	ret     c
+
+	pop     de
+DTSET:  ld      hl,SETDAT
+	ld      b,6
+;	jp      WRBIOS
+
+; юэдвжы хжфрми аефея BIOS
+WRBIOS: push    hl
+	push    bc
+	ld      c,(hl)
+	defb    0CDh
+CONCAL: defs    2
+	pop     bc
+	pop     hl
+	inc     hl
+	djnz    WRBIOS
+	ret
+
+; трниакжы япваепке твфвоежфв кя чицефв
+GETDATA:inc     hl
+	ld      a,(hl)
+	dec     b
+	cp      '9'+1
+	ret     nc      ; пех'едрчпэл хкоюрн, юэйрд, CY = 0
+	sub     '0'
+	ccf
+	ret     nc      ; пех'едрчпэл хкоюрн, юэйрд, CY = 0
+
+	ld      c,a
+	inc     hl
+	ld      a,(hl)
+	dec     b
+	cp      ':'
+	ld      a,c
+	scf
+	ret     z       ; юэйрд, a = 0..9
+
+	add     a,a     ; * 2
+	ld      c,a
+	add     a,a     ; * 4
+	add     a,a     ; * 8
+	add     a,c     ; * 10
+	ld      c,a
+
+	ld      a,(hl)
+	cp      '9'+1
+	ret     nc      ; пех'едрчпэл хкоюрн, юэйрд, CY = 0
+	sub     '0'
+	ccf
+	ret     nc      ; пех'едрчпэл хкоюрн, юэйрд, CY = 0
+	add     a,c     ; a = 10..99
+	inc     hl
+	dec     b
+	scf
+	ret
+;
+;
+MESS:   push    de
+	ld      de,W8
+	call    MSG
+	pop     de
+MSG:    ld      c,9
+	push    af
+	call    BDOS
+	pop     af
+	ret
+;
+; GetVI:	Get byte from 512VI1 CMOS. Inp: C=register(address), Out:A=value
+; SetVI:	Set byte to 512VI1 CMOS. Inp: C=register(address), B=value
+;
+; тфрюефмв явткхк ю уаелмк
+; 0Eh - 10h о/х МФ512ЮК1 хррчьепку 'RTC'.
+; okay - Z=1, error - Z=0
+TESTVI: LD      c,0EH
+	call	GetVI
+	LD      L,a
+	LD      c,0FH
+	call	GetVI
+	LD      H,a
+	LD      c,10H
+	call	GetVI
+	LD      E,a
+	push	hl
+	push	de
+	call	WRTRTC
+	pop	de	
+	pop	hl
+	call	TESTRTC
+	jr	WRTLHE
+
+;
+; Check for 'RTC' substring, return Z if ='RTC'
+;
+TESTRTC:LD      c,0EH
+	call	GetVI
+	SUB      'R'
+	RET     NZ
+	LD      c,0FH
+	call	GetVI
+	SUB     'T'
+	RET     NZ
+	LD      c,10H
+	call	GetVI
+	SUB     'C'
+	ret
+; тфрюефмв хррчьепку ю РЯИ ЮК1
+TESTVIMSG:
+	call	TESTRTC
+	ret     z               ; o'kay
+WRTRTC:	ld	hl, 256*'T'+'R'
+	ld	e, 'C'
+WRTLHE:	LD      c,0EH
+	ld	b,l
+	call	SetVI
+	ld      c,0FH
+	ld	b,h
+	call	SetVI
+	LD      c,10H
+	ld	b,e
+	jp	SetVI
+;
+; юпижфеппкк т/т дну дфвлюефв CONOUT
+;
+BEGMOVES:
+	.phase  STAR
+;
+MOVES:  out     (0F9h),a
+MOVES_C:ldir
+@@:     ex      af,af'
+;	xor     a		; 20081004
+	out     (0F9h),a
+	ex      af,af'
+	ret
+;
+PUTSCR: ex      af,af'		; f3c9
+	ld      a,1
+PUTSCR0:out     (0F9h),a	; f3cc
+	xor	a		; 20081004
+	ex      af,af'
+	ld      (hl),a
+	jp      @@
+;
+GETSCR: ld      a,1		; f3d3
+GETSCR0:out     (0F9h),a
+	ld      a,(HL)
+	jp      @@		
+EFP:				; f3da
+	.dephase
+DRVR:
+	.phase  ADR
+BDRV:
+
+                                                                                                      
