@@ -1,0 +1,438 @@
+;*****************************
+;*    NORTHON COMMANDER      *
+;*      Модуль LD.MAC        *
+;*       COLD LOADER         *
+;*****************************
+
+		.Z80
+;             Код цвета           Цвет
+BLACK           equ     0       ;черный
+BLUE            equ     1       ;голубой
+GREEN           equ     2       ;зеленый
+CYAN            equ     3       ;синий
+RED             equ     4       ;красный
+MAGENTA         equ     5       ;малиновый
+BROWN           equ     6       ;коричневый
+LIGHTGRAY       equ     7       ;серый
+DARKGRAY        equ     8       ;черный
+LIGHTBLUE       equ     9       ;светло-голубой
+LIGHTGREEN      equ     10      ;светло-зеленый
+LIGHTCYAN       equ     11      ;светло-синий
+LIGHTRED        equ     12      ;светло-красный
+LIGHTMAGENTA    equ     13      ;светло-малиновый
+YELLOW          equ     14      ;желтый
+WHITE           equ     15      ;интенсивно-белый
+
+BDOS    equ     5       ; Точка входа BDOS
+MARKER  equ     0EFFFh  ; Текущий банк
+CCPV    equ     0F304h  ; вектор "CCP"
+Bldir   equ     0F201h
+Bjump   equ     0F204h
+Bcall   equ     0F207h
+
+;        ***  начало кодовой части ***
+monink  equ     0F81Bh  ; jp      0f81bh  ; ROM-BIOS - inkey
+;
+;******************* установки из PullDn ******************
+begset:                 ;Область контроля изменений
+keybar: db      1
+pathpr: db      1
+minist: db      1
+sortng: db      0,1
+mode:   db      0,1
+hidden: db      1,1
+execut: db      0,0
+filter: db      '????????.???'
+	db      '????????.???'
+pattern:db      '????????.???'
+cnfvarbeg:
+method: db      0       ;сортировка по возрастанию/убыванию
+endset:                 ;Конец области контроля изменений
+eofdetect:db    1       ;реакция на код 1ah во вьювере
+umn:    db      0       ;--"--"-- холодная загрузка меню пользователя
+verify: db      1       ;Есть/нет верификация
+dopk3view:db    1       ;Запрет вызова внешнего обработчика файлов *.pk3
+doscr:  db      0       ;Есть / нет работа с CPM экраном
+cnfvarend:
+lnonpg: db      60      ;строк на листе при печати
+pgctrl: db      1       ;нет/есть разбивка на листы при печати
+clock:  db      1       ;нет/есть часы на экране
+
+inside: db      0,1     ;inside[viewer,editor] : 0 => внутр., 1 => внеш.
+extname:db      'SED     .COM'
+        db      'SED     .COM' ;extname- имена внеш. вьювера и редактора
+endctrl:
+; Вектора, подменяющие вектора ошибок BDOS в NC
+BDSERR: defw    syser0
+	defw    syser1
+	defw    syser2
+	defw    syser3
+;******************** Конец установок из PullDn ********************
+; рестарт NC
+;
+INSERR:
+NOSCRS:
+NOXTPA: defb    'Error: no XTPA memory.',10,13,'$'
+;
+; П/п установить окно во весь экран
+reswinesc:db    27,'W',csetw,0,0,25,80
+;
+fullwin:call    fillwin0
+	ld      hl,reswinesc
+	ld      de,Winms
+ldir7:  ld      bc,7
+	ldir
+	ret
+
+; Копирование векторов bios
+biosinit:
+	ld      hl,(1)
+	inc     hl
+	inc     hl
+	inc     hl
+	ld      de,constat
+ldir42: ld      bc,42
+	ldir
+	ret
+;
+quit:   call    loadscr     ; Загрузить старый экран
+	jr      z,quit0     ; Z=1 - экран загружен
+
+	call    cm0f0w6     ; монохром, окно 80х25/6
+	call    Clrscr
+
+quit0:  ld      hl,(6) ; восстановл. векторов ошибок BDOS
+	inc     hl
+	inc     hl
+	inc     hl
+	ex      de,hl
+	ld      hl,BDSLST
+	call    LDIR8
+
+; освобождение XTPA (4 сегмента) - буфер окон
+	ld      a,(Swind)       ; нач. сегмент буфера
+	ld      e,a
+
+; освободить 4 последовательных сегмента XTPA
+FREE4:  ld      c,104   ; вход: e - начальный сегмент
+	jr      RESERX
+
+; зарезервировать 4 последовательных сегмента XTPA
+RESERV4:ld      c,103
+RESERX: ld      d,4
+BDOSXX: jp      BDOS
+;
+DELMAIN:ld      de,NCMAIN+1 ; строка - описатель драйвера
+	ld      c,106   ; Удалить драйвер NCMAIN, если он
+	jr      BDOSXX  ; был в XTPA
+;
+; Выход в ДОС
+examen: ld      sp,(stacknc)
+	call    quit
+	call    resact
+	call    sysdsk
+	call    DELMAIN
+	jp      0               ; warm start
+;
+;        =============================================
+;        === Запись/восстановление цветного экрана ===
+;        =============================================
+cscrms: db      27,'C',2,27,'Q',6,27,'P',2
+	db      27,'W',0,0,0,23,80
+	db      27,'W'
+cscrm1: db      3
+	dw      lname           ;bufcat
+cscrp1: db      2
+
+spz     equ     cscrp1-cscrms+1
+colsave:
+	call    hidcur
+	ld      a,csavew
+colscr:
+	ld      (cscrm1),a
+	cp      crestw
+	ld      a,(MARKER)
+	ld      (cscrp1),a
+	jr      nz,srcs
+srcs:   ld      hl,(catbuf)
+	ld      (cscrm1+1),hl
+	ld      hl,cscrms
+	ld      a,spz
+	jr      towstr
+
+;        ==========================================
+;        === Запись/восстановление CPM - экрана ===
+;        ==========================================
+; По возможности CPM экран выводится на экран 1
+; искейп для записи/восстановления экрана ( графики )
+; 3 - запись, 4 - восстановление
+coldms: db       27,'W'
+	ds       1              ; mode
+coldxx: dw       lname          ;bufcat
+	ds       1              ; page
+;
+srscr:  ld      (coldms+2),a
+	ld      hl,(catbuf)
+	ld      (coldxx),hl
+	ld      hl,coldms
+	ld      a,6
+towstr: jp      wstrng
+;
+; установить номер видимого экрана по A (0..2)
+SETVIS: ld      (SVISST+2),a
+	ld      a,3
+	ld      hl,SVISST
+	jr      towstr
+;
+fillwin:call    cm3             ; 16 - цветный скоростной режим
+fillwin0:ld     hl,reswinesc
+	ld      a,7
+	jr      towstr          ; Установить окно во весь
+				; экран
+cm0f0w6:call    cm0             ; Монохром
+f0w6:   call    wset6           ; Окно 80х25
+	jr      fillwin0        ; Уст. шрифт 6
+
+; Проверка, разрешен ли режим screen_load
+; Инициализация искейпа
+; Выход: флаг Z=0 -> ошибка, Z=1 -> ОК
+lsscr:  ld      a,(doscr)
+	dec     a
+	ret     nz
+	ld      a,(MARKER)
+	ld      (coldms+5),a    ; номер банка TPA
+	ret
+
+; Выход: флаг Z=0 -> ошибка, Z=1 -> ОК!
+lss_1:  ex      de,hl
+	push    bc
+	push    ix
+	ld      c,100   ; Установка адреса PDP из DE
+	call    BDOS
+	pop     ix
+	pop     bc
+	ld      a,c
+	or      a
+	jr      nz,lss_ld
+;
+lss_sv: push    ix
+	ld      de,1FFh
+	ld      c,103   ; Зарезервировать сегмент
+	call    BDOS
+	pop     ix
+	cp      0FFh
+	jr      nz,lss_sv0
+	or      a
+	ret
+
+lss_sv0:ld      (ix),a  ; записать его номер в массив
+	ld      e,a
+	ld      d,1
+	ld      c,102
+	call    BDOS    ; Запись сегментов из буфера обмена
+	or      a
+	ret
+;
+lss_ld: push    bc
+	push    ix
+	ld      e,(ix)
+	ld      d,1
+	ld      c,101   ; Копирование сегментoв в буфер.
+	call    BDOS
+	pop     ix
+	pop     bc
+	or      a
+	ret     nz
+	ld      a,c
+	cp      2
+	ret     z       ; выход, если режим 2
+	ld      e,(ix)
+	ld      d,1
+	ld      c,104
+	call    BDOS    ; Oсвободить N последовательных
+;        or      a       ; сегментов
+	xor     a
+	ret
+
+;
+; запись / чтение буфера в XTPA
+lsscr0: ld      hl,(catbuf)     ; адрес буфера
+	ld      ix,scmass       ; массив номеров сегментов
+	ld      b,4             ; количество сегментов
+;
+; запись/чтение буфера в XTPA
+; b  - количество сегментов
+; ix - адрес массива номеров сегментов
+; hl - адрес буфера
+; c  - режим:   0 -> буфер -> XTPA
+;               1 -> XTPA -> буфер
+;               2 -> XTPA -> буфер без выгрузки из памяти
+;
+; Выход: флаг Z=0 -> ошибка, Z=1 -> ОК!
+;
+lssall: push    bc
+	push    hl
+	push    ix
+	call    lss_1
+	pop     ix
+	pop     hl
+	pop     bc
+	ret     nz              ; выход, ошибка
+	ld      de,1000h
+	add     hl,de
+	inc     ix
+	djnz    lssall
+	xor     a
+	ret
+;
+; По ctrl-C показать системный экран
+fn3:    ld      a,(doscr)
+	or      a
+	ret     z       ; выйти, режим запрещен
+	LD      A,1     ; ВКЛЮЧИТЬ активный ЭКРАН 1
+	CALL    SELSCR  ; ВХОД: РГ.А - НОМЕР ЭКРАНА
+	LD      (WSCR),A; ВЫХОД: РГ.А - ТЕКУЩИЙ ЭКРАН
+			; в win.mac
+	call    funcbar
+	call    viewscr ; показать экран, не выгружая его
+	ret     nz      ; из XTPA
+	ld      a,(WSCR)
+	cp      1
+; если вывод будет на экране 1, то включить видимый экран 1
+	call    z,SETVIS
+	call    hidcur
+
+fn3x:   call    inkey           ;monink
+	call    reccur
+	LD      A,(WSCR)
+	dec     a               ; cp 1 ;вывод был на экран 0
+	jp      nz,conthlp1     ; в b3.mac  ; res
+;
+;        XOR     A
+	CALL    SELSCR          ; включить АКТИВНЫЙ экран 0
+	xor     a
+	call    SETVIS          ; включить ВИДИМЫЙ экран 0
+dorst3: ld      a,3
+	ld      (dorst),a
+	ret
+
+; Выход: флаг Z=0 -> ошибка, Z=1 -> ОК!
+viewscr:ld      c,2     ; просмотр
+	jr      allscr
+;
+loadscr:ld      c,1     ; просмотр + выгрузка
+allscr: ld      a,(scrflag)
+	dec     a
+	ret     nz      ; выход, экран не записан
+	push    bc
+	call    lsscr
+	pop     bc
+	ret     nz
+	call    lsscr0    ; Считать из XTPA в буфер
+	ret     nz
+	call    cm0f0w6
+	call    clrscr    ;!
+	ld      a,crestw  ; Перетащить из буфера на экран
+	call    srscr
+	call    writest
+setposms:db     27,'Y',0,0,0
+	xor     a
+	ret
+;
+savescr:xor     a
+	ld      (scrflag),a ; сбросить флаг - экран saved
+	call    lsscr       ; проверка, разрешен ли режим
+	ret     nz          ; screen_load
+	ld      hl,nosav    ; в B2.MAC
+	push    hl
+	call    cm0f0w6
+
+	call    writest
+	db      27,'N',0       ;получить позицию курсора
+	call    conin
+	call    conin
+	call    conin
+	ld      (setposms+2),a
+	call    conin
+	ld      (setposms+3),a
+
+	ld      a,csavew
+	call    srscr       ; CPM - экран в буфере с bufcat
+	ld      c,0
+	call    lsscr0      ; записать экран в XTPA
+	ret     nz
+	pop     hl
+	ld      a,1
+	ld      (scrflag),a
+	ret
+;
+;nosav:  ld      de,NOSCRS
+;        jp      MSG
+;
+sysdsk: call    askdsk
+	ld      (4),a           ; Указать ССР текущий диск
+	ret
+;
+; выбор активного экрана
+; вход:  рг.A - номер требуемого экрана (0,1,2)
+; выход: рг.A - номер включенного экрана (0,1,2)
+;
+SELSCR: ld      hl,OLDSCR       ; в win.mac
+	cp      (hl)
+	ret     z       ; выход, тот же экран
+;
+; *** зарезервировать память под новый экран ***
+;
+	ld      (NEWSCR),a
+	or      a
+	jr      z,NORESERV; не резервировать под экран 0
+	ld      de,414h ; сегменты 4..7,14h..17h - экран 1
+	dec     a
+	jr      z,RESERV1
+	ld      de,818h ; сегменты 8..b,18h..1bh - экран 2
+RESERV1:push    de
+	call    RESERV4
+	pop     de
+	cp      0FFh
+	jr      nz,RESERV2
+	call    FREE4
+	jr      EXITSL
+RESERV2:ld      e,d
+	push    de
+	call    RESERV4
+	pop     de
+	cp      0FFh
+	jr      nz,NORESERV
+	call    FREE4
+	jr      EXITSL
+
+; *** выгрузить старый экран ***
+NORESERV:ld     a,(OLDSCR)
+	or      a
+	jr      z,NOFREE  ; не освобождать под экран 0
+	ld      de,414h
+	dec     a
+	jr      z,FREE1
+	ld      de,818h
+FREE1:  push    de
+	call    FREE4
+	pop     de
+	ld      e,d
+	call    FREE4
+
+NOFREE: ld      a,(NEWSCR)
+	ld      (OLDSCR),a
+	ld      (SELSSTR+2),a
+	ld      hl,SELSSTR
+	ld      a,3     ; установить активный экран N
+	call    WSTRNG
+EXITSL: ld      hl,GETSSTR
+	ld      a,3
+	call    WSTRNG
+	jp      CONIN   ; получить код активного экрана
+;
+SELSSTR:db      27,'I',0
+GETSSTR:db      27,'I',0FFh
+SVISST: db      27,'V',0
+
+ м мFм├A:╥( м мFм├AцЖ:·F╥юRFм Чп>2·F2 F!╘G6╙G @М╟RF!╘G

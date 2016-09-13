@@ -1,0 +1,631 @@
+;****** Change Directory *****
+;
+; F2B - В МАССИВ (ПО DE) ВОЗВРАЩ. 16 СИМВ. ИМЯ ТЕКУЩЕГО ЮЗЕРА
+;       ВЫХОД: А=0 ЕСЛИ НОРМАЛЬНО И 0FFh ЕСЛИ У ЮЗЕРОВ НЕТ ИМЕН
+; F2C - ТЕКУЩЕМУ ЮЗЕРУ УСТАНАВЛ. НОВОЕ ИМЯ ИЗ МАССИВА (ПО DE) - 16 СИМВ.
+;       ВЫХОД: А=0 ЕСЛИ НОРМАЛЬНО И 0FFh ЕСЛИ У ЮЗЕРОВ НЕТ ИМЕН
+; F2D - УСТАНОВКА ЮЗЕРА ПО ИМЕНИ ИЗ МАССИВА (ПО DE)
+;       ВЫХОД: А=0 ЕСЛИ НОРМАЛЬНО И 0FFh ЕСЛИ У ЮЗЕРОВ НЕТ ИМЕН ИЛИ НЕТ ЮЗЕРА
+;       С ТАКИМ ИМЕНЕМ
+;
+abz     equ     2
+;
+activ64:ld      a,(actpan)
+	rlca
+	rlca
+	rlca
+	rlca
+	ret
+;
+getdirpos1:
+	ld      hl,(catbuf)
+	jr      gdc1
+getdircode:
+	call    getptr
+getdircode1:                    ; вход: a=ptr(0..31)
+	ld      hl,(catbuf)
+	inc     hl
+gdc1:   and     0fh
+	ld      b,a
+	ld      a,(hl)
+	ret     z
+	ld      de,64
+gdcode1:add     hl,de
+	djnz    gdcode1
+	ld      a,(hl)
+	ret
+;
+comm30: push    af              ;вход: A=0 - не инвертировать ук-ль
+	call    getptr
+	call    getdirpos1
+	push    af
+	ld      hl,xcd
+	sub     (hl)
+	jr      c,comm301
+	pop     bc
+	cp      13              ; 17
+	jr      nc,comm302
+	jr      comm303
+comm302:sub     12              ; 16
+	ld      b,a
+	ld      a,(xcd)
+	add     a,b
+	ld      (xcd),a
+	call    lstree
+	ld      a,12            ; 16
+comm303:add     a,abz
+	ld      hl,(ycd)
+	jr      comm304
+comm301:pop     af
+	ld      (xcd),a
+	call    lstree
+	ld      hl,(ycd)
+	ld      a,abz
+comm304:call    gotoch
+	call    getusrname
+	pop     af
+	or      a
+	call    nz,inv
+	ld      a,16             ;8
+	call    wstrng
+	jp      norm
+getusrname:
+	call    getptr
+	call    getdirpos1
+	inc     hl
+	inc     hl
+	ld      e,a
+	ld      d,0
+	add     hl,de           ; hl=name
+	ret
+;
+lstree: call    activ64
+	push    af
+	ld      l,2
+	ld      a,(xcd)
+	ld      h,a
+	pop     af
+	ld      b,16
+
+lstree0:push    af
+	push    bc
+	push    hl
+;
+;Вход a:point, h:ddx, l:ddy:byte
+writedir:push   hl
+	push    hl
+	push    af
+	call    activ64
+	ld      b,a
+	pop     af
+	sub     b
+	ld      b,a
+	inc     b
+	ld      de,64
+	ld      hl,-64
+wrdir0: add     hl,de
+	djnz    wrdir0          ; hl=адрес элемента
+	pop     de
+	ld      e,d
+	ld      d,0
+	add     hl,de           ; смещение в эл-те по X
+	ld      (size),hl
+	pop     hl
+	ld      a,abz
+	call    gotoch
+	ld      a,28
+	ld      hl,(size)
+	ld      de,(catbuf)
+	add     hl,de
+	inc     hl              ; учесть dirpos
+	inc     hl              ; учесть dircode
+	call    wstrng
+;
+	pop     hl
+	pop     bc
+	pop     af
+	inc     l
+	inc     a
+	djnz    lstree0
+	ret
+;
+FIRSTCHILD:                     ; поиск первого
+	LD      C,0
+	JR      NEXTCH
+NEXTCHILD:                      ; поиск следующего
+	LD      C,A             ; A=CURRENT
+	LD      B,0
+	LD      HL,K
+	ADD     HL,BC
+	LD      C,(HL)          ; C=OFFSET ПО ВЛОЖЕННОСТИ
+NEXTCH: CP      10H
+	JR      NC,NOCHILD
+	push    af
+	ld      a,(actpan)
+	or      a
+	LD      HL,dirname
+	jr      z,lpan
+	ld      hl,16*16+dirname
+lpan:   pop     af
+	LD      B,0
+	ADD     HL,BC
+	LD      E,A             ; E=CURRENT
+	LD      A,10H
+	SUB     C
+	LD      B,A
+NCHILD: INC     HL
+	INC     C
+	LD      A,(HL)
+	CP      E
+	JR      Z,ICHILD
+	DJNZ    NCHILD
+NOCHILD:LD      A,0FFH
+	OR      A
+	RET
+ICHILD: LD      D,0
+	LD      HL,K
+	ADD     HL,DE
+	LD      (HL),C
+	XOR     A
+	LD      A,C
+	RET
+;
+; п/п отбражения количества файлов. Вход: А-для какого юзера
+;
+markus: ld      b,0
+	ld      c,a
+	ld      hl,usrqn
+	add     hl,bc
+	ld      a,(hl)           ; a=кол-во файлов
+	ld      c,160
+	ex      de,hl
+	or      a
+	ret     z
+	ld      (hl),c
+	sub     40
+	ret     c
+	inc     hl
+	ld      (hl),c
+	sub     40
+	ret     c
+	inc     hl
+	ld      (hl),c
+	ret
+
+makeshow:
+	LD      (avail),SP
+	ld      a,' '
+	call    fillbufcat
+	ld      hl,(catbuf)
+	ld      (hl),c          ; dirpos=0
+	inc     hl
+	ld      (hl),c          ; dircode=0
+	inc     hl
+	LD      (hl),'\'
+	ld      de,16
+	add     hl,de
+	ex      de,hl
+	call    activ64
+	call    markus
+	ld      hl,(catbuf)
+	ld      de,64
+	add     hl,de
+	ld      (elem),hl
+	LD      A,15
+	LD      (isort),A
+	XOR     A
+	LD      (i1sort),A
+	LD      (curr),A
+LSTUS1: LD      A,(curr)
+	CALL    FIRSTCHILD      ; ZERO-НАЙДЕН, NONZERO-НЕТ
+LSTUS2: JR      NZ,NOTFIND
+	LD      B,A
+	LD      A,(curr)
+	PUSH    AF
+	LD      A,B
+	LD      (curr),A
+	ld      c,a
+	LD      HL,i1sort
+	INC     (HL)
+	LD      A,(HL)
+
+	RLCA                    ; tab
+	ld      hl,(elem)
+	ld      (hl),a          ; dirpos
+	LD      B,a
+	ld      a,c
+	inc     hl
+	ld      (hl),a          ; dircode
+TAB1:   inc     hl
+	ld      (hl),' '
+	DJNZ    TAB1
+	dec     hl
+	ld      (hl),128
+	inc     hl
+	ld      (hl),132
+	inc     hl
+
+	call    activ64
+	add     a,c
+	push    af
+	push    hl
+	CALL    getdirname1
+	pop     de
+	call    ldir16
+
+	pop     af
+	call    markus
+
+	ld      hl,(elem)
+	ld      de,64
+	add     hl,de
+	ld      (elem),hl
+
+	LD      HL,isort
+	DEC     (HL)
+	JR      Z,EXLSTUS
+	JR      LSTUS1
+
+NOTFIND:LD      HL,i1sort
+	LD      A,(HL)
+	OR      A
+	JR      Z,EXLSTUS
+	DEC     (HL)
+	POP     AF
+	LD      (curr),A
+	CALL    NEXTCHILD
+	JR      LSTUS2
+EXLSTUS:LD      SP,(avail)
+
+mksh2:  xor     a
+	ld      (iii),a
+mksh3:  ld      hl,iii
+	ld      a,33            ;ld a,(mxpos)
+	cp      (hl)
+	ret     c
+
+	xor     a
+	ld      (i14),a
+	ld      h,a
+
+	ld      a,15
+	ld      (rssort),a
+	ld      l,a
+
+	ld      b,6
+mksh4:  add     hl,hl   ; *2
+	djnz    mksh4
+	ld      (size),hl
+
+mksh5:  ld      a,(rssort)
+	or      a
+	jr      z,mksh6
+
+	ld      a,(iii)
+	sla     a       ; *2
+	ld      e,a
+	ld      d,0
+	ld      hl,(size)
+	add     hl,de   ;vara:=hl
+
+	ld      de,(catbuf)
+	inc     de              ; учесть dirpos
+	inc     de              ; учесть dircode
+	add     hl,de
+	ld      a,(hl)
+	cp      32
+	jr      z,mksh9
+	cp      128
+	jr      z,mksh8
+	xor     a
+	ld      (i14),a
+	jr      mksh7
+mksh9:  ld      a,(i14)
+	dec     a
+	jr      nz,mksh7
+	ld      (hl),179
+	jr      mksh7
+mksh8:  ld      a,(i14)
+	or      a
+	jr      nz,mksh10
+	inc     a
+	ld      (i14),a
+	jr      mksh7
+mksh10: ld      (hl),131
+
+mksh7:  ld      hl,rssort
+	dec     (hl)
+	ld      hl,(size)
+	ld      de,-64          ;-128
+	add     hl,de
+	ld      (size),hl
+	jr      mksh5
+
+mksh6:  ld      hl,iii
+	inc     (hl)
+	jr      mksh3
+
+;iff2:   call    resact
+USERSELECT:
+	call    resact0
+	call    getuser
+	ld      (siz),a
+	call    getseepk3
+	call    nz,pk3lock
+	ret     nz
+	ld      a,2
+	call    wrkeybar
+	call    drawpan
+;        call    oneline
+redrw:  call    makeshow
+	xor     a
+	ld      (ilist),a       ; parent признак
+	ld      (xcd),a
+	call    getptr
+	and     15              ;!
+	add     a,2
+	ld      (ycd),a
+	call    wset8
+	call    lstree
+usrrp0: call    wset6
+	ld      a,4
+	ld      l,1
+	call    gotoch
+	ld      c,141
+	ld      b,34
+	call    space0
+	call    getdircode
+	call    wrpath1
+	call    wset8
+	ld      a,1
+	call    comm30
+	call    fastrki1
+	xor     a
+	call    comm30
+	ld      a,(i1)
+	dec     a               ; !!!
+;        jr      z,iff2          ; reread
+	ld      hl,usrut0       ; repeat
+	push    hl
+	cp      4
+	jp      z,usrf5         ; up
+	cp      23
+	jp      z,usrf18        ; down
+	cp      3
+	jp      z,usrf4         ; right
+	cp      7
+	jp      z,usrf8         ; left
+	cp      14
+	jp      z,usrf15        ; parent
+	cp      15
+	jp      z,usrf16        ; rename
+	cp      12
+	jp      z,usrf0d
+	pop     hl
+usrut0: ld      a,(i1)
+	cp      13
+	ld      b,1
+	jr      z,usr01         ; cr
+	cp      27
+	jr      nz,usrrp0       ; esc
+	ld      b,3
+usr01:  push    bc
+	call    closew
+	call    wset6
+	ld      hl,ilist
+	ld      a,(hl)
+	or      a
+	pop     bc
+	ld      a,b
+	jr      z,usr02
+	ld      (hl),0
+	dec     a
+	jr      nz,usrrp0       ; if esc
+	call    getdircode
+	push    af
+	call    activ64
+	call    getdirname1
+	ld      (elem),hl
+	push    hl
+	ld      de,vvm
+	call    ldir16
+	pop     hl
+	ld      a,(nlist)
+	ld      c,a
+	add     hl,bc
+	pop     af
+	ld      (hl),a
+	call    askusr
+	push    af
+	xor     a
+	call    setusr
+	ld      de,(elem)
+	ld      c,2ch
+	call    bdscall
+	call    erranl
+	or      a
+	jr      z,usr09
+	call    wset8
+	ld      a,8
+	call    dosft
+	ld      l,10
+	ld      bc,510h
+	ld      de,red*256+white
+	call    window
+	ld      a,10
+	ld      l,12
+	call    gotoch
+	call    writest
+	db      'Wrong choose',0
+	call    inkey
+	call    closew
+	ld      hl,vvm
+	ld      de,(elem)
+	call    ldir16
+usr09:  pop     af
+	call    setusr
+	jp      redrw
+usr02:  ld      (dorst),a
+	ld      a,1
+	call    wrkeybar
+	jp      reslsts
+
+usrf4:  call    getptr
+	or      0fh
+	ld      (hl),a
+	ld      a,17
+	ld      (ycd),a
+	ret
+
+usrf5:  call    activ64
+	push    af
+	call    getptr
+	pop     af
+	cp      (hl)
+	ret     nc
+	dec     (hl)
+	ld      hl,ycd
+	dec     (hl)
+	ret
+
+usrf8:  call    getptr
+	and     10h
+	ld      (hl),a
+	ld      a,2
+	ld      (ycd),a
+	ret
+
+usrf18: call    getptr
+	and     15
+	cp      15
+	ret     nc
+	inc     (hl)
+	ld      hl,ycd
+	inc     (hl)
+	ret
+
+usrf15: call    usrcheck
+	ld      (hl),1
+	call    getdircode
+	ld      (nlist),a
+	ld      a,5
+	call    dosft
+	ld      l,20
+	ld      bc,0417h
+	ld      de,black*256+lightgray
+	call    window
+	ld      a,8
+	ld      l,21
+	call    gotoch
+	call    writest
+	db      'Select new parent',0
+	ld      a,9
+	ld      l,22
+	call    gotoch
+	call    writest
+	db      'and press ENTER',0
+	ret
+
+usrf16: call    usrcheck
+	ld      a,6
+	call    dosft
+	ld      l,10
+	ld      bc,0415h
+	ld      de,black*256+lightgray
+	call    window
+	ld      a,10
+	ld      l,a
+	call    gotoch
+	call    writest
+	db      ' Rename user ',0
+	call    inv
+	call    getusrname
+	ex      de,hl           ; de=ук-ль на имя
+	ld      a,8
+	ld      l,12
+	call    dosft
+	ld      bc,0f12h
+;
+; п/п ввода строки с клавиатуры .
+; Вход  : DE=адрес буфера ; В=длина буфера ввода ; С=позиция точки
+;         hl=позиция на экране;
+; Выход : A=код выхода (27 или 13)
+;
+	call    modi
+	push    af
+	call    norm
+	call    closew
+	pop     af
+	cp      27
+	ret     z
+	call    askusr
+	push    af
+	call    getdircode
+	push    af
+	call    setusr
+	call    getusrname
+	ld      (elem),hl
+	ex      de,hl           ; de=ук-ль на имя
+	ld      c,2ch
+	call    bdscall
+	call    activ64
+	pop     bc
+	add     a,b
+	call    getdirname1
+	ex      de,hl
+	ld      hl,(elem)
+	call    ldir16
+	pop     af
+	jp      setusr
+
+usrf0d: call    usrch1
+	call    getdircode
+	push    af
+	call    getuser
+	pop     af
+	cp      (hl)
+	ld      (hl),a
+	ret     z
+
+	call    getrealqn
+	ld      b,a
+	inc     b
+uf0d1:  ld      a,b
+	call    getname1
+	ld      de,8
+	add     hl,de
+	ld      (hl),'.'
+	djnz    uf0d1
+
+fbzero: ld      a,(key)
+	cp      6
+	ret     z
+	call    getmarked
+	ld      (hl),0
+	call    getmarkeds
+	ld      (hl),0
+	inc     hl
+	ld      (hl),0
+	ret
+
+usrcheck:
+	call    getnamespr
+	jr      nz,uch1         ; если не нормально
+	call    getptr
+	and     0fh
+	jr      z,uch1          ; если не нормально
+usrch1: ld      hl,ilist
+	ld      a,(hl)
+	or      a
+	ret     z               ; если нормально
+uch1:   pop     de
+	ret
+
+ldir16: ld      bc,16
+	ldir
+	ret
+
+ 	or      a
+	ld      a,27
+	jr      z,mod0
+	ld   

@@ -1,0 +1,650 @@
+sumlength:
+	ld      a,(path)         ;Результат в рег. A
+	ld      hl,sysline
+	add     a,(hl)
+	ret
+;
+readkey:call    writest
+rkms:   db      27,'Q',6,0
+	ld      hl,path
+	ld      a,(curcur)
+	add     a,(hl)
+	inc     a
+	ld      h,a
+	ld      l,24
+	call    gotoxy
+	call    inkey
+	ld      (scancode),a
+	ld      (kr),a
+	push    af
+	call    wset
+	pop     af
+	cp      '@'
+	ret     nc
+	ld      b,a
+	ld      a,(f3)
+	or      a
+	ld      a,b             ; a=(kr)
+	ret     nz
+	cp      ' '
+	ld      b,1fh
+	jr      z,rdk0
+	or      00010000b
+	cp      ';'
+	ld      b,29
+	jr      z,rdk0
+	inc     b            ; b=30
+	cp      '='
+	jr      z,rdk0
+	sub     34
+	ld      b,a
+	cp      14
+	ret     c
+	cp      26
+	ret     nc
+rdk0:   ld      a,b
+	ld      (kr),a
+	ret
+
+fastrki1:
+	ld      hl,asm
+	ld      (hl),1
+rki1:   call    readkey
+	ld      a,(kr)
+	ld      (i1),a
+	ld      hl,asm
+	ld      (hl),0
+	ret
+
+initvar:
+	call    gotop
+jrepl:  jp      ractpn
+
+;
+funcbar:ld      a,3
+	call    wrkeybar
+funcycl:call    monink
+	inc     a
+	jr      nz,funcycl
+	inc     a
+	jp      wrkeybar
+;
+START:  call    DELMAIN ; удалить NCMAIN driver
+; резервирование XTPA (16k) под буфер окон
+	ld      c,103
+	ld      de,4FFh
+	call    BDOS
+	cp      0FFh
+	jr      nz,RESWOK
+; Аварийный останов программы - мало XTPA
+nosav:  ld      de,NOXTPA
+MSG:    ld      c,9
+	jp      BDOS
+;
+RESWOK: ld      sp,0F3C0h       ; разрушить межбанковый стек
+	ld      (Swind),a       ; сегменты (4) под буфер
+	ld      e,a
+	ld      c,112
+	call    BDOS
+	ld      a,l
+	ld      (Pwind),a       ; банк
+	ld      l,0
+	ld      (Bwind),hl      ; адрес
+	ld      (buffw),hl
+;
+; запись адреса буфера XX:XX00 в Pwind, Bwind.
+;
+	ld      hl,(6)    ; подмена векторов ошибок BDOS
+	inc     hl
+	inc     hl
+	inc     hl
+	push    hl
+	ld      de,BDSLST
+	call    LDIR8
+	pop     de
+	ld      hl,BDSERR
+	call    LDIR8
+	call    biosinit        ; Копирование векторов bios
+	call    f0w6            ; Окно 80х25, уст. шрифт 6
+;
+	ld      hl,(6)
+	ld      (STACKNC),hl
+	ld      sp,hl           ; ld  sp,(stacknc)
+	ld      bc,-250
+	add     hl,bc
+	ld      (STACKNC0),hl
+;       ld      c,210           ; b=ff, -> bc=-45
+	add     hl,bc
+	ld      (bufpoint),hl
+ncomm:
+	xor     a
+	ld      (sysline),a
+        ld      (ctw),a
+	ld      hl,i1buff
+	ld      (hl),a
+	ld      de,i1buff+1
+	ld      bc,100h
+	ldir
+	ld      hl,lname
+	ld      (catalog),hl
+	ld      (catbuf),hl
+	ld      hl,1
+	ld      (count),hl
+
+	call    savescr         ; Запись CPM экрана в XTPA
+				; (если это разрешено)
+	call    wset6
+	call    writest
+; покрасить keybar-строку и фон экрана
+	db      27,'P',2        ; цвет экрана
+	db      27,'C',3        ; CM3
+	db      27,'B'          ; покрасить фон
+	db      27,'4',0        ; вкл. автоперевод
+
+resall: call    initvar
+	call    initvar
+
+res:    ld      a,1
+	call    wrkeybar        ; +f0w6
+	call    reccur
+	call    getalarm
+	call    nz,dorst0
+
+nc1:    call    eqvdisk
+	jr      z,nc2
+	call    ractpn
+	call    getmode
+	cp      2
+	jr      z,nc11
+	call    rstpan
+	call    normal
+nc11:   call    ractpn
+
+nc2:
+	call    rstpan
+	call    dorst0
+	ld      (alarm),a
+
+nc30:   call    f0w6            ; Окно 80х25, шрифт 6
+nc3:    ld      hl,umn1
+	ld      a,(umn)
+	and     (hl)
+	jr      nz,nc4
+	ld      a,(f3)
+	or      a
+	jr      z,fastink
+	call    rki1
+	jr      nc5
+fastink:call    fastrki1
+	jr      nc5
+
+nc4:    ld      (hl),0
+	ld      a,16
+nc5:    ld      (key),a
+	ld      hl,nc30        ;Выход из CASE key
+	push    hl
+	cp      7fh
+	jp      z,f7f
+	cp      ' '
+	jr      nc,wrsys
+	ld      hl,keytabl-2
+	call    allde2
+	ld      e,(hl)
+	inc     hl
+	ld      d,(hl)
+	ex      de,hl
+	jp      (hl)
+
+wrsys:  ld      c,a
+	call    sumlength       ; hl=sysline
+	cp      79
+	ret     nc
+	inc     (hl)
+	ld      a,(hl)
+	push    hl
+	ld      hl,curcur
+	ld      e,(hl)
+	inc     (hl)
+	pop     hl
+	ld      d,0
+	add     hl,de
+	inc     hl
+	sub     e
+	ld      b,a
+wrsysc: call    wrsym           ; push conout pop
+	ld      a,(hl)
+	ld      (hl),c
+	inc     hl
+	ld      c,a
+	djnz    wrsysc
+	ret
+
+keytabl:dw      f0,fn1,f2,fn3,f4,f5,f6
+	dw      f7,f8,f9,f10,f11,f12,f0d
+	dw      exitnc,f15,f16,f17,f18,f19
+	dw      f20,userselect,f22,pulldn
+	dw      f24,f25,f26,f27,f28,f29,f30,f1f
+;
+f1f:    call    getcat9
+;        cp      178
+	jr      nz,f1f0
+	call    getmarked
+	dec     (hl)
+	call    psetcat9
+	call    getpoint
+	call    decmarkeds
+	jr      f24
+f1f0:   ld      a,178
+        call    setcat9
+	call    getmarked
+	inc     (hl)
+	call    getpoint
+	call    incmarkeds
+
+f24:    call    godown
+	jp      statln
+
+f9:     call    ractpn
+	call    getmode
+	push    af
+	call    ractpn
+	pop     af
+	cp      2
+	ret     z
+	call    normal
+	call    ractpn
+	call    lstsys
+	jr      jinv
+
+f12:    call    normal
+	call    comm17
+	call    getposx
+	push    hl
+	ld      a,2
+	call    dosft
+	pop     hl
+	ld      (hl),a
+	jr      f81             ; jp  invstat
+
+f29:
+f30:    ld      a,(key)
+	sub     15
+	ld      (i4),a
+	call    grplmn
+	call    list
+	call    statln
+jinv:   jp      inverse
+
+f8:     ld      a,(f3)
+	or      a
+	jr      z,f8old
+	ld      hl,curcur
+	ld      a,(hl)
+	or      a
+	ret     z
+	dec     (hl)
+	ret
+f8old:  call    normal
+	call    getpoint
+	ld      a,1
+	cp      (hl)
+	jp      nc,inverse
+	call    getposx
+	push    hl
+	ld      a,5
+	call    dosft
+	pop     hl
+	cp      (hl)
+	jr      nc,f80
+	ld      hl,-1
+	call    comm15
+	jr      f81
+f80:    call    getposy
+	sub     3
+	push    af
+	call    mini2
+	ld      b,a
+	pop     af
+	add     a,b
+	push    af
+	call    getpoint
+	pop     af
+	cp      (hl)
+	jr      nc,f82
+	ld      hl,-1
+	push    hl
+	call    comm15a
+	pop     hl
+	call    comm18
+	jr      f81
+f82:    call    comm17
+f81:    jp      invstat
+
+f4:     ld      a,(f3)
+	or      a
+	jr      z,f4old
+	ld      hl,curcur
+	ld      a,(sysline)
+	cp      (hl)
+	ret     z
+	inc     (hl)
+	ret
+f4old:  call    normal
+	call    getmode
+	dec     a
+	jr      z,f41           ; if full
+	inc     a
+	jr      nz,f40          ; if info
+	ld      a,25
+	call    dosft
+	push    af
+	call    getposx
+	pop     af
+	cp      (hl)
+	jr      nc,f40          ; if posx < 26
+f41:    call    getmode
+	add     a,a
+	ld      b,a
+	ld      a,3
+	sub     b
+	ld      b,a
+	push    bc
+	call    mini2
+	pop     bc
+	ld      c,a
+	xor     a
+f43:    add     a,c
+	djnz    f43
+	push    af
+	call    getfirst
+	pop     af
+	add     a,(hl)
+	push    af
+	call    getquant
+	pop     af
+	ld      b,a
+	ld      a,(hl)
+	cp      b
+	ld      hl,1
+	push    hl
+	call    nc,comm18
+	pop     hl
+	call    comm15a
+	call    ctrlptr
+	jr      f81             ; jr  f42
+f40:    ld      hl,1
+	call    comm15
+	call    ctrlptr
+f42:    jr      f81
+
+f5:     call    normal
+	call    getpoint
+	ld      a,1
+	cp      (hl)
+	jp      nc,inverse
+	call    getposy
+	ld      a,3
+	cp      (hl)
+	jr      nc,f51
+	dec     (hl)
+	jr      f50
+f51:    call    getmode
+	ld      a,1
+	cp      (hl)
+	jr      nz,f52
+        call    downsc
+	jr      f50
+f52:    ld      a,2
+	call    dosft
+	push    af
+	call    getposx
+	pop     af
+	cp      (hl)
+	jr      nc,f53
+	call    mini2
+	add     a,2
+	push    af
+	call    getposy
+	pop     af
+	ld      (hl),a
+	call    getposx
+	sub     13
+	ld      (hl),a
+	jr      f50
+f53:    call    downsc
+f50:    call    getpoint
+	dec     (hl)
+	jp      invstat
+
+f0:     call    funcbar
+	call    dsksel
+	call    wset6
+	ld      a,(i1)
+	cp      1bh
+	ret     z
+	jr      fn1a
+;
+fn1:    call    funcbar
+fn1b:   call    dorst0
+fn1a:   jp      rstpan
+
+f27:    call    getseepk3
+	jr      nz,fn1b   ; Выход из каталога PK3 - файла по ESC
+	xor     a
+	ld      (sysline),a
+	ld      (curcur),a
+	jr      lstsys
+
+f7f:    ld      hl,curcur
+	ld      a,(hl)
+	or      a
+	ret     z
+	ld      c,a             ; c=curcur
+	dec     (hl)            ; dec(curcur)
+	ld      hl,sysline
+	ld      a,(hl)          ; a=length(sysline)
+	dec     (hl)            ; dec(sysline)
+	sub     c               ; a=сколько переслать
+	jr      z,lstsys
+	ld      b,0
+	add     hl,bc
+	ld      d,h
+	ld      e,l
+	inc     hl
+	ld      c,a
+	ldir
+	jr      lstsys
+
+f2:     call    funcbar
+	ld      hl,f3           ; Включить / выключить
+	call    replace         ; системную строку
+	jr      lstsys
+
+f10:    call    sccn
+	jr      lstsys
+
+; тимплет
+; F2E - ПОЛУЧИТЬ ИЗ БУФЕРА ТИМПЛЕТА СТРОКУ В МАССИВ (ПО DE).
+f7:     ld      c,2Eh
+	ld      hl,SYSLINE-1
+	ld      (hl),80
+	ex      de,hl
+	call    BDOS
+	ld      a,(sysline)
+	ld      (curcur),a
+;
+lstsys: call    cm2
+	ld      a,(f3)
+	or      a
+	ld      a,black*16+green
+	jr      z,lsts1
+	ld      a,blue*16+white
+lsts1:  call    setcl0          ; back+text
+	call    writest         ; clreol
+	db      27,'Q',8,27,'Y',37h,20h,27,'K',27,'Q',6,0
+	call    cm3
+;
+;sysln:
+;
+        call    userpath
+	ld      hl,118h
+	call    gotoxy		;systemline (xpos,ypos) -> hl
+        ld      hl,path
+        ld      a,(hl)
+        inc     hl
+        call	wst
+;
+	call    sumlength
+	cp      80
+	jr      c,lstsys1
+	ld      hl,path
+	ld      a,79
+	sub     (hl)
+	ld      (sysline),a
+lstsys0:ld      hl,sysline
+	ld      a,(hl)
+	inc     hl
+	jp      wst
+lstsys1:call    lstsys0
+	jp      fillwin
+;
+f6:     call    dorst0
+	call    ractpn
+	call    getmode
+	cp      2
+	jr      c,f60
+	ld      (hl),0
+	call    gotop
+	xor     a
+	call    respan
+	call    normal
+	call    ractpn
+	jr      lstsys
+f60:    ld      (hl),2
+	call    info
+;
+ractpn: ld      hl,actpan
+replace:ld      a,(hl)
+	xor     1
+	ld      (hl),a
+f11:
+f25:
+f26:
+f28:    ret
+;
+comm17: call    getfirst
+	dec     a
+	jr      z,comm170
+	ld      (hl),1
+	ld      a,(key)
+	cp      23
+	call    nz,list
+comm170:call    getpoint
+	ld      (hl),1
+	call    getposy
+	ld      (hl),3
+	ret
+
+comm15: push    hl              ; posx:=posx +- 13
+	ld      b,13
+	xor     a
+c150:   add     a,l
+	djnz    c150
+	push    af
+	call    getposx
+	pop     bc
+	add     a,b
+	ld      (hl),a
+	pop     hl
+
+comm15a:push    hl                      ;Вход в hl
+	call    mini2                   ;point:= point +- mini2
+	pop     de
+	ld      hl,0
+c15a0:  add     hl,de
+	dec     a
+	jr      nz,c15a0
+	push    hl
+	call    getpoint
+	pop     de
+	add     a,e
+	ld      (hl),a
+	ret
+grms0:  db      'Select',0
+grms1:  db      8,8,' Unselect',0
+
+grplmn: ld      hl,pattern
+	call    ldfl12
+	call    wset8
+	ld      hl,170ah
+
+	ld      a,(i4)
+	cp      14
+	ld      de,grms0
+	jr      z,grplmn1
+	ld      de,grms1
+
+grplmn1:call    modist
+	push    af
+	call    wset6
+	pop	af
+        cp      1bh
+	ret     z
+	ld      de,pattern
+	call    lhfl12
+	ld      a,2
+	ld      (dorst),a
+	ld      a,(i4)
+
+select: ld      (selmode),a     ;Вход в рег. A
+	call    quantypk3
+	ret     z
+	ld      a,(selmode)
+	cp      14
+	jr      nz,sel0
+	ld      a,178
+	ld      (ch),a
+	jr      sel1
+sel0:   ld      a,'.'
+	ld      (ch),a
+	ld      hl,pattern+8
+	ld      (hl),178
+sel1:   call    getquant
+	ld      (rs0),a
+	ld      a,1
+	ld      (rs),a
+sel2:   ld      a,(rs)
+	call    catname
+	ld      de,pattern
+	call    equal
+	jr      z,sel3
+	call    arrsel2
+	dec     hl
+	ld      a,(rs)
+	call    allde1
+	call    getname1
+	ld      de,8
+	add     hl,de
+	ld      a,(ch)
+	ld      (hl),a
+	call    getmarked
+	ld      a,(selmode)
+	cp      14
+	jr      nz,sel4
+	inc     (hl)
+	ld      a,(rs)
+	call    incmarkeds
+	jr      sel3
+sel4:   dec     (hl)
+	ld      a,(rs)
+	call    decmarkeds
+sel3:   ld      hl,rs
+	inc     (hl)
+	ld      hl,rs0
+	dec     (hl)
+	jr      nz,sel2
+	ld      hl,pattern+8
+	ld      (hl),'.'
+	ret
+ rn+8
+	ld      (

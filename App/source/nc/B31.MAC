@@ -1,0 +1,810 @@
+;                    ==============================
+;                    === модуль Pull Down Menus ===
+;                    ==============================
+
+ctrlbrief:
+	call    getmode
+	cp      2
+	ret     z
+	push    af
+	call    getmode1
+	cp      2
+	call    z,dorst0
+ctrl01: pop     af
+	cp      (hl)
+	ret     z
+gotop:  call    getfirst
+	ld      (hl),1
+	call    comm170
+	call    getposx
+	push    hl
+	ld      a,2
+	call    dosft
+	pop     hl
+	ld      (hl),a
+	ret
+getctrlpar:
+	ld      hl,begset
+	ld      de,bufset
+	ld      bc,endset-begset
+	ret
+; = основное меню ===
+pulldn: call    dorst3
+	ld      (iii),a
+	ld      a,(minist)
+	ld      (isort),a
+	ld      hl,(mode)
+	ld      (mode1),hl
+	call    getctrlpar
+	ldir                    ; запись контролируемых параметров в буфер
+	ld      a,(actpan)
+	or      a
+	jr      z,lpldn0
+	ld      a,3
+lpldn0: ld      hl,winmain-2    ; "верхняя балка"
+	ld      (hl),a
+	inc     hl
+	inc     hl              ; hl=winmain
+	call    objectwin
+	call    getctrlpar      ; проверка контролируемых параметров
+pldn37: ld      a,(de)
+	cp      (hl)
+	inc     hl
+	inc     de
+	dec     bc
+	jr      nz,pldn38
+	ld      a,b
+	or      c
+	jr      nz,pldn37
+	ld      hl,mode
+	ld      a,(hl)
+	inc     hl
+	or      (hl)
+	rra
+	rra
+	jr      nc,abc1
+	ld      a,(iii)
+	ld      (dorst),a
+abc1:   ld      a,(dorst)
+	cp      3
+	ret     z
+pldn38: ld      a,(dorst)
+	cp      3
+	ld      a,1
+	jr      nz,pldn39
+pldn83: ld      (dorst),a
+pldn39: call    wset6
+	ld      a,(isort)
+	ld      b,a
+	ld      a,(minist)
+	cp      b
+	call    nz,gotop
+	push    af
+	call    ctrlbrief
+	call    ractpn
+	pop     af
+	call    nz,gotop
+	call    ctrlbrief
+	call    ractpn
+	call    getmode
+	sub     2
+	call    z,ractpn
+;
+fn14:   ld      sp,(stacknc)
+	jp      res
+;
+wmaincase:
+	ld      b,5             ; xpos
+	jr      z,mnsub0
+	dec     a
+	ld      hl,winfail1
+	jr      z,mnsub1
+	dec     a
+	ld      hl,winfail2
+	jr      z,mnsub1
+	ld      b,35            ; xpos
+mnsub0: ld      hl,winfail0+1
+	ld      (hl),b
+	dec     hl
+mnsub1: ld      (nummn),a
+	call    initwin
+	ld      a,(i1)
+	cp      27
+	ret     z
+	ld      (i1buff+2),a
+	ld      a,0dh
+	ld      (i1buff+3),a
+	ret
+;
+wfl0case:
+	cp      3
+	jr      c,f0case0
+	cp      8
+	jr      c,f0case1
+	ld      hl,winfilt+1
+	ld      a,(nummn)
+	or      a
+	ld      (hl),3
+	jr      z,isleft
+	ld      (hl),33
+isleft: dec     hl
+	jp      initwin
+f0case0:push    af
+	ld      a,(nummn)
+	xor     1
+	call    getmode11
+	pop     af
+	cp      (hl)
+	jr      nz,pins0
+	cp      2
+	ret     z
+pins0:  push    af
+	ld      a,(nummn)
+	call    getmode11
+	pop     af
+	ld      (hl),a
+	jr      st0
+f0case1:sub     3
+	push    af
+	ld      a,(nummn)
+	call    getsort1
+	pop     af
+	ld      (hl),a
+
+st0:    ld      hl,202h
+	push    hl
+	ld      b,9
+st00:   push    hl
+	push    bc
+	call    gotoxy
+	call    wr20h
+	pop     bc
+	pop     hl
+	inc     l
+	djnz    st00
+	ld      a,(nummn)
+	call    getmode11
+	add     a,2
+	pop     hl
+	push    hl
+	ld      l,a
+	call    sells2
+	ld      a,(nummn)
+	call    getsort1
+	add     a,6
+	pop     hl
+	ld      l,a
+	jp      sells2
+;
+wfl1case:
+	jr      z,f1case0
+	dec     a
+	jr      z,f1case2
+	dec     a
+	jr      z,f1case3
+	dec     a
+	jr      z,f1case4
+	add     a,13
+	ld      (i4),a
+	call    fillwin
+	jp      grplmn
+f1case0:ld      hl,winlabel
+	jr      twin
+f1case2:call    quanty
+	ret     z
+	ld      hl,winprint
+	jr      twin
+f1case3:call    quanty
+	ret     z
+	call    catro
+	ld      (i14),a
+	call    catsys
+	ld      (i15),a
+	ld      hl,winstat
+twin:   jp      initwin
+f1case4:ld      a,' '
+	call    fillbufcat
+	xor     a
+	ld      (lasttm),a
+	ld      b,a             ; счетчик строк
+	ld      hl,(catbuf)     ; буфер для меню
+	ld      de,64
+	add     hl,de
+	ex      de,hl
+	ld      hl,vvm          ; буфер для тимпл. строки
+	ld      (hl),64
+;
+f1cs41: ex      de,hl
+	push    hl
+	push    de
+	push    bc
+	ld      c,2Eh
+	call    BDOS
+	pop     bc
+	pop     hl
+	pop     de
+	inc     b
+	or      a
+	jr      z,f1cs42        ; в тимплете пусто
+;
+	ld      c,a
+	ld      a,(lasttm)
+	cp      c
+	jr      z,f1cs42        ; выбран весь тимплет
+;
+	or      a
+	jr      nz,f1cs411
+	ld      a,c
+	ld      (lasttm),a
+
+f1cs411:push    hl
+	push    bc
+	ld      b,0
+	inc     hl
+	ld      c,(hl)
+	inc     hl
+	push    de
+	ldir
+	pop     hl
+	ld      de,64
+	add     hl,de
+	ex      de,hl
+	pop     bc
+	pop     hl
+	jr      f1cs41
+
+f1cs42: dec     b
+	ld      a,b
+	ld      b,11    ; макс. ?
+			; рг. А - число строк в буфере
+	call    umnmenu
+f1mes:  db      26,4,' History ',0
+	ld      b,7
+f1cs43: pop     hl
+	djnz    f1cs43
+	ld      hl,(catbuf)               ;+64
+	jp      umn5
+;
+wfl2case:
+	jr      z,f2case0
+	dec     a
+	jr      z,f2case1
+	dec     a
+	ld      hl,pathpr
+	jr      z,pca345
+	dec     a
+	ld      hl,keybar
+	jr      z,pca345
+	dec     a
+	ld      hl,minist
+	jr      z,pca345
+	dec     a
+	jp      nz,svset
+	ld      hl,clock
+	call    pca345
+; esc,'Z',2 - получить состояние часов
+; esc,'Z',3,byte - установить состояние часов
+;  состояние часов:
+;   d0 - 1/0 - разрешен/запрещен вывод времени
+;   d1 - 1/0 - вывод времени с инверсией/без инверсии
+;   d2 - 1/0 - полный/сокращенный формат вывода времени
+;   d3 - 1/0 - 24/12 часовой режим
+	call    writest
+	db      27,'Z',2,0
+	call    conin
+	rra
+	ld      b,a             ; состояние часов
+	ld      a,(clock)
+	rra
+	ld      a,b
+	rla                     ; состояние часов
+	push    af
+	call    writest
+	db      27,'Z',3,0
+	pop     af
+	jp      conouta
+f2case0:ld      hl,cnfvarbeg
+	ld      de,filname
+	ld      bc,cnfvarend-cnfvarbeg
+	ldir
+	ld      hl,winconf
+	call    initwin
+	ld      hl,filname
+	ld      de,cnfvarbeg
+	ld      bc,cnfvarend-cnfvarbeg
+	ldir
+wfl1proc:
+wmainproc:
+	ret
+f2case1:ld      hl,inside
+	ld      de,vvm
+	ld      bc,endctrl-inside
+	ldir
+	ld      hl,winedit
+	call    initwin
+	ld      hl,vvm
+	ld      de,inside
+	ld      bc,endctrl-inside
+	ldir
+	jp      fillwin
+pca345: call    replace
+
+st1:
+	ld      hl,205h
+	push    hl
+	call    gotoxy
+	ld      hl,pathpr
+	call    storsp
+;
+;        ld      b,250
+;st11:   call    0f83fh
+;        djnz    st11
+;
+	pop     hl
+	inc     l
+	push    hl
+	call    gotoxy
+	ld      hl,keybar
+	call    storsp
+	pop     hl
+	inc     l
+	push    hl
+	call    gotoxy
+	ld      hl,minist
+	call    storsp
+	pop     hl
+	inc     l
+	call    gotoxy
+	ld      hl,clock
+
+storsp: ld      a,(hl)
+	or      a
+	jp      z,wr20h
+	jr      towr2a
+;
+wedstr1:db      13,2,'( )',0
+	db      13,3,'( )',0
+	db      13,6,'( )',0
+	db      13,7,'( )',0
+
+weditproc:
+	call    offwritest
+	db      1,1,'Viewer:',0
+	call    offwritest
+	db      1,5,'Editor:',0
+	call    inv
+	ld      hl,605h
+	call    gotoxy
+	ld      hl,extname
+	call    wrst12
+	ld      hl,609h
+	call    gotoxy
+	ld      hl,extname+12
+	call    wrst12
+	call    norm
+sells:
+	ld      hl,wedstr1
+	ld      b,4
+weditcycl:
+	push    bc
+	call    offwrite
+	pop     bc
+	djnz    weditcycl
+	ld      hl,0f03h
+	ld      a,(inside)
+	or      a
+	jr      z,sells1
+	inc     l
+sells1: call    sells2
+	ld      hl,0f07h
+	ld      a,(inside+1)
+	or      a
+	jr      z,sells2
+	inc     l
+sells2: call    gotoxy
+towr2a: jp      wr2ah
+
+weditcase:
+	jr      z,edcase0
+	dec     a
+	jr      z,edcase1
+	dec     a
+	jr      z,edcase2
+	dec     a
+	jr      z,edcase3
+	dec     a
+	jr      z,edcase4
+edcase5:jp      cansel
+edcase0:xor     a
+	ld      (inside),a
+	jr      sells
+edcase1:ld      a,1
+	ld      (inside),a
+	call    sells
+	ld      hl,extname
+	push    hl
+	call    ldfl12
+	call    inv
+	ld      l,5
+	jr      edcase6
+edcase2:xor     a
+	ld      (inside+1),a
+	jr      sells
+edcase3:ld      a,1
+	ld      (inside+1),a
+	call    sells
+	ld      hl,extname+12
+	push    hl
+	call    ldfl12
+	call    inv
+	ld      l,9
+edcase6:ld      h,6
+	ld      de,filname
+	ld      bc,0b08h
+	call    modi
+	pop     de
+	call    lhfl12
+	jp      norm
+edcase4:pop     hl
+	jr      edcase5
+;
+ficas01:call    replace
+	jr      hidex
+wfiltproc:
+	call    gethid1
+	ld      (elem),a
+	call    getexe1
+	ld      (elem+1),a      ; hidden+execut -> elem
+	call    inv
+	ld      hl,0C04h
+	call    gotoxy
+	ld      a,(nummn)
+	call    getfilt1
+	push    hl
+	call    ldfl12          ; filter -> filname
+	pop     hl
+	call    wrst12
+	call    norm
+	ld      hl,901h
+	call    gotoxy
+	ld      hl,filtstr
+	call    write
+hidex:  ld      de,elem         ; hidden
+	ld      hl,1602h
+	call    cell
+	ld      de,elem+1       ; executable
+	jr      cell
+
+wfiltcase:
+	ld      hl,elem         ; hidden
+	jr      z,ficas01       ; show hidden
+	dec     a
+	inc     hl              ; execut
+	jr      z,ficas01       ; only executable
+	dec     a
+	jr      z,ficase2       ; filter
+	dec     a
+	jr      nz,tocans       ; cansel
+	ld      a,(nummn)
+	call    getfilt1        ; ok
+	ex      de,hl
+	call    lhfl12
+	call    gethid1
+	ld      a,(elem)
+	ld      (hl),a
+	call    getexe1
+	ld      a,(elem+1)
+	ld      (hl),a
+tocans: jp      cansel
+ficase2:call    inv
+	ld      hl,0C04h
+	ld      de,filname
+	ld      bc,0b08h
+	call    modi
+	jp      norm
+;
+wstatproc:
+	call    offwritest
+	db      12,2,'to',0
+	call    offwritest
+	db      2,1,'Set',0
+;wststr0:db      9,0,' Status ',0
+;        ld      hl,ignms0
+;        call    offwrite
+;        call    set12col
+	call    xfiles
+stsells:
+	ld      hl,604h
+	ld      de,i14
+	call    cell
+	ld      de,i15
+;        jp      cell
+;
+cell:   push    hl
+	push    de
+	call    gotoxy
+	ld      c,'('
+	call    conout
+	pop     hl
+	call    storsp
+	ld      c,')'
+	call    conout
+	pop     hl
+	inc     l
+	ret
+
+wstatcase:
+	ld      hl,i14
+	jr      z,stcas01
+	dec     a
+	ld      hl,i15
+	jr      z,stcas01
+	dec     a
+	jr      z,stcase2
+stcase5:jp      cansel
+stcas01:call    replace
+	jr      stsells
+;
+stcase2:call    resact0
+	call    getmarked
+	jr      nz,stcycl0
+	call    xsetst
+	jr      exstat
+stcycl0:call    getpoint
+	push    af
+	ld      (hl),0
+stcycl1:inc     (hl)
+	push    hl
+	call    getcat9
+;        cp      178
+	jr      nz,notmark
+	call    psetcat9
+	ld      hl,802h
+	call    gotoxy
+	call    c1wrst12
+	call    xsetst
+	call    getmarked
+	dec     (hl)
+notmark:pop     hl
+	jr      nz,stcycl1
+	pop     af
+	ld      (hl),a
+exstat: call    dorst0
+	jr      stcase5
+;
+xsetst: call    statcomm
+	and     3fh
+	ld      b,a
+	ld      a,(i14)
+	and     1
+	rrca
+	or      b
+	ld      b,a
+	ld      a,(i15)
+	and     1
+	rrca
+	rrca
+	or      b
+	ld      (hl),a
+	ld      a,(i14)
+	cpl
+	and     1
+	call    setstat
+	ld      a,(i15)
+	cpl
+	and     1
+	add     a,2
+	jp      setstat
+;
+wlabproc:
+	call    resact
+	ld      hl,0C02h
+	call    gotoxy
+	ld      hl,infoms4
+	call    write
+	call    wrdsk2
+	call    getlabel
+	cpl
+	ld      (iii),a                 ;pushhl
+	or      a
+	jr      nz,lab1
+	ld      hl,603h                 ; 803h
+	call    gotoxy
+	ld      hl,infoms9
+	jp      write
+;
+lab1:   call    offwritest
+wlabstr:db      3,2,'Label: ',0
+	ld      a,3
+	ld      (iii),a
+	call    inv
+	ld      hl,vvm
+	ld      a,16
+	call    wstrng
+	jr      tonormx
+
+wlabcase:
+	jr      z,lbcase0
+	dec     a
+	jr      z,lbcase1
+lbcase2:jp      cansel
+lbcase0:ld      a,(iii)           ;(pushhl)
+	or      a
+	jr      z,lbcase2
+	ld      a,2
+	ld      (iii),a
+	call    setlabel
+	jr      lbcase2
+lbcase1:ld      a,(iii)
+	or      a
+	ret     z
+	call    inv
+	ld      hl,0b03h
+	ld      de,vvm
+	ld      bc,0ff7h ; 0df7
+	call    modi
+tonormx:jp      norm
+;
+wcnfcase:
+	ld      hl,method
+	jr      z,cncas01
+	dec     a
+	ld      hl,umn
+	jr      z,cncas01
+	dec     a
+	ld      hl,verify
+	jr      z,cncas01
+	dec     a
+	ld      hl,eofdetect
+	jr      z,cncas01
+	dec     a
+	ld      hl,dopk3view
+	jr      z,cncas01
+	dec     a
+	ld      hl,doscr
+	jr      z,cncas01
+	dec     a
+	jr      nz,cansel
+	pop     hl
+;
+cansel: pop     hl
+	pop     hl
+	pop     hl
+	jp      closew
+;
+cncas01:call    replace
+wcnfproc:
+	ld      hl,1302h
+	call    gotoxy
+	ld      a,(method)
+	or      a
+	ld      a,24
+	jr      z,wcn1
+	ld      a,25
+wcn1:   ld      (wcn2),a
+	call    writest
+	db      '[',27,'@'
+wcn2:   db      25,']',0
+	ld      hl,1303h
+	ld      de,umn
+	call    cell            ;menu autoload
+	ld      de,verify       ;copy & verify
+	call    cell
+	ld      de,eofdetect
+	call    cell
+	ld      de,dopk3view
+	call    cell
+	ld      de,doscr
+	call    cell
+	jr      ynorm
+;
+wprnproc:
+	ld      hl,ignms0
+	call    offwrite
+	call    set12col
+	ld      hl,1404h
+	ld      de,pgctrl
+	call    cell
+	call    gotoxy
+	call    inv
+	ld      a,(lnonpg)
+	ld      c,a
+	xor     a
+	ld      b,a
+	call    correction
+	ld      a,l
+	call    wrbcd
+ynorm:  jp      norm
+wprncase:
+	jr      z,prcase0
+	dec     a
+	jr      z,prcase1
+	dec     a
+	jr      z,prcase2
+	jp      cansel
+prcase0:ld      hl,pgctrl
+	call    replace
+	jr      wprnproc
+prcase1:ld      hl,lnonpg
+	ld      a,(hl)
+	add     a,5
+	cp      86
+	jr      c,prcas11
+	ld      a,50
+prcas11:ld      (hl),a
+	jr      wprnproc
+prcase2:call    resact
+	call    catname1
+	call    iofcb
+	inc     a
+	ret     z
+	call    umnsubr
+prcycl0:call    getchar5
+	ret     z
+	cp      0dh
+	jr      nz,prcycl1
+	call    monink
+	cp      27
+	ret     z
+	ld      hl,i4
+	inc     (hl)
+	ld      a,(lnonpg)
+	cp      (hl)
+	jr      nz,prcycl1      ;контроль строк на странице
+	xor     a
+	ld      (hl),a
+	ld      a,(pgctrl)
+	or      a
+	jr      z,prcycl1
+	ld      hl,paper
+	call    ErrWin       ;сменить бумагу
+	call    closew
+prcycl1:ld      a,(i1)
+	cp      1ah
+	ret     z
+	ld      c,a
+	push    bc
+mready: call    bios+2dh        ;состояние принтера
+	or      a
+	jr      nz,prcycl2
+	ld      hl,winready
+	call    initwin
+	ld      a,(llist)
+	or      a
+	jr      z,mready
+	pop     bc
+	ret
+prcycl2:pop     bc
+	call    bios+0fh        ;печать символа
+	jr      prcycl0
+;
+wrdycase:
+	ld      (llist),a
+	jp      cansel
+;
+paper:  db      ' Change paper!',7,0
+;
+getchar5:
+	call    getchar
+	ret     z
+	ld      a,(i1)
+	cp      1ah
+	ret
+
+getchar6:
+	call    getchar5
+	ret     z
+	cp      ';'
+	ret     nz
+getch6: call    getchar5
+	ret     z
+	cp      13
+	jr      nz,getch6
+	or      a
+	ret
+
+
+
+
+
+ MAC   $`               NC      ц

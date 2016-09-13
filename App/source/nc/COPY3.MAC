@@ -1,0 +1,599 @@
+;*************** copy 2 ***************
+assgn   equ     iofcb   ;Вход - hl(st12), Выход: a - byte
+comm9ams0:db    'BLACKCAT.INC'
+commms0:db      'out',0
+commms1:db      '   already exist',0
+;
+cfms0:  db      'Copy',0
+cfms1:  db      'Mov',0
+cfms4:  db      'in',0
+verms:  db      ' Verify error',0
+catms:  db      'Directory full',0
+fulms:  db      '  Disk full',0
+abortms:db      'Copying error',0
+
+comm11: ld      a,(actpan)
+	push    af
+	ld      a,(i4)
+	ld      (actpan),a
+	call    arrsl2
+	dec     hl
+	push    hl
+	ld      hl,point-1
+	call    allde1
+	pop     hl
+	call    arrsel
+	call    getname1
+	pop     af
+	ld      (actpan),a
+	ret
+;
+wait:   ex      de,hl   ;Вход - hl(a:st6)
+	call    eqvdisk
+	jr      nz,wait0
+	ld      hl,user
+	ld      a,(hl)
+	inc     hl
+	cp      (hl)
+	jr      nz,wait0
+	push    de
+	ld      hl,0909h
+	ld      bc,321h
+	ld      de,white*256+magenta
+	call    window
+	call    offwritest
+waitms0:db      11,9,'Set ',0
+	pop     hl
+	call    write
+	call    writest
+waitms1:db      'put disk to drive ',0
+	call    wrdsk2
+	call    rki1
+	call    closew
+wait0:
+
+resact: xor     a
+	ld      (alarm),a
+	call    resdsk
+	call    getalarm
+	jr      nz,resact
+resact0:call    getdisk
+	call    setdsk
+	call    getalarm
+	jr      nz,resact
+resact1:call    getuser
+	JP      setusr
+
+modiline:
+	call    monink
+	cp      27
+	jp      z,ExtCopy0
+	ld      hl,(siz)
+	inc     hl
+	ld      (siz),hl
+	xor     a
+	push    hl
+	ld      b,4
+ml0:    add     hl,hl           ;hl:=16*hl
+	rla
+	djnz    ml0             ; a+hl=24 bit
+	pop     de
+	sbc     hl,de
+	sbc     a,b             ; a+hl=hl*15
+	ld      c,b             ; c=b=0
+	ld      de,(sizz)
+modln0: inc     b               ; b-счетчик
+	OR      A
+	SBC     HL,DE
+	sbc     a,c
+	JR      NC,MODLN0
+	push    bc
+	call    fullwin
+	pop     af
+	ld      c,155
+modlni: push    af
+	push    bc
+	ld      hl,0f0eh
+	call    gotoxy
+	pop     bc
+	pop     af
+	cp      33
+	jr      c,modln1
+	ld      a,32
+modln1: jp      spacex
+
+commrw: ld      (kc),a  ;Вход - рег. A (k:byte)
+crwrp:  ld      a,(kc)
+	or      a
+	jr      nz,crw0
+	ld      hl,(varb)
+	push    hl
+	ex      de,hl
+	call    setpdp
+	call    rbpfcb
+	pop     hl
+	push    af
+	call    check0  ;Подсчет к.с. считанной записи (файл-источник)
+	pop     af
+	inc     a
+	jp      z,ErrCopy
+	jr      crw1
+
+crw0:   ld      hl,(varb)
+	ex      de,hl
+	call    setpdp
+
+	ld      de,fcb
+	call    wblock
+	inc     a
+	jp      z,Errful       ;Ошибка чтения/записи - выход из копировщика
+crw1:
+	call    increc          ; Увеличение номера записи в файле
+	ld      hl,(varb)
+	ld      de,128
+	add     hl,de
+	ld      (varb),hl
+
+	ld      hl,(varc)
+	dec     hl
+	ld      (varc),hl
+	push    hl
+	call    modiline
+	pop     hl
+	ld      a,h
+	or      l
+	ret     z
+	jr      crwrp
+
+commcopy:push   af        ;Вход - рег. A(t:byte)
+	ld      a,(count)
+	ld      hl,0
+	ld      de,(sizebuf)
+ccopyi: or      a
+	jr      z,ccopyii
+	add     hl,de
+	dec     a
+	jr      ccopyi
+ccopyii:
+	call    seekrec         ; Установка номера записи в файле
+	ld      hl,(catbuf)
+	ld      (varb),hl
+	ld      hl,(cquant1)
+	ld      de,(sizebuf)
+
+	CALL    INTCMP          ; DE SUB HL
+	JR      NC,CCOPY0
+
+	EX      DE,HL           ; HL = (SIZEBUF)
+;        ld      hl,(sizebuf)
+	jr      ccopy1
+ccopy0: ld      hl,(cquant1)
+ccopy1: ld      (varc),hl
+	pop     af
+	push    af
+	call    commrw
+	pop     af
+	or      a
+	ret     z   ;Зачем закрывать файл - источник? (ошибка при file R/O)
+	ld      de,fcb
+	call    writebl
+	call    cfcb
+	inc     a
+	ret     nz
+ErrCat: ld      hl,Catms        ;Ошибка закрытия файла - выход из копировщика
+	jp      WinerrX
+
+comm:   ld      (cquant1),hl    ;Вход - hl(quant1:integer)
+	call    comm11
+	call    assgn
+	inc     a
+	jp      z,ErrCopy
+;Ошибка открытия файла - выход из копировщика
+	xor     a
+	call    commcopy
+	ld      a,(i5)
+	ld      (actpan),a
+	ld      hl,commms0
+	call    wait            ;wait('output')
+	ld      a,(count)
+	or      a
+	jr      nz,comml0
+
+
+	call    comm11
+	call    initfcb
+
+	call    ffirst
+	jr      nz,ErrCopX      ;Ошибка BDOS - выход из копировщика
+
+	cp      4
+	jr      nc,comml0
+
+	ld      a,1
+	ld      (find),a
+	ld      a,(i4)
+	ld      (actpan),a
+
+	call    ignor23
+	jr      z,toecopy     ;ignor=1 - выход из копировщика
+	inc     a
+	jr      z,comml2
+	cp      1bh
+	jr      nz,comml1
+
+comml2: call    ignore1
+	jr      z,toecopy     ;ignor =1 или 1bh - выход из копировщика
+	cp      1bh-1
+toecopy:jp      z,ecopy
+
+comml1: ld      a,1
+	call    setstatall
+	ld      a,(i5)
+	ld      (actpan),a
+
+comml0: call    comm9a
+	ld      a,(count)
+	or      a
+	jr      nz,comml4
+	call    efcb
+	call    getalarm
+ErrCopX:jp      nz,ErrCopy
+	call    rwfcb
+	jr      comml3
+comml4: call    ofcb
+comml3: inc     a
+	jp      z,ErrCat
+
+ ;Ошибка открытия / создания файла - выход из копировщика
+	ld      a,1
+	call    commcopy
+	ld      a,(i4)
+	ld      (actpan),a
+	ret
+
+CopyFl: call    quanty
+	ret     z       ;Нет файлов в активн. панели - выход
+	ld      (StCopy),sp
+	call    wset8
+	xor     a
+	ld      (find),a
+	ld      (count),a
+	ld      h,a
+	ld      l,a
+	ld      (siz),hl
+	inc     a
+	ld      (rssort),a
+	ld      a,(actpan)
+	ld      (i4),a  ;i4 - панель источника
+;
+	ld      de,black*256+lightgray
+	ld      hl,0e0ah
+	ld      bc,622h
+	call    window  ;Окно копировщика
+;
+	ld      hl,130bh
+	call    gotoxy
+	ld      a,(key)
+	cp      19
+	ld      hl,cfms0
+	jr      z,cf0
+	ld      hl,cfms1
+cf0:    call    write
+	call    writest         ;Вывод Copyng/Moving File
+	db      'ing file ',0
+
+	call    inv
+	call    comm11
+	call    wrst12          ;Вывод (инверсно) имени файла - источника
+	call    norm
+
+	call    offwritest         ;Вывод ' to'
+	db      1dh,0bh,'to',0
+
+	call    ractpn
+	call    getuser
+	call    makepath
+	ld      a,(path)
+	srl     a
+	ld      b,a
+	ld      l,0dh
+	ld      a,1fh
+	sub     b
+	ld      h,a
+	call    gotoxy
+	ld      hl,path
+	ld      a,(hl)
+	inc     hl
+	call    wst
+	ld      a,(actpan)
+	ld      (i5),a  ;i5 - панель приемника
+	call    ractpn
+
+	ld      a,128
+	ld      c,176
+	call    modlni
+;
+	call    resact
+	call    comm11
+	call    initfcb
+	call    getdate         ; получение даты файла
+	inc     a
+	ld      (cfldate),a     ; fldate = 0 - error
+	jr      z,nodate
+	ld      hl,fcb+16
+	ld      de,cdate
+	ld      bc,5
+	ldir
+;
+nodate: call    comm11
+	call    assgn
+	inc     a
+	jp      z,ErrCopy
+;Открыть файл - источник (сист. ошибка или нет файла => выход из копировщика)
+	call    zerosize
+	jp      z,ExtCopy ;Длина файла - источника = 0 => выход из копировщика
+	ld      (sizz),hl
+cf2:    ld      hl,(size)
+	ld      de,(sizebuf)
+
+	CALL    INTCMP          ; DE SUB HL
+	JR      NC,CF3
+
+	EX      DE,HL           ; HL = (SIZEBUF)
+
+;        ld      hl,(sizebuf)
+	push    hl
+	call    comm
+	ld      hl,cfms4
+	call    wait            ;wait('input')
+	ld      hl,count
+	inc     (hl)
+	ld      hl,(size)
+	pop     de              ;ld  de,bufsize
+	and     a
+	sbc     hl,de
+	ld      (size),hl
+	jr      cf2
+
+cf3:    ld      hl,(size)
+	call    comm
+
+;Установлен диск-приемник, временный файл закрыт, его проверка при
+;         ( verify = 1 )
+	ld      a,(verify)
+	or      a
+	jr      z,cins
+
+	ld      hl,ErrVer ;Адрес выхода при ошибке в стек
+	push    hl
+
+	call    comm9a    ;fcb - временный файл
+	call    dmaopen
+	ret     z         ;ошибка - не открыт файл
+
+cverr:  call    rbfcb
+	or      a
+	jr      nz,cverrend
+	ld      hl,(catbuf)
+	inc     a
+	call    check
+	call    erranl
+	ret     nz        ;Ошибка BDOS
+	jr      cverr     ;Файл не кончился, продолжать чтение из него
+
+cverrend:
+	ld      a,(checksumr)
+	ld      b,a
+	ld      a,(checksumv)
+	cp      b
+	ret     nz        ;ОШИБКА - несовпадение к.с.
+	pop     hl        ;Verify OK!, восст. баланс стека
+cins:
+;IGNOR 0 - OVERWRITE
+;      1 - SKIP
+;      2 - ALL OVERWRITE
+
+	ld      a,(ignor)
+	DEC     A
+	JR      NZ,CINS0
+	LD      A,(FIND)
+	OR      A
+	JR      Z,CF4
+	JR      ECOPY
+CINS0:
+	cp      1bh-1
+	jr      z,ECOPY
+	ld      a,(find)
+	dec     a
+	jr      nz,cf4
+
+	call    comm11  ;Удаление файла - приемника с повторным именем
+	call    initfcb
+	ld      a,1
+	call    setstatall
+	call    efcb
+	inc     a
+	jr      z,ErrCopZ
+;Ошибка уст. атрибутов / удаления файла => выход из копировщика
+
+cf4:    call    comm11  ;Настройка fcb на временный файл копировщика
+	call    initfcb
+	ld      hl,fcb
+	ld      de,(catbuf)
+	push    de
+	call    ldir16
+	call    comm9a
+	pop     hl
+	ld      de,fcb+16
+	call    ldir16
+	ld      de,fcb
+	call    rename
+	inc     a
+ErrCopZ:jp      z,ErrCopy
+;Ошибка переименования временного файла копировщика
+;в файл - приемник => выход из копировщика
+
+cf5:    ld      a,128
+	ld      c,155
+	call    modlni
+	call    catro
+	dec     a
+	ld      a,0
+	call    z,setstatall
+
+	call    catsys
+	dec     a
+	ld      a,2
+	call    z,setstatall
+;
+	ld      a,(cfldate)
+	or      a
+	jr      z,nodate0
+	call    comm11
+	call    initfcb
+	ld      hl,cdate
+	ld      de,fcb+16
+	ld      bc,5
+	ldir
+	call    setdate         ; установка даты файла
+nodate0:ld      hl,cfms4
+	call    wait    ;wait('input')
+	jr      OkCopy
+ecopy:  xor     a
+	ld      (rssort),a
+	ld      a,(i4)
+	ld      (actpan),a
+	CALL    RESACT
+	jr      OkCopy
+
+ErrFul: ld      hl,Fulms
+	jr      WinerrX
+ErrVer: ld      hl,Verms
+WinErrX:ld      a,1
+	ld      (alarm),a
+	jr      WinErr
+ExtCopy:ld      hl,abortms
+WinErr: ld      a,(exitcopy)
+	or      a
+	call    z,ErrWin
+ExtCopy0:xor    a
+	ld      (rssort),a
+	inc     a               ; a=1 Прерывание по ESC
+	ld      (exitcopy),a
+OkCopy:
+	ld      sp,(StCopy)     ;ОК!
+	jp      closew
+
+ErrWin: push    hl
+	ld      de,white*256+red
+	ld      hl,160ch
+	ld      bc,512h         ;526h
+	call    window
+	ld      hl,180eh
+	call    gotoxy
+	pop     hl
+	call    write
+	jp      inkey
+
+SETSTATALL:
+	CALL    SETSTAT
+	call    getalarm
+	ret     z
+ErrCopy:ld      hl,abortms
+	jr      WinerrX
+
+; Универс. п/п : уст. DMA:=bufcat, открыть файл
+; выход: z=1 - ошибка, z=0 - OK!
+dmaopen:
+	ld      de,(catbuf)
+	call    setpdp    ;установить DMA
+	call    ofcb      ;открыть файл
+	inc     a
+	ret
+
+getalarm:ld     a,(alarm)
+	or      a
+	ret
+
+check0: xor     a
+check:  push    af              ;a=0 --> read file, a<>0 --> verify file
+; Вычисление "паритета" области памяти
+; Вход: HL - начальный адрес, BC - длина
+; Выход: e - байт "паритета" области памяти
+	ld      bc,128
+	call    computer0
+	pop     af
+	ld      a,e
+	jr      nz,check1
+	ld      (checksumr),a
+	ret
+check1: ld      (checksumv),a
+	ret
+
+computer0:
+	ld      e,0
+compcycl:push   bc
+	ld      a,e
+	xor     (hl)
+	ld      e,a
+	inc     hl
+	pop     bc
+	dec     bc
+	ld      a,b
+	or      c
+	jr      nz,compcycl
+	ret
+
+seekrec:ld      (fcb+21h),hl    ; Установка номера записи в файле.
+	push    hl              ; Вход: hl - номер записи
+	call    seekrec0
+	ld      de,fcb
+	call    seek
+	pop     hl
+	ld      (fcb+21h),hl
+seekrec0:xor     a
+	ld      (fcb+23h),a
+	ret
+
+umnsubr:ld      a,128
+	ld      (count),a
+	xor     a
+	ld      (i1),a
+	ld      (i4),a
+	ld      (i5),a
+	ld      (i14),a
+	ld      de,vvm
+	call    setpdp
+	ld      hl,0ffffh
+
+	jr      vdecinc
+
+increc: ld      hl,(fcb+21h)    ;Увеличение номера записи в файле
+	inc     hl
+
+vdecinc:ld      (fcb+21h),hl
+	ret
+
+zerosize:ld     de,fcb
+	call    filesize
+	ld      hl,(fcb+21h)
+	ld      (size),hl
+	ld      a,h
+	or      l
+	ret
+
+ffirst: ld      de,vvm
+	call    setpdp
+	ld      de,fcb
+	ld      c,17            ;0fh
+	call    bdscall
+	jp      erranl
+;
+dorst0: xor     a
+	ld      (dorst),a
+	ret
+ =b=0
+	ld      de,(sizz)
+modln0: inc     b               ; b-счетчик
+	OR      A
+	SB

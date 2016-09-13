@@ -1,0 +1,1324 @@
+; norton commander v2.0
+;
+VLASOFF equ     0       ; условная компиляция спорных цветов
+;
+INCLUDE VAR
+INCLUDE LD
+INCLUDE WIN
+INCLUDE B1N
+INCLUDE B2
+INCLUDE B3
+INCLUDE B31
+INCLUDE B4
+INCLUDE B5
+INCLUDE B6
+INCLUDE COPY3
+INCLUDE FN
+INCLUDE FN1
+INCLUDE MC1
+INCLUDE CD1
+INCLUDE BCD
+
+;
+ldir8:  ld      bc,8
+        ldir
+        ret
+;
+catname1:call    getpoint
+catname:ld      e,a             ;Вход - рег. A - номер файла
+        ld      d,0
+        ld      a,(actpan)
+        ld      hl,lindex
+        or      a
+        jr      z,nmx
+        ld      hl,rindex
+nmx:    add     hl,de           ; hl = index + acc
+        ld      a,(hl)          ; b = (index+shift)
+getname1:
+        ld      l,a
+        ld      h,0             ; hl=a
+        add     hl,hl           ; hl=a*2
+        add     hl,hl           ; hl=a*4
+        add     hl,hl           ; hl=a*8
+        ld      d,h
+        ld      e,l             ; de=a*8
+        add     hl,hl           ; hl=a*16
+        add     hl,hl           ; hl=a*32
+        add     hl,de           ; hl=a*32+a*8=a*40(elsize2)
+        ld      de,(catalog)    ; de = начало каталога
+        add     hl,de           ; hl=адрес записи о файле
+excatnm:ld      a,(actpan)
+        or      a
+        ret     z
+        ld      de,elsize
+        add     hl,de
+        ret
+
+ldfl12: ld      de,filname
+ldhfl12:ld      bc,12
+        ldir
+        ret
+
+lhfl12: ld      hl,filname
+        jr      ldhfl12
+
+getdirname:
+        ld      a,(dirpoint)
+getdirname1:
+        ld      hl,dirname-16
+        ld      de,16
+        jr      arrsel
+
+getpk3name:
+        ld      hl,mstr-12
+        ld      a,(actpan)
+        jr      allde12
+
+getbufpoint:
+        ld      a,(PageView)    ; Номер страницы
+        ld      de,-3
+        ld      hl,(bufpoint)
+        jr      arrsel
+
+getwindpos:
+        ld      hl,buffw-6      ;Восстановить картинку под окном из буфера
+        ld      de,6
+        jr      arrsel
+
+getmode11:
+        ld      hl,mode-1
+        jr      allde1
+
+getsort1:
+        ld      hl,sortng-1
+        jr      allde1
+
+gethid1:ld      a,(nummn)
+gethidx:ld      hl,hidden-1
+        jr      allde1
+
+getexe1:ld      a,(nummn)
+getexex:ld      hl,execut-1
+        jr      allde1
+
+getins1:ld      hl,inside-1
+allde1: ld      de,1
+        jr      arrsel
+
+getext1:ld      hl,extname-12
+        jr      allde12
+
+getfilt:ld      a,(actpan)
+getfilt1:
+        ld      hl,filter-12
+;        jr      allde12
+
+allde12:ld      de,12
+        jr      arrsel
+
+arrsel2:ld      a,(actpan)
+arrsl2: ld      hl,lindex
+        or      a
+        ret     z               ;        jr      z,arrex
+        ld      hl,rindex
+        ret                     ;        jr      arrex
+
+allde128:
+        ld      de,128
+arrsel: inc     a               ;Вход hl,de,a. Выход hl
+arrsl0: add     hl,de
+        dec     a
+        jr      nz,arrsl0
+arrex:  ld      a,(hl)
+        or      a
+        ret
+getmode1:
+        ld      hl,mode1
+arrsel1:ld      a,(actpan)      ;hl:=hl-1, de:=1, a:=(actpan)
+        dec     hl
+        jr      allde1
+
+arrsel3:ld      a,(actpan)
+arrsel5:dec     hl
+        dec     hl
+allde2: ld      de,2
+        jr      arrsel
+getfirst:
+        ld      hl,first
+        jr      arrsel1
+getpoint:
+        ld      hl,point
+        jr      arrsel1
+getposx:ld      hl,posx
+        jr      arrsel1
+getposy:ld      hl,posy
+        jr      arrsel1
+getlastx:
+        ld      hl,lastx
+        jr      arrsel1
+getlasty:
+        ld      hl,lasty
+        jr      arrsel1
+getmode:ld      hl,mode
+        jr      arrsel1
+getmarked:
+        ld      hl,marked
+        jr      arrsel1
+getsortng:
+        ld      hl,sortng
+        jr      arrsel1
+getdisk:ld      hl,disk
+        jr      arrsel1
+getquant:
+        ld      hl,quant
+        jr      arrsel1
+getrealqn:
+        ld      hl,realqn
+        jr      arrsel1
+getuser:ld      hl,user
+        jr      arrsel1
+getptr: ld      hl,ptr
+        jr      arrsel1
+getdatepr:
+        ld      hl,datepr
+        jr      arrsel1
+getnamespr:
+        ld      hl,namespr
+        jr      arrsel1
+getseepk3:
+        ld      hl,seepk3
+        jr      arrsel1
+getmarkeds:
+        ld      hl,markeds
+        jr      arrsel3
+arrsel4:ld      a,(dirpoint)
+        dec     hl
+wap:    jp      allde1
+
+setless:ld      c,27
+        call    wrsym		; conout
+        ld      c,'@'
+        jr      wrsym
+
+wrlitle:push    af
+        call    setless
+        pop     af
+        jr      conouta
+wr0bah: ld      c,0bah
+        jr      wrsym
+wr179:  ld      c,179
+        jr      wrsym
+wr2ah:  ld      a,7
+        jr      wrlitle
+wr20h:  ld      c,' '
+wrsym:  push    hl
+        push    de
+        push    bc
+        call    conout
+        pop     bc
+        pop     de
+        pop     hl
+        ret
+clrscr: ld      c,0ch              ;cls
+        jr      wrsym              ;вывод байта на экран
+
+wrdsk:  call    chrdsk
+conouta:ld      c,a
+wrdsk3: jr      wrsym
+
+wrdsk2: call    wrdsk
+wrdsk4: ld      c,':'
+        jr      wrdsk3
+
+c1wrst12:
+        ld      a,(renflg)
+        or      a
+        ld      hl,fcb1
+        call    z,catname1
+        jr      wrst12
+st12wr1791:call catname
+st12wr179:call  wr179
+
+wrst12: ld      a,12    ;Вход hl
+wst:    or      a       ;взамен wstrng , вход: hl , a
+        ret     z
+        ld      b,a
+ws12:
+;	 push    hl
+        ld      a,(hl)
+        cp      20h
+        call    c,setless
+;        pop     hl
+        ld      a,(hl)
+;        push    bc
+        call    conouta		; saves b,de,hl
+;        pop     bc
+        inc     hl
+        djnz    ws12
+        ret
+
+wri1:   ld      a,(i1)
+        jr      conouta
+
+comm9a: ld      hl,comm9ams0
+        jr      initfcb
+c1init: call    catname1
+        jr      initfcb
+filninit:ld     hl,filname
+initfcb:xor     a
+initfbc:ld      de,fcb          ;Адрес имени в hl
+        push    de
+        ld      (de),a
+        ld      b,23h
+        xor     a
+initf0: inc     de
+        ld      (de),a
+        djnz    initf0
+        pop     de
+        ld      b,11
+inif1:  inc     de
+inif4:  ld      a,(hl)
+        inc     hl
+        cp      '.'
+        jr      z,inif4
+        cp      178
+        jr      z,inif4
+        cp      40h
+        jr      c,inif2
+        and     5fh
+inif2:  ld      (de),a
+        djnz    inif1
+        ret
+
+chrdsk: call    getdisk;Символ акт. диска в рег. A
+        add     a,41h
+        ret
+
+clrbuf: push    de
+        ld      b,0eh
+        xor     a
+clrbuf1:ld      (de),a
+        inc     de
+        djnz    clrbuf1
+        ld      b,0ch
+        pop     de
+        ret
+
+up:     ld      de,upbuf
+        call    clrbuf
+        ld      a,b
+        push    de
+        ld      (de),a          ; 20080819
+up0:    inc     de
+        ld      a,(hl)          ; hl - адрес приемника
+        cp      40h
+        jr      c,up1
+        cp      178
+        jr      z,up1
+        and     5fh
+up1:    inc     hl
+        ld      (de),a          ; 20080819
+        djnz    up0
+        pop     hl
+        inc     hl
+        ret
+
+spdel:  ld      de,spstr;Вход и выход -> рег. hl
+	call    clrbuf
+        ld      c,0
+        push    de
+spdel0: ld      a,(hl)
+        cp      ' '
+        jr      z,spdel1
+        inc     de
+        ld      (de),a
+        inc     c
+spdel1: inc     hl
+        djnz    spdel0
+        pop     hl
+        ld      (hl),c
+        inc     hl
+        ret
+
+; Вход: de=фильтр, hl=имя файла, Выход a=0/1=неравны/равны
+equal:  ex      de,hl
+        ld      b,12
+        jr      equal2
+; Вход: hl=фильтр, de=имя файла, Выход a=0/1=неравны/равны
+equalx: ld      b,8
+        call    equal2
+        ret     z
+        inc     hl
+        inc     de
+eqext:  ld      b,3
+equal2: ld      a,(de)
+        cp      (hl)
+        jr      z,equal0
+        cp      40h
+        jr      c,equal1
+        and     5fh
+equal1: cp      (hl)
+        jr      z,equal0
+        ld      a,'?'
+        cp      (hl)
+        jr      z,equal0
+        xor     a       ; если не равны
+        ret
+equal0: inc     hl
+        inc     de
+        djnz    equal2
+        ld      a,1     ; если равны
+        or      a
+        ret
+;
+mpms0:  db      'F:'
+mpms1:  db      '\'
+mpms2:  db      '>'
+;
+userpath:
+        call    getuser
+makepath:
+        push    af
+        xor     a
+        ld      (path),a
+        call    chrdsk
+        ld      hl,mpms0
+        ld      (hl),a
+        ld      b,3
+        call    appath
+
+        call    activ64
+        ld      b,a
+        pop     af              ; a=для какого юзера path
+        push    af
+        or      a
+        jr      z,mkph0         ; если корневой юзер
+        add     a,b
+        call    getdirname1
+        ex      de,hl           ; de=адрес имени юзера
+        ld      hl,path
+        push    hl              ; hl=path
+        exx
+        pop     hl              ; hl'=path
+        exx
+        ld      c,(hl)
+        ld      b,0
+        add     hl,bc           ; конец path
+        inc     hl
+        ld      b,16
+mkph2:  ld      a,(de)          ; добавить имя юзера
+        cp      ' '
+        jr      z,mkph0
+        ld      (hl),a
+        exx
+        inc     (hl)
+        exx
+        inc     hl
+        inc     de
+        djnz    mkph2
+
+mkph0:  call    getseepk3
+        pop     bc              ; b=номер юзера
+        jr      z,mkph1
+        xor     a
+        or      b
+        ld      hl,mpms1
+        ld      b,1
+        call    nz,appath
+        call    getpk3name
+        call    spdel
+        dec     hl
+        ld      b,(hl)
+        inc     hl
+        call    appath
+
+mkph1:  ld      hl,mpms2
+        ld      b,1
+
+appath: ex      de,hl
+        ld      hl,path
+        ld      a,(hl)
+        ld      c,a
+        add     a,b
+        ld      (hl),a
+        ld      a,b
+        ld      b,0
+        add     hl,bc
+        inc     hl
+        ex      de,hl
+        ld      c,a     ; bc=сколько переслать
+        ldir
+        ret
+
+ctrlptr:call    getquant
+        push    af
+        call    getpoint
+        pop     af
+        cp      (hl)
+        ret     nc
+        ld      (hl),a
+        call    getlasty
+        push    af
+        call    getposy
+        pop     af
+        ld      (hl),a
+        call    getlastx
+        push    af
+        call    getposx
+        pop     af
+        ld      (hl),a
+        ret
+
+syser0: xor     a       ;bad sector
+        jr      ioerror
+syser1: ld      a,1     ;select
+        jr      ioerror
+syser2: ld      a,2     ;disk r/o
+        jr      ioerror
+syser3: ld      a,3     ;file r/o
+
+ioerror:ld      (errcode),a
+ioerr0: ld      sp,0F3C0h
+        ld      c,7
+        call    conout
+        ld      sp,(stacknc0)     ;Запоминание парамеров предыдущего окна и вида шрифта
+        ld      a,(wsiz)
+        push    af
+        ld      de,lastWinms
+        call    moveinWinms
+        call    wset8
+        ld      hl,140ah
+        ld      bc,0715h
+        ld      de,white*256+red
+        call    window
+        ld      hl,170ch
+        call    gotoxy
+        call    writest
+ioms1:  db      'BDOS error on ',7,0
+        call    askdsk          ;Получить физический номер диска
+        add     a,41h
+        call    conouta
+        call    wrdsk4
+        ld      hl,1a0eh
+        call    gotoxy
+
+        db      3Eh
+errcode:db      0
+        ld      hl,bdsmsg-11
+        ld      de,11
+        call    arrsel
+        call    write
+        call    rki1
+        call    closew
+;Восстановление парамеров предыдущего окна и вида шрифта
+        pop     af
+        ld      (wsiz),a
+        call    wset
+        ld      hl,lastWinms
+        call    movetoWinms
+        call    setw
+
+        ld      sp,(bdsstc)
+        ld      a,1
+        ld      (alarm),a
+        ld      (exitera),a
+        ld      (exitcopy),a
+        ld      a,0ffh
+escbdoserr:
+        ld      (IOdata),a
+        ret
+
+bdsmsg: db      'bad sector',0
+        db      '  select  ',0
+        db      'disk  R/O ',0
+        db      'file  R/O',0
+
+;***** Вызовы BDOS *********************************
+setlabel:
+        ld      c,2Ah   ; установить метку диска (16 col)
+        jr      tonzzz
+;
+getlabel:
+        ld      c,29h   ; получить метку диска (16 col)
+tonzzz: ld      de,vvm
+        jr      nzzz
+;
+nfff:   call    bdscall
+        jr      fferror
+nzzz:   call    bdscall
+nzerror:or      a
+        jr      z,fferror
+        ld      a,0ffh
+fferror:call    erranl
+        ld      b,0
+        jr      z,fferr0        ;no Bdos error
+        dec     b
+fferr0: or      b
+        cp      0ffh
+        jr      z,escbdoserr
+        xor     a
+        jr      escbdoserr
+;IOdata:=0 <= Нет ошибок BDOS и результ. операции <> 0ffh, иначе IOdata:=0ffh
+
+getdate:ld      de,fcb
+        ld      c,34h   ; получить дату создания файла
+        jr      nfff
+setdate:ld      de,fcb
+        ld      c,35h   ; установить дату создания файла
+        jr      nfff
+iofcb:  call    initfcb
+ofcb:   ld      de,fcb
+open:   ld      c,0fh   ;Открыть файл
+        jr      nfff
+cfcb:   ld      de,fcb
+close:  ld      c,10h   ;Закрыть файл
+        jr      nfff
+efcb:   ld      de,fcb
+erase:  ld      c,13h   ;Стереть файл
+        jr      nfff
+rbfcb:  ld      de,fcb
+readbl: ld      c,14h   ;Чтение последовательное из файла
+        jr      nzzz
+wbfcb:  ld      de,fcb
+writebl:ld      c,15h   ;Запись последовательноя в файл
+        jr      nzzz
+rbpfcb: ld      de,fcb
+rblock: ld      c,33    ; Чтение произвольное из файла
+        jr      nzzz
+wblock: ld      c,34    ; Запись произвольная в файл
+        jr      nzzz
+rwfcb:  ld      de,fcb
+rewrite:ld      c,16h   ;Создание заголовка файла
+        jr      nfff
+rename: ld      c,17h
+        jr      nfff
+setatt: ld      c,30    ;Установить атрибуты файла
+        jr      nfff
+resdsk: ld      c,0dh   ;Сброс диска
+        jr      bdscall
+setdsk: ld      e,a     ;номер диска в рег. A (0..3)
+        ld      c,0eh
+        jr      bdscall
+setusr: ld      e,a     ;номер области в рег. A
+        ld      c,20h
+        jr      bdscall
+getusnm:ld      c,2bh   ; получить имя юзера
+        jr      bdscall
+filesize:ld     c,23h
+        jr      bdscall
+seek:   ld      c,24h
+bdscall:ld      (bdsstc),sp
+        ld      sp,(stacknc0)
+        call    bdos
+        ld      sp,(bdsstc)
+        ex      af,af'
+        xor     a
+        ld      (IOdata),a
+        ex      af,af'
+        ret
+
+getaddr:ld      c,27
+        jr      bdscall
+
+getdph: ld      c,31
+        jr      callbds
+askdsk: ld      c,19h   ;акт. диск в рег. A
+        jr      callbds
+askusr: ld      c,20h   ;акт. область в рег. A
+        ld      e,0ffh
+        jr      callbds
+setpdp: ld      c,1ah
+callbds:jp      bdos
+
+erranl: push    hl
+        push    af
+        ld      hl,IOdata
+;        ld      a,(hl)
+;        ld      h,a
+        xor     a
+;        cp      h
+        CP      (HL)
+        pop     hl
+        ld      a,h
+        pop     hl
+        ret
+;
+bdsel:  db      red       ; цвет выделенных символов
+        db      0,0       ; last position pointers
+windsel:db      11110101b
+        db      4,8,17h,5
+        db      green,white
+        dw      wdselstr
+        db      0
+        db      0
+dselqn: db      5
+        db      5
+        dw      wdselcase
+edsel:
+;
+; здесь и ниже однократно используемая память
+BEGIN:  XOR     A
+        DEC     A
+        ld      de,NOZ80
+        jp      pe,MSG
+
+        ld      c,12
+        call    BDOS
+        exx
+        ld      a,h
+        cp      0ABh
+        ld      de,BADSYS       ; проверка BEST DOS
+        jp      nz,MSG
+
+        ld      hl,(6)
+        ld      de,readbuf+2400h
+        or      a
+        sbc     hl,de
+        ld      de,NOTPA        ; проверка уровня БДОС
+        jp      c,MSG
+;
+; esc,'Z',2 - получить состояние часов
+; esc,'Z',3,byte - установить состояние часов
+;  состояние часов:
+;   d0 - 1/0 - разрешен/запрещен вывод времени
+;   d1 - 1/0 - вывод времени с инверсией/без инверсии
+;   d2 - 1/0 - полный/сокращенный формат вывода времени
+;   d3 - 1/0 - 24/12 часовой режим
+;
+        ld      de,getclock
+        call    msg
+        ld      hl,biosret
+        push    hl
+        ld      hl,(1)
+        ld      de,6
+        add     hl,de
+        jp      (hl)            ; conin
+biosret:and     1
+        ld      (clock),a
+
+        ld      de,NCM
+        call    MSG
+        ld      c,19h
+        call    bdos            ; askdsk
+        ld      (disk),a
+        ld      (disk+1),a      ; 2008.08.17
+        ld      (ncdisk),a
+        ld      c,20h
+        ld      e,0ffh
+        call    bdos            ; askusr
+        ld      (user),a
+        ld      (ncuser),a
+;
+PROCINI:call    findset
+        call    findini
+        ld      a,(user)
+        or      a
+        jr      z,@user0
+        ld      e,0
+        ld      c,32
+        call    bdos            ;setusr
+        call    findset
+        call    findini
+@user0: ld      a,(disk)
+        or      a
+        jr      z,@diskA
+;       ld      e,0             ; 2008.08.17
+;       ld      c,14
+;       call    bdos            ;setdsk
+;       call    findset
+;       call    findini         ; 2008.08.17
+@diskA: jp      START
+;
+findini:ld      a,(iniloaded)
+        or      a
+        ret     nz
+        ld      de,INIFCB
+        ld      c,15
+        call    bdos
+        cp      4
+        ret     nc
+        ld      a,1
+        ld      (iniloaded),a
+        LD      (LINECNT),A
+        LD      HL,LMANE
+        LD      (HL),1AH
+        LD      DE,LMANE+1
+        LD      BC,4000H
+        LDIR
+        LD      DE,INIFCB
+        LD      HL,LMANE
+        LD      B,80H
+        CALL    FREAD           ; ЧИТАЕМ НЕ БОЛЕЕ 16К
+        LD      HL,LMANE
+ANALIS: LD      A,(HL)
+        CP      0AH
+        JR      NZ,ANAL1
+        LD      A,(LINECNT)
+        INC     A
+        DAA
+        LD      (LINECNT),A
+ANAL1:  LD      A,(HL)
+        INC     HL
+        CALL    EOF
+        ret     Z
+        CALL    EOSTR
+        JR      Z,ANALIS
+        DEC     HL
+        PUSH    HL
+        CALL    EXEC
+        POP     HL
+SEARC:  LD      A,(HL)
+        INC     HL
+        CALL    EOF
+        ret     Z
+        CALL    EOSTR
+        JR      NZ,SEARC
+        JR      ANALIS
+;
+EXEC:   CALL    BLANK           ; ПРОПУСК ПРОБЕЛОВ
+        LD      A,(HL)
+        CP      ';'
+        RET     Z
+        CALL    GETWORD         ; ПОЛУЧИТЬ СЛОВО
+        CALL    BLANK
+        PUSH    HL
+        LD      DE,TABWORD
+        CALL    CPSTR
+        EX      (SP),HL
+        RET     NZ           ; ЕСЛИ НАЙДЕН, ТО ВЫЗОВ ПО (HL)
+        POP     HL
+        RET
+;
+; ВЫДЕЛЯЕТ СЛОВО ИЗ ФРАЗЫ И ПОМЕЩАЕТ ЕГО НА BUFWORD
+;
+GETWORD:LD      DE,BUFWORD
+        LD      C,0
+ABF11:  LD      A,(HL)
+        CALL    UPCASE
+        CP      20H
+        RET     Z
+        CP      9
+        RET     Z
+        CALL    EOSTR
+        RET     Z
+        CP      3DH
+        RET     Z
+        CP      2CH
+        RET     Z
+        LD      (DE),A
+        INC     HL
+        INC     DE
+        INC     C
+        JR      ABF11
+;
+; П/П ИЩЕТ В ТАБЛИЦЕ КЛЮЧЕВЫХ СЛОВ СЛОВО , СОВПАДАЮЩЕЕ СО СЛОВОМ В BUFWORD
+; ВЫХОД: ЕСЛИ НАЙДЕНО , ТО ВОЗВРАЩ. А=0FFH, Z=FALSE, HL=АДРЕС ПОДПРОГРАММЫ
+;        ИНАЧЕ ВОЗВРАЩАЕТ  А=0, Z=TRUE
+;
+CPSTR:  LD      HL,BUFWORD
+        LD      A,(DE)          ; A= ДЛИНА ТАБЛИЧНОГО ОБРАЗЦА
+        OR      A
+        RET     Z               ; A=0 ЕСЛИ КОНЕЦ ТАБЛИЦЫ
+        CP      C               ; C= ДЛИНА СЛОВА В BUFWORD
+        INC     DE
+        LD      B,A
+        JR      NZ,NEXT
+ABF56:  LD      A,(DE)
+        CP      (HL)
+        JR      NZ,NEXT
+        INC     DE
+        INC     HL
+        DJNZ    ABF56
+        LD      A,(DE)
+        LD      L,A
+        INC     DE
+        LD      A,(DE)
+        LD      H,A
+        LD      A,0FFH
+        OR      A
+        RET
+;
+NEXT:   INC     DE              ; СЛЕДУЩЕЕ СЛОВО ИЗ ТАБЛИЦЫ
+        DJNZ    NEXT
+        INC     DE
+        INC     DE
+        JR      CPSTR
+;
+EOSTR:  CP      10
+        RET     Z
+        CP      13
+        RET     Z
+EOF:    CP      1AH
+        RET     Z
+        OR      A
+        RET
+;
+; ПРОПУСК ПРОБЕЛОВ
+;
+BLANK:  LD      A,(HL)
+        CP      ' '
+        JR      Z,BLANK1
+        CP      9
+        RET     NZ
+BLANK1: INC     HL
+        JR      BLANK
+;
+; ПЕРЕВОД СИМВОЛА НА БОЛЬШИЕ ЛАТИНСКИЕ СИМВОЛЫ
+;
+UPCASE: AND     7FH
+        CP      61H
+        RET     C
+        CP      7BH
+        RET     NC
+        SUB     20H
+@REM:   RET
+;
+@FILTER:LD      DE,FILTER
+        CALL    @MOVNAM
+        CALL    BLANK
+        LD      A,(HL)
+        CP      ','
+        JP      NZ,ERRORINI
+        INC     HL
+        CALL    BLANK
+        LD      DE,FILTER+12
+        JR      @MOVNAM
+;
+@VNAME: LD      DE,EXTNAME
+        JR      @ENAME1
+;
+@ENAME: LD      DE,EXTNAME+12
+@ENAME1:PUSH    HL
+        PUSH    DE
+        LD      H,D
+        LD      L,E
+        INC     DE
+        LD      BC,7
+        LD      (HL),' '
+        LDIR
+        INC     DE
+        LD      HL,RUNEXT
+        LD      C,3
+        LDIR
+        POP     DE
+        POP     HL
+;
+@MOVNAM:LD      (ELMM),DE
+        LD      B,8
+@FNAM:  LD      A,(HL)
+        CP      ','
+        RET     Z
+        CP      ' '+1
+        RET     C
+        INC     HL
+        CP      '.'
+        JR      Z,@FEXT
+        CP      '*'
+        JR      Z,@FEXT
+        LD      (DE),A
+        INC     DE
+        DJNZ    @FNAM
+@FEXT:  PUSH    HL
+        LD      HL,(ELMM)
+        LD      DE,9
+        ADD     HL,DE
+        EX      DE,HL
+        POP     HL
+        LD      B,3
+@FEXT1: LD      A,(HL)
+        CP      ','
+        RET     Z
+        CP      ' '+1
+        RET     C
+        INC     HL
+        CP      '.'
+        JR      Z,@FEXT1
+        CP      '*'
+        RET     Z
+        LD      (DE),A
+        INC     DE
+        DJNZ    @FEXT1
+        RET
+;
+@MODE:
+;        ld      b,250
+;looo:   call    0f83fh
+;        djnz    looo
+
+        LD      DE,MODE
+        CALL    DOUBLEINT
+        LD      B,3             ; MAX
+        CALL    @TSTINT
+        LD      HL,MODE
+        LD      A,(HL)
+        CP      2
+        RET     NZ
+        DEC     (HL)
+        RET
+;
+@SORTING:
+        LD      DE,SORTNG
+        CALL    DOUBLEINT
+        LD      B,5
+@TSTINT:JP      C,ERRORINI
+        LD      A,(DE)
+        CP      B
+        JP      NC,ERRORINI
+        INC     DE
+        LD      A,(DE)
+        CP      B
+        JP      NC,ERRORINI
+        RET
+;
+@SHOW:  LD      DE,HIDDEN
+@TST2:  CALL    DOUBLEINT
+        LD      B,2
+        JR      @TSTINT
+;
+@ONLY:  LD      DE,EXECUT
+        JR      @TST2
+;
+@PATH:  LD      DE,PATHPR
+@ONETST:CALL    GETNUM
+        JP      C,ERRORINI
+        LD      A,B
+        CP      2
+        JP      NC,ERRORINI
+        LD      (DE),A
+        RET
+;
+@KEY:   LD      DE,KEYBAR
+        JR      @ONETST
+;
+@MINI:  LD      DE,MINIST
+        JR      @ONETST
+;
+@VIEWER:LD      DE,INSIDE
+        JR      @ONETST
+;
+@EDITOR:LD      DE,INSIDE+1
+        JR      @ONETST
+;
+;сортировка по возрастанию/убыванию
+@METHOD:LD      DE,METHOD
+        JR      @ONETST
+;
+;Есть/нет холодная загрузка меню пользователя
+@MENU:  LD      DE,UMN
+        JR      @ONETST
+;
+;Есть/нет верификация при копировании
+@VERIFY:LD      DE,VERIFY
+        JR      @ONETST
+;
+;реакция на код 1ah во вьювере
+@EOF:   LD      DE,EOFDETECT
+        JR      @ONETST
+;
+;Запрет вызова внешнего обработчика файлов *.pk3
+@PK3LIST:
+        LD      DE,DOPK3VIEW
+        JR      @ONETST
+;
+;Есть / нет работа с CPM экраном
+@RESTORE:
+        LD      DE,DOSCR
+        JR      @ONETST
+;
+@PALETTE:
+        CALL    GETNUM
+        jp      c,errorini
+        ld      a,b
+        or      a
+        ret     z
+        ld      hl,tcolcor
+pal1:   ld      e,(hl)
+        inc     hl
+        ld      d,(hl)
+        inc     hl
+        ld      a,e
+        or      d
+        ret     z
+        ld      a,(hl)
+        inc     hl
+        ld      (de),a
+        jr      pal1
+;
+getclock:db     27,'Z',2,'$'
+NOZ80:  defb    13,10,'ONLY Z80 CPU',13,10,'$'
+BADSYS: defb    13,10,'SORRY, ONLY FOR BEST DOS.',13,10,'$'
+NOTPA:  defb    13,10,'Not enough TPA memory',13,10,'$'
+NCM:    defb    27,'Q',8,13,10,27,'W',csetw,0,0,25,60
+        defb    'The Norton Commander,V2.0h. '
+        defb    'Produced by Black Cat inc.',10,13,'$'
+        defb    'Copyright 1996 by Chistyakov Vl.'
+ERRSTRI:defb    13,10,'Error in  NC.INI  line  ','$'
+;
+TABWORD:db      3,'REM'
+        dw      @REM
+        db      4,'MODE'
+        dw      @MODE
+        db      7,'SORTING'
+        dw      @SORTING
+        db      6,'FILTER'
+        dw      @FILTER
+        db      11,'SHOW_HIDDEN'
+        dw      @SHOW
+        db      15,'ONLY_EXECUTABLE'
+        dw      @ONLY
+        db      11,'PATH_PROMPT'
+        dw      @PATH
+        db      7,'KEY_BAR'
+        dw      @KEY
+        db      11,'MINI_STATUS'
+        dw      @MINI
+        db      6,'EDITOR'
+        dw      @EDITOR
+        db      6,'VIEWER'
+        dw      @VIEWER
+        db      11,'EDITOR_NAME'
+        dw      @ENAME
+        db      11,'VIEWER_NAME'
+        dw      @VNAME
+        db      14,'SORTING_METHOD'
+        dw      @METHOD
+        db      13,'MENU_AUTOLOAD'
+        dw      @MENU
+        db      6,'VERIFY'
+        dw      @VERIFY
+        db      13,'EOF_DETECTION'
+        dw      @EOF
+        db      12,'PK3LIST_MODE'
+        dw      @PK3LIST
+        db      14,'RESTORE_SCREEN'
+        dw      @RESTORE
+        db      7,'PALETTE'
+        dw      @PALETTE
+        dw      0
+;
+; таблица коррекции цветов PULL DOWN меню
+;
+tcolcor:dw      winmain-3
+        db      lightred
+        dw      winfail2-3
+        db      lightred
+        dw      winfail2+5
+        db      black
+        dw      winfail0-3
+        db      lightred
+        dw      winfail0+5
+        db      black
+        dw      winfail1-3
+        db      lightred
+        dw      winfail1+5
+        db      black
+        dw      winedit-3
+        db      lightred
+        dw      winedit+5
+        db      magenta
+        dw      winedit+6
+        db      white
+        dw      winfilt-3
+        db      lightred
+        dw      winfilt+5
+        db      white
+        dw      winfilt+6
+        db      lightmagenta
+        dw      winstat-3
+        db      lightred
+        dw      winstat+5
+        db      black
+        dw      winstat+6
+        db      lightgray
+        dw      winlabel-3
+        db      lightred
+        dw      winlabel+5
+        db      black
+        dw      winconf-3
+        db      lightred
+        dw      winconf+5
+        db      lightmagenta
+        dw      winconf+6
+        db      white
+        dw      winprint-3
+        db      lightred
+        dw      winexit-3
+        db      blue
+        dw      winexit+5
+        db      white
+        dw      winexit+6
+        db      red
+        dw      winrenmov-3
+        db      lightred
+        dw      winrenmov+6
+        db      lightgray
+        dw      winignor-3
+        db      lightred
+        dw      winpk3lock-3
+        db      lightred
+        dw      dodel+1
+        db      yellow
+        dw      dodel+2
+        db      lightred
+        dw      0
+;
+; ПЕЧАТЬ СООБЩЕНИЯ О ОШИБКЕ
+;
+ERRORINI:
+        LD      DE,ERRSTRI
+        CALL    MSG
+        LD      A,(LINECNT)
+        PUSH    AF
+        RRCA
+        RRCA
+        RRCA
+        RRCA
+        CALL    ERRINI1
+        POP     AF
+ERRINI1:AND     0FH
+        ADD     A,'0'
+        LD      E,A
+        LD      C,6
+        JP      BDOS
+;
+; ПОЛУЧЕНИЕ ДВУХ ЧИСЕЛ, ЗАПИСАННЫХ ЧЕРЕЗ ЗАПЯТУЮ И ЗАПИСЬ
+; ИХ В МАССИВ ПО DE
+;
+DOUBLEINT:
+        CALL    GETNUM
+        RET     C
+        LD      A,B
+        LD      (DE),A
+        INC     DE
+        CALL    BLANK
+        LD      A,(HL)
+        CP      ','
+        SCF
+        RET     NZ
+        INC     HL
+        CALL    GETNUM
+        LD      A,B
+        LD      (DE),A
+        DEC     DE
+        RET
+;
+; ПОЛУЧИТЬ ЧИСЛО ИЗ СТРОКИ.
+; ВЫХОД : В = ЗНАЧЕНИЕ (0..255)
+;         CY = TRUE(C) - ОШИБКА, CY = FALSE(NC) - НОРМАЛЬНО
+;
+GETNUM: LD      A,(HL)
+        INC     HL
+        CALL    EOSTR
+        SCF
+        RET     Z
+        CP      ' '+1
+        JR      C,GETNUM        ; анализ на пустую строку
+        CP      '0'     ; анализ ввода кол-ва блоков
+        RET     C
+        CP      '9'+1
+        CCF
+        RET     C
+
+AC90E:  SUB     '0'
+        LD      B,A
+        LD      A,(HL)
+        CALL    EOSTR   ;OR      A
+        RET     Z
+        CP      ','
+        RET     Z
+        INC     HL
+        CP      '0'
+        CCF
+        RET     NC      ; ВОЗВРАТ ЕСЛИ <'0'
+        CP      '9'+1
+        JR      C,CONTIN ; ПЕРЕХОД ЕСЛИ <'9'+1
+        CP      '@'
+        CCF
+        RET
+CONTIN: LD      C,A
+        LD      A,B
+        ADD     A,A
+        ADD     A,A     ; A=A*4
+        ADD     A,B
+        ADD     A,A     ; A=A*10
+        ADD     A,C
+        JR      AC90E
+;
+; ЧИТАЕМ ФАЙЛ , ОПИСАТЕЛЬ КОТОРОГО ЗАДАН В (DE), РАЗМЕЩАЯ
+; ЕГО В ОЗУ , НАЧИНАЯ С АДРЕСА , ЗАДАННОГО В HL , ПОКА НЕ
+; КОНЕЦ ФАЙЛА ИЛИ ПОКА НЕ КОНЧИТСЯ СЧЕТЧИК  В.
+;
+FREAD:  PUSH    HL
+        PUSH    BC
+        PUSH    DE
+        EX      DE,HL
+        LD      C,1AH
+        CALL    BDOS            ; УСТ. ПДП
+        POP     DE
+        PUSH    DE
+        LD      C,14H
+        CALL    BDOS            ; ПОСЛЕД. ЧТЕНИЕ
+        OR      A
+        POP     DE
+        POP     BC
+        POP     HL
+        RET     NZ              ; ВОЗВРАТ, ЕСЛИ КОНЕЦ ФАЙЛА
+        PUSH    DE
+        LD      DE,80H
+        ADD     HL,DE
+        POP     DE
+        DJNZ    FREAD
+        RET                     ; ВОЗВРАТ, ЕСЛИ
+                                ; КОНЕЦ СЧЕТЧИКА ВС
+; чтение nc.set на текущем диске и юзере
+findset:ld      a,(setloaded)
+        or      a
+        ret     nz
+        ld      de,SETFCB
+        ld      c,15
+        call    bdos
+        cp      4
+        ret     nc
+        ld      de,bufword
+        ld      c,1ah
+        call    bdos    ; set pdp
+        ld      c,14h
+        ld      de,SETFCB
+        call    bdos    ; читать запись из файла
+        or      a
+        ret     nz      ; выход - пустой файл
+        ld      hl,100h
+        ld      de,bufword
+        ld      b,3
+        call    cmpstr
+        ret     nz
+        ld      hl,bufword+3
+        ld      de,begset
+        ld      bc,endctrl-begset
+        ldir
+        ld      a,1
+        ld      (setloaded),a
+        ret
+;
+INIFCB: db      0,'NC      INI'
+        ds      18h,0
+SETFCB: db      0,'NC      SET'
+        ds      18h,0
+LINECNT:DB      0
+ELMM:   DW      0
+setloaded:db    0
+iniloaded:db    0
+;
+        ds      10, 0
+;
+        dw      up
+;
+	dw	f1cs42	
+	dw	pulldn
+BUFWORD:
+LMANE   EQU     BUFWORD+100H
+
+
+        END BEGIN
+
+ СИМВОЛЫ

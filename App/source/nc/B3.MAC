@@ -1,0 +1,271 @@
+pk3ext: db      'pk3'
+runext: db      'com'
+batext: db      'bat'
+;
+;               =====================
+;               === Запуск файла ====
+;               =====================
+; доверяет обработку CCP: подмены, path-файлы, и т.п.
+
+f0d:    call    resact0    ; Уст. диска и юзера
+	ld      a,(sysline)
+	or      a
+	jp      nz,dopcomm ; Переход, если SysLine <> 0
+;
+;  *  Пустая sysline, анализ расширения: bat, pk3, com  *
+;
+	call    getpoint   ; проверка расширения bat
+	ld      de,batext
+	call    cmpext2
+	jr      z,comm40   ; расширение bat, запуск
+;
+	call    getpoint   ; проверка расширения pk3
+	ld      de,pk3ext
+	call    cmpext2
+	jr      nz,nopk3   ; расширение не pk3, skip
+	ld      a,(dopk3view)
+	or      a
+	jp      nz,pk3view ; внутр. обработчик pk3
+	jp      procext    ; иначе обработчик в nc.ext
+;
+nopk3:  call    getpoint   ; проверка расширения com
+	ld      de,runext
+	call    cmpext2
+	jp      nz,procext ; расширение не com, переход на
+			   ; обработку nc.ext
+;
+; расширение com или bat, запуск файла
+;
+comm40: call    sccn       ; sysconcatname
+	call    lstsys     ; ListSysLine
+dopcomm:call    quit
+	call    sysdsk
+
+; запись SysLine в буфер bat-файла
+	ld      hl,sysline-1
+	ld      (hl),80 ; макс. длина строки
+	ex      de,hl
+	ld      c,33h
+	push    de
+	call    BDOS    ; ДОБАВИТЬ СТРОКУ В BAT-БУФЕР
+	pop     de
+	ld      c,2Fh
+	call    BDOS    ; ДОБАВИТЬ СТРОКУ В БУФЕР ТИМПЛЕТА
+
+; инсталляция NC как драйвера на вектор "CCP"
+
+	ld      a,(MARKER)
+	ld      (DOSPAGE),a
+
+	ld      de,NCMAIN ; строка - описатель драйвера
+	ld      c,105   ; Инсталлировать NCMAIN
+	call    BDOS
+	inc     a
+;        ld      de,INSERR
+;        call    z,MSG   ; Если ошибка - предупредить
+	call    z,nosav ; это в LD.MAC
+	jp      0       ; выйти в CCP
+;
+;INSERR: defb    10,13,'NCMAIN driver installation error'
+;        defb    10,13,'$'
+;
+HLATTAB:defw    L00-102h,L01-102h,L02-102h,L03-102h,L04-102h,0
+;
+NCMAIN: defb    0FFh            ; любой банк
+	defb    'NCMAIN  '      ; имя
+	defw    103h            ; начало в TPA
+	defw    3FFFh           ; длина
+	defw    INSTALL-103h    ; инсталлятор
+	defw    FORKILL-103h    ; удалятор
+	defw    0FFFFh          ; любой адрес
+;
+INSTALL:xor     a
+	jr      nz,EXLINK
+	ld      h,B             ; начальный сегмент
+	ld      l,a
+	add     hl,hl
+	add     hl,hl
+	add     hl,hl
+	add     hl,hl           ; сегмент -> адрес
+	push    hl
+	ld      b,h
+	ld      c,l             ; hl=bc=install
+	ld      de,HLATTAB-103h
+	add     hl,de           ; hl=hlattab
+LINK:   ld      e,(hl)
+	inc     hl
+	ld      d,(hl)
+	inc     hl
+	ld      a,e
+	or      d
+	jr      z,EXTLINK
+	ex      de,hl
+	add     hl,bc
+	ex      de,hl           ; de:=de+bc (de+offset)
+	ld      a,(de)
+	add     a,c
+	ld      (de),a
+	inc     de
+	ld      a,(de)
+	adc     a,b
+	ld      (de),a
+	jr      LINK
+EXTLINK:pop     hl
+L00:    ld      (BEGADDR-103h),hl
+L01:    ld      hl,INSTALL-103h
+	inc     (hl)                    ; xor a -> or b
+;
+EXLINK: ld      hl,(CCPV+1)
+L02:    ld      (OLDV1-103h),hl
+	ld      hl,CCPV
+	ld      a,(hl)
+L03:    ld      (OLDV0-103h),a
+	ld      a,(MARKER)
+	ld      (hl),a
+L04:    ld      hl,SHELL-103h
+	ld      (CCPV+1),hl
+;
+FORKILL:ret
+;
+SHELL:  ld	a,b
+	or	c
+	jr	nz, GOTOOLD
+	ld      hl,103h       ; куда
+	defb    3Eh
+DOSPAGE:defs    1
+	push    af
+	exx
+	ex      af,af'
+	ld      a,(MARKER)
+	defb    21h
+BEGADDR:defs    2               ; откуда
+	ld      bc,3FFFh        ; сколько
+	call    Bldir
+	pop     af
+	ld      hl,START
+	call    Bcall           ; Старт NC, в XTPA осталась
+				; резидентная копия NC !
+; Если NC обломился, то переход дальше по цепочке
+GOTOOLD:defb    3Eh
+OLDV0:  defs    1
+	defb    21h
+OLDV1:  defs    2
+	jp      Bjump
+;
+; === обработчик файла nc.ext ===
+procext:call    foundncfile
+	db      'EXT'
+	ret     z
+	call    umnsubr
+pext1:  call    getchar6        ;ищем открывающую скобку
+	ret     z
+	cp      '['
+	jr      nz,pext1
+	ld      hl,filname+9
+	push    hl
+	ld      (hl),' '
+	inc     hl
+	ld      (hl),' '
+	inc     hl
+	ld      (hl),' '
+	pop     hl
+	ld      b,3
+pext2:  push    hl
+	push    bc
+	call    getchar6        ;читаем расширение
+	pop     bc
+	pop     hl
+	ret     z
+	cp      '!'
+	jr      c,pext2
+	cp      ']'
+	jr      z,pext6
+	cp      40h
+	jr      c,pext3
+	and     5fh
+	add     a,32
+pext3:  ld      (hl),a
+	inc     hl
+	djnz    pext2
+pext6:  call    getpoint
+	call    cmpext1  ; сравниваем считанное и имеющееся
+	jr      nz,pext1
+
+pext7:  call    getchar6 ; читаем системную строчку
+	ret     z
+	cp      '!'
+	jr      c,pext7
+	cp      ']'
+	jr      z,pext7
+	call    wrsys
+pext8:  call    getchar6
+	jr      z,comm41
+	cp      0dh
+	jr      z,comm41
+	cp      '$'
+	jr      nz,pext9
+	call    sccn
+	ld      hl,sysline
+	push    hl
+	ld      c,(hl)
+	ld      b,0
+	add     hl,bc
+	ld      a,'.'
+	cpdr
+	inc     hl
+	ld      (hl),0
+	pop     hl
+	ld      (hl),c
+	jr      pext10
+pext9:  cp      '#'
+	push    af
+	call    nz,wrsys
+	pop     af
+	call    z,sccn
+pext10: ld      a,(sysline)
+	cp      70
+	jr      c,pext8
+comm41: call    lstsys
+	call    resact0         ;Уст. диска и юзера
+	jp      dopcomm
+
+
+; === Функция HELP ===
+f15:    call    foundncfile
+HLPEXT: db      'HLP'
+	ret     z
+	ld      hl,(catbuf)
+	push    hl
+;
+; ЧИТАЕМ ФАЙЛ , ОПИСАТЕЛЬ КОТОРОГО ЗАДАН В (DE), РАЗМЕЩАЯ
+; ЕГО В ОЗУ , НАЧИНАЯ С АДРЕСА , ЗАДАННОГО В HL , ПОКА НЕ
+; КОНЕЦ ФАЙЛА ИЛИ ПОКА НЕ КОНЧИТСЯ СЧЕТЧИК  В.
+;
+FREAD12:PUSH    HL
+	EX      DE,HL
+	CALL    setpdp            ; УСТ. ПДП
+	ld      de,fcb
+	CALL    readbl            ; ПОСЛЕД. ЧТЕНИЕ
+	OR	A
+	POP	HL
+	jr      NZ,conthlp      ; ВОЗВРАТ, ЕСЛИ КОНЕЦ ФАЙЛА
+	LD      DE,80H
+	ADD     HL,DE
+	push    hl
+	ld      bc,(bufpoint)
+	sbc     hl,bc
+	pop     hl
+	Jr      c,FREAD12
+conthlp:pop     hl
+	ld      de,HLPEXT
+	call    cmpext
+	ret     nz
+	ld      de,conthlp1
+	push    de
+	jp      (hl)
+conthlp1:
+	ld      a,2
+	ld      (dorst),a
+	call    cm3
+	jp      fn14
+

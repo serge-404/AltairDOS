@@ -1,0 +1,614 @@
+;*****************************
+;     NORTHON COMMANDER      *
+;       Модуль B5.MAC        *
+; decmarkeds,inc...,sort     *
+;        comm9,fsize,normal  *
+;         statln,upsc,dnsc   *
+;    line38,godown,gotoch    *
+;    rstpan,respan,makepan   *
+;*****************************
+decincall:call  getmarkeds
+	ld      c,l
+	ld      b,h
+	ld      e,a
+	inc     hl
+	ld      d,(hl)
+	ret
+
+;Вход в рег.A (t:byte);
+decmarkeds:call catsize
+	push    hl
+	call    decincall
+	ex      de,hl
+	pop     de
+	and     a
+	sbc     hl,de
+	jr      decincall0
+;Вход в рег.A (t:byte);
+incmarkeds:call catsize
+	push    hl
+	call    decincall
+	pop     hl
+	add     hl,de
+decincall0:
+	ld      a,l
+	ld      (bc),a
+	inc     bc
+	ld      a,h
+	ld      (bc),a
+	ret
+;*********** sort *************
+;  Везде идет сравнение : строкаFILNAME ? строка(CAT [ RSSORT] )
+;  и уст. флажки аналогично :     cp  a ? r
+;
+cmpext1:ld      de,filname+9
+cmpext2:push    de
+	call    catname
+	pop     de
+	ld      bc,9
+	add     hl,bc
+cmpext: ld      b,3
+cmpstr: ld      a,(de)
+	cp      (hl)
+	ret     nz
+	inc     de
+	inc     hl
+	djnz    cmpstr
+	ret                     ;z:=1
+
+intcmp: ld      a,d
+	cp      h
+	ret     nz
+	ld      a,e
+	cp      l
+	ret
+
+ondate: call    catname
+	ld      de,ldate-lname
+	add     hl,de
+	push    hl
+	ld      hl,(elem)
+	add     hl,de
+	ex      de,hl
+	pop     hl
+	ld      b,5
+	call    cmpstr
+	ret     nz
+	ld      a,c
+	jr      onname
+onsize: call    catsize         ; hl=размер ф. текущ. узла
+	ld      de,(sizesort)   ; de=размер вставляемого
+	ld      a,d
+	cp      h
+	ret     nz
+	ld      a,e
+	cp      l
+	ret     nz
+	ld      a,c
+onname: call    catname         ; hl=имя файла текущ. узла
+	ld      de,(elem)       ; de=имя вставляемого
+	ld      b,8
+onname1:ld      a,(de)
+	cp      (hl)
+	ret     nz
+	inc     hl
+	inc     de
+	djnz    onname1
+	ld      b,3             ; пропустить "точку"
+onname2:inc     hl
+	inc     de
+	ld      a,(de)
+	cp      (hl)
+	ret     nz
+	djnz    onname2
+	ret
+onext:  call    catname         ; hl=имя файла текущ. узла
+	push    hl
+	ld      a,c
+	ld      bc,9
+	add     hl,bc
+	ex      de,hl           ; de=ext файла текущ. узла
+	ld      hl,(elem)
+	push    hl
+	add     hl,bc           ; hl=ext вставляемого файла
+	ld      c,a
+	ex      de,hl           ; hl=ext(curr),de=ext(elem)
+	exx
+	pop     de
+	pop     hl
+	exx
+	ld      b,3
+onext1: ld      a,(de)
+	cp      (hl)
+	ret     nz
+	inc     hl
+	inc     de
+	djnz    onext1
+	ld      a,c
+	exx
+	ld      c,a
+	ld      b,8
+onext2: ld      a,(de)
+	cp      (hl)
+	ret     nz
+	inc     hl
+	inc     de
+	djnz    onext2
+	ret
+
+sort:   call    getsortng  ;Сортировка "простыми вставками"
+	cp      4
+	ret     nc
+	ld      (rssort),a
+	ld      hl,onname       ; по имени
+	or      a
+	jr      z,lmethod
+	ld      hl,onext        ; по расширению
+	dec     a
+	jr      z,lmethod
+	ld      hl,onsize       ; по размеру
+	dec     a
+	jr      z,lmethod
+	call    getdatepr
+	ret     nz              ; если нет дат - unsorted
+	ld      hl,ondate       ; по дате
+lmethod:ld      (sortc0+1),hl
+	call    getquant
+	cp      2
+	ret     c
+	ld      (i1sort),a      ; максимум
+	ld      a,(method)
+	or      a
+	ld      a,30h           ; по возрастанию
+	jr      z,lmeth1
+	ld      a,38h           ; по убыванию
+lmeth1: ld      (sortc1),a
+	ld      a,2
+	ld      (isort),a       ; текущий элемент
+sortcal:ld      a,(isort)
+	ld      c,a
+	call    catname         ; не портит bc
+	ld      (elem),hl
+	ld      a,(rssort)
+	cp      2
+	ld      a,c
+	call    z,catsize       ; не портит bc
+	ld      (sizesort),hl   ; размер файла -> в sizesort
+	dec     c
+
+sortc2: ld      a,c
+sortc0: call    onname
+sortc1: jr      nc,sortec
+	dec     c
+	jr      nz,sortc2
+
+sortec: call    arrsel2         ; hl=ук-ль на индекс. массив
+	push    hl
+	ld      a,(isort)
+	ld      d,0
+	ld      e,a             ; de=номер текущего элемента
+	add     hl,de
+	ld      a,(hl)
+	ld      (count),a
+	pop     hl
+	inc     c               ;?
+	ld      a,c
+	ld      b,0
+	add     hl,bc           ; hl=ук. на инд. найденного
+	push    hl
+
+	ld      a,(isort)
+	sub     c
+	JR      Z,NOSDV
+	ld      c,a
+	add     hl,bc
+	ld      d,h
+	ld      e,l
+	dec     hl
+	LDDR
+NOSDV:  pop     hl
+	ld      a,(count)
+	ld      (hl),a
+	ld      hl,isort
+	inc     (hl)
+	ld      a,(i1sort)
+	cp      (hl)
+	jr      nc,sortcal
+	ret
+
+upsc:   call    mini2   ;upscroll      18
+	ld      (dy),a
+	ld      b,a
+	push    bc
+	ld      a,1
+	call    dosft
+	pop     bc
+	ld      l,3
+	ld      c,40
+	call    setpar
+	call    su1
+	ld      a,1
+	call    dosft
+	ld      a,(dy)
+	add     a,2
+	ld      l,a
+	call    gotoxy
+	call    wr0bah
+	call    getmode
+	jr      nz,upsc0
+	call    getpoint
+	ld      b,(hl)
+	inc     b
+	ld      a,(dy)
+	neg                     ;cpl
+	add     a,b
+	push    af
+	ld      b,a
+	ld      a,(dy)
+	neg                     ;cpl
+	add     a,b
+	call    upscins
+	pop     af
+	call    upscins
+upsc0:  ld      a,40
+	call    dosft
+	ld      a,(dy)         ;????????
+	add     a,2
+	ld      l,a
+	call    gotoxy
+	call    wr0bah
+	call    getfirst
+	inc     (hl)
+	ret
+upscins:
+	call    catname
+	call    wrst12
+	jp      wr179
+
+downsc: call    mini2           ;downscroll
+	ld      (dy),a
+	ld      b,a
+	push    bc
+	ld      a,1
+	call    dosft
+	ld      l,3
+	pop     bc
+	ld      c,40
+	call    setpar
+	call    sd1
+	ld      a,1
+	ld      l,3
+	call    gotoch
+	call    wr0bah
+	call    getmode
+	jr      nz,downsc0
+	ld      a,14
+	ld      l,3
+	call    gotoch
+	call    wr179
+	call    getpoint
+	ld      b,(hl)
+	dec     b
+	ld      a,(dy)
+	add     a,b
+	push    af
+	call    upscins
+	ld      a,(dy)
+	ld      b,a
+	pop     af
+	add     a,b
+	call    catname
+	call    wrst12
+downsc0:ld      a,40
+	ld      l,3
+	call    gotoch
+	call    wr0bah
+	call    getfirst
+	dec     (hl)
+	call    getlasty
+	inc     (hl)
+	ret
+;
+; п/п определения емкости диска (dsize,dused) 
+;
+;getdisks:
+;	ret
+;
+;
+godown: call    normal
+	call    getpoint
+	push    af
+	call    getquant
+	pop     af
+	cp      (hl)
+	jr      nc,inver
+	call    getposy
+	push    af
+	call    mini2
+	add     a,2
+	ld      b,a
+	pop     af
+	cp      b
+	jr      nc,godw1
+	call    getposy
+	inc     (hl)
+	jr      godw0
+godw1:  call    getmode
+	ld      a,1
+	cp      (hl)
+	jr      nz,godw2
+	call    upsc
+	jr      godw0
+godw2:  call    getposx
+	push    af
+	ld      a,27
+	call    dosft
+	pop     af
+	cp      h
+	jr      nc,godw3
+	call    getposy
+	ld      (hl),3
+	call    getposx
+	add     a,13
+	ld      (hl),a
+	jr      godw0
+godw3:  call    upsc
+godw0:  call    getpoint
+	inc     (hl)
+inver:	jp      inverse
+
+rstpan: xor     a
+	call    respan          ;respanel
+	call    ractpn          ;replactivpanel
+	call    getmode
+	cp      2
+	jr      nz,rstpan0
+	call    info
+	jr      rstpan1
+rstpan0:call    eqvdisk
+	jr      nz,rstpan1
+	ld      a,1
+	call    respan
+	call    normal
+rstpan1:call    ractpn
+	jp      lstsys
+
+respan: ld      b,a             ;respanel
+	ld      a,(dorst)
+	or      a
+	jr      nz,respan0
+	push    af
+	call    getseepk3
+	ld      (hl),0
+	ld      a,b
+	or      a
+	call    z,fillbuf       ; makecat
+	call    fillcat
+	call    filldir
+	pop     af
+respan0:cp      2
+	jr      nc,respan1
+	call    filt
+	call    sort
+respan1:
+	call    drawpan         ;drawpanel
+	call    lines
+	call    wrpath
+
+makepn0:ld      de,yellow*256+blue      ;желтые на голубом
+	call    setcl
+	call    cm2
+
+	ld      a,6
+	call    colcur2
+	call    writest
+makpms0:db      'Name  ',0
+	call    getmode
+	jr      nz,makepn1
+	ld      a,19
+	call    colcur2
+	ld      hl,makpms0
+	call    write
+	ld      a,32
+	call    colcur2
+	ld      hl,makpms0
+	jr      makepn2
+
+makepn1:ld      a,18
+	call    colcur2
+	call    writest
+makpms1:db      'Size ',0
+	ld      a,31
+	call    colcur2
+	ld      hl,makpms3
+makepn2:call    write
+	call    cm3
+
+	call    getquant
+	push    af
+	call    getpoint
+	pop     af
+	sub     (hl)
+	call    c,gotop
+	call    getmode
+	jr      nz,respan3
+	call    mini2
+	add     a,a
+	push    af
+	call    getquant
+	push    af
+	call    getfirst
+	pop     af
+	sub     (hl)
+	ld      b,a
+	ld      a,(hl)
+	dec     a
+	jr      z,respan2
+	pop     af
+	sub     b
+	call    nc,gotop
+	jr      respan3
+respan2:pop     af
+respan3:call    list
+
+invstat:call    inverse
+
+statln: ld      a,(minist)
+	dec     a
+	ret     nz
+	call    quantypk3
+	ret     z
+	ld      a,2
+	ld      l,22
+	call    gotoch
+	call    getmarked
+	ld      b,' '
+	jr      z,pfullst
+
+statln0:ld      a,7
+	call    space
+	call    getmarkeds
+	ld      e,a
+	inc     hl
+	ld      d,(hl)
+	ex      de,hl
+	call    wrsize
+	call    writest
+slinms1:db      '  in',0
+	call    getmarked
+	call    wrquant
+	ld      hl,slinms2
+	call    write
+	ld      a,6
+tospace:jp      space
+
+normal: call    cm3
+	call    getseepk3
+	jr      nz,norm0
+	call    getquant
+	jr      nz,norm0
+	ld      a,2
+	ld      l,3
+	call    gotoch
+	call    writest
+nrmms0: db      ' No file(s) ',0
+	ret
+slinms2 equ      nrmms0+3
+;
+norm0:  call    getposx
+	ld      d,a
+	push    de
+	call    getposy
+	pop     de
+	ld      e,a
+	ex      de,hl
+	call    gotoxy
+	call    getmode
+	ld      a,(hl)
+	or      a
+	jp      z,c1wrst12      ; brief
+	cp      2
+	ret     nc
+	ld      b,179
+pfullst:call    getpoint        ; full
+;
+; п/п печати файла в формате : имя + размер + дата
+; Вход: рег. A - номер файла, рег. B - символ-разделитель
+;
+fullst: push    bc
+	call    catname         ; (hl)=имя файла
+	call    wrst12          ; увеличивает hl на 12
+	pop     af
+	push    af
+	call    conouta         ; печать символа-разделителя
+	ld      a,(hl)          ; status
+	inc     hl              ; (hl)=размер файла
+	ld      c,(hl)
+	inc     hl
+	push    hl
+	push    af
+	ld      h,(hl)
+	ld      l,c
+	call    wrsize          ; размер файла - 8 символов
+	call    wr20h
+	pop     af
+	and     40h
+	ld      c,' '
+	jr      z,notsys
+	ld      c,'h'
+notsys: call    conout          ; отмечать hidden-файлы
+	pop     hl
+	inc     hl              ; (hl)=дата файла
+	pop     af
+	call    conouta         ; не портит hl
+	push    hl
+	call    getdatepr
+	pop     hl
+	ld      a,14
+	jr      nz,tospace
+	inc     hl
+	ld      a,'.'
+	call    wrdate          ; печать дня (2 символа)
+	dec     hl
+	ld      a,'.'
+	call    wrdate1         ; печать месяца
+	dec     hl
+	ld      a,' '
+	call    wrdate1         ; печать дня
+	inc     hl
+	inc     hl
+	ld      a,':'           ; печать часов
+	call    wrdate
+	ld      a,8             ; печать минут
+wrdate: inc     hl
+wrdate1:push    af
+	push    hl
+	ld      h,(hl)
+	xor     a               ; десятичная коррекция
+	ld      l,a
+	ld      b,8
+ccycl:  add     hl,hl
+	adc     a,a
+	daa
+	djnz    ccycl           ; КОНЕЦ  КОРРЕКЦИИ
+	call    wrbcd
+	pop     hl
+	pop     af
+	jp      conouta
+
+wrpath: call    getuser
+wrpath1:call    makepath
+	ld      a,(pathpr)
+	dec     a
+	ret     nz
+	ld      a,(path)
+	srl     a
+	ld      b,a
+	ld      a,21
+	sub     b
+	ld      l,1
+	call    gotoch
+	call    inv
+	ld      hl,path
+	ld      a,(hl)
+	inc     hl
+	call    wst
+	jp      norm
+
+;comm9ms0:db     '      ',0
+;comm9ms1:db     ' r/o  ',0
+;comm9ms2:db     ' sys  ',0
+
+makpms3:db      'Date ',0
+
+drawpan:xor     a
+	ld      (clrflag),a
+	inc     a
+	call    dosft
+	ld      l,1
+	ld      bc,1728h
+	ld      de,white*256+blue
+	call    setpar
+	jp      framed
+
+

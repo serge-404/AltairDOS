@@ -1,0 +1,291 @@
+; п/п десятичной коррекции - вход : A,BC - 24-битное шестнадцатиричное число :
+;                                               ( D23=A7 .. D0=C0 )
+;                           выход : DE,HL - 8-значное десятичное число :
+;         (D7..D4; D3..D0; E7..E4; E3..E0; H7..H4; H3..H0; L7..L4; L3..L0)
+; не портит никакие регистры кроме выходных  ! портит IX
+;
+correction:
+	push    af
+	push    bc
+	push    bc
+	pop     ix
+	ld      c,a
+	xor     a
+	ld      d,a
+	ld      e,a
+	ld      h,a
+	ld      l,a
+	ld      b,24
+cycl:   ld      a,c
+	add     ix,ix
+	adc     a,c
+	ld      c,a
+
+	ld      a,l
+	adc     a,l
+	daa
+	ld      l,a
+
+	ld      a,h
+	adc     a,h
+	daa
+	ld      h,a
+
+	ld      a,e
+	adc     a,e
+	daa
+	ld      e,a
+
+	ld      a,d
+	adc     a,d
+	daa
+	ld      d,a
+	djnz    cycl
+
+	pop     bc
+	pop     af
+	ret
+;
+;	input:  HL = size (in groups)
+;
+wrgsize:
+	ld	a, (dgrp)	; A = group size (kb)
+	ex	de, hl
+	LD      B,A
+        XOR     A
+        LD      H, a
+	ld	L, a
+MUL4:   ADD     HL,DE
+        adc     a, 0
+        DJNZ    MUL4            ; A,HL=disk size (in kb)
+	ld	b, h
+	ld	c, l
+	jr	wrdata
+;
+;Вывод размера файла - 8 цифр (max)
+;Вход: hl - integer размер файла
+;
+wrsize: 
+;
+; п/п "преобразования" входного integer (16 бит) числа в
+; "longint" (24 бита) путем домножения входного числа на 128
+; Вход : HL (H7..L0=16 бит);    Выход : A,BC (A7..C0=24 бита)
+	ld      c,l
+	ld      b,h
+	xor     a
+	ld      d,7
+ford:   sla     c
+	rl      b
+	rla
+	dec     d
+	jr      nz,ford
+;
+; вывод числа без изменений: вход: a,b,c
+wrdata: call    correction
+	call    dellead
+scbcd:  ld      a,d
+	call    wrbcd
+	ld      a,e
+	call    wrbcd
+scbcd0: ld      a,h
+	call    wrbcd
+	ld      a,l
+
+wrbcd:  push    af          ;ПЕЧАТЬ BCD-ЧИСЛА 00H - 99H
+	rrca
+	rrca
+	rrca
+	rrca
+	call    xprbcd
+	pop     af
+xprbcd: and     0fh
+;
+prbcd:  add     a,30h       ;ПЕЧАТЬ BCD-ЧИСЛА (0-9). Если >9 ,то печатать ' '
+	cp      3ah
+	jr      c,prbcd0
+	ld      a,20h
+prbcd0: jp      conouta
+
+;Вывод числа файлов - 3 цифры (max)
+;Вход: A - число файлов
+wrquant:ld      c,a
+	xor     a
+	ld      b,a
+	call    correction
+	call    dellead
+	jr      scbcd0
+dellead:
+; п/п замены ведущих нулей на код fh(1111b) в 8-значном десятичном числе
+;                     вход - выход : DE,HL - 8-значное десятичное число :
+;         (D7..D4; D3..D0; E7..E4; E3..E0; H7..H4; H3..H0; L7..L4; L3..L0)
+;
+	push    af
+	push    bc
+	ld      b,d
+	call    delb
+	ld      d,b
+	jr      nz,exitdel
+	ld      b,e
+	call    delb
+	ld      e,b
+	jr      nz,exitdel
+	ld      b,h
+	call    delb
+	ld      h,b
+	jr      nz,exitdel
+	ld      b,l
+	call    delb
+	ld      l,b
+	cp      0ffh
+	jr      nz,exitdel
+	ld      l,0f0h
+exitdel:pop     bc
+	pop     af
+	ret
+
+delb:
+;
+; вспомогательная п/п для dellead . Вход - выход : рег. B
+;
+	ld      a,b
+	and     0f0h
+	ret     nz
+	ld      a,0f0h
+	or      b
+	ld      b,a
+	and     0fh
+	ret     nz
+	ld      a,0fh
+	or      b
+	ld      b,a
+	xor     a
+	ld      a,b
+	ret
+
+;*****************************************************
+; п/п  wrkeybar
+; вход: ак = номер (0..3) подсказки
+;
+
+add:    dw      1
+ad:     dw      keyb0
+	dw      keyb1
+	dw      keyb2
+	dw      keyb3
+	dw      keyb4
+keyb2:  db      'ParentRename',0
+keyb3:  db      'ChDiskReReadSetKeyScreen',0
+f15ms0:
+keyb1:  db      ' Help  Menu '
+f17ms0: db      ' View  Edit  Copy RenMovChDir DeletePullDnQuit'
+keyb0:  db      0
+keyb4:  db      'PageUpPageDnGoBeg GoEnd',0
+;
+wrkeybar:
+	ld      (prkey),a
+lastkeyb:
+	call    f0w6            ; Окно 80х25, шрифт 6
+	ld      hl,119h
+	call    gotoxy
+	ld      a,(keybar)
+	or      a              ;if keybar=0
+	push    af
+	call    nz,inv
+	call    writest
+	db      27,'C',2,27,'P',2,27,'K',0   ; стирание до конца строки
+	pop     af
+	ret     z
+	ld      a,(prkey)
+	ld      hl,ad-2
+	call    allde2
+	ld      e,(hl)
+	inc     hl
+	ld      d,(hl)
+	ld      (add),de
+	xor     a
+	ld      (i14),a
+whmem:  ld      hl,(add)
+	ld      a,(hl)
+	or      a
+	jr      z,endwhmem
+	ld      a,(i14)
+	push    af
+	or      a
+	ld      a,2
+	call    z,space
+	pop     af
+	sub     6
+	jr      nz,whmem1
+	ld      (i14),a
+	jr      whmem
+whmem1: ld      hl,(add)
+	ld      c,(hl)
+	inc     hl
+	ld      (add),hl
+	call    conout
+	ld      hl,i14
+	inc     (hl)
+	jr      whmem
+endwhmem:
+	call    norm
+	ld      b,9
+	ld      hl,119h
+	ld      de,800h
+	ld      a,0f1h
+dpga:   push    af
+	push    bc
+	push    de
+	push    hl
+	push    af
+	call    gotoxy
+	pop     af
+	call    wrbcd
+	pop     hl
+	pop     de
+	pop     bc
+	pop     af
+	inc     a
+	add     hl,de
+	djnz    dpga
+	call    gotoxy
+	ld      a,0f0h
+	call    wrbcd
+	jp      cm3
+
+;   save nc.set на диск и юзер, где nc.com
+;   path не учитывается
+;
+ncset:  db      'SET'
+;
+; запись nc.set
+svset:  call    dorst0          ; установить путь к nc.com
+	ld      hl,resact
+	push    hl
+
+	call    resdsk          ; сбросить систему
+	call    getalarm
+	ret     nz
+	ld      a,(ncdisk)
+	call    setdsk          ; уст. диск
+	call    getalarm
+	ret     nz
+	ld      a,(ncuser)
+	call    setusr          ; и юзер, откуда якобы был
+				; запущен NC
+	ld      hl,ncset
+	call    ncfile  ; fcb -> nc.set
+	call    efcb    ; удалить старый nc.set
+	call    getalarm
+	ret     nz      ; выход - дисковая ошибка
+	call    rwfcb   ; создать новый nc.set
+	inc     a
+	ret     z       ; выход - дисковая ошибка или нет
+			; места
+	ld      de,100h
+	call    setpdp  ; установить DMA
+	call    wbfcb   ; записать запись в файл
+	or      a
+	ret     nz      ; выход - дисковая ошибка
+	jp      cfcb    ; закрыть файл
+;
+

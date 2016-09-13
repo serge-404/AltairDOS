@@ -1,0 +1,204 @@
+;                 Program Northon Commander
+;Переменные
+
+fcb     equ     5Ch
+sysline equ     80h             ;Системная строка
+
+vvm     equ     4102h           ;DMA buffer
+bios    equ     vvm+80h
+constat equ     bios+6
+conin   equ     constat+3
+conout  equ     conin+3
+blist   equ     conout+3
+bauxout equ     blist+3
+bauxin  equ     bauxout+3
+bhome   equ     bauxin+3
+bseldsk equ     bhome+3
+bseltrk equ     bseldsk+3
+bselsec equ     bseltrk+3
+bsetdma equ     bselsec+3
+bread   equ     bsetdma+3
+bwrite  equ     bread+3
+blistst equ     bwrite+3
+;
+path    equ     blistst+3       ;Путь
+k       equ     36+path         ;кол-во поддеревьев узла
+;
+dirname equ     64+k            ;имя каталога                   32*12
+;
+mxq     equ     32*16+dirname   ;макс. число байт в filname
+scrflag equ     mxq+1
+sizebuf equ     scrflag+1       ;размер буфера копировщика
+datepr  equ     sizebuf+2       ;0/1=есть/нет даты файлов
+namespr equ     datepr+2        ;0/1=есть/нет имена юзеров
+usrqn   equ     namespr+2       ;число файлов в юзерах
+rlq     equ     usrqn+32        ;число байт в filname
+filname equ     rlq+1           ;filname = длина 13 (0dh) байт
+upbuf   equ     filname+13      ;upbuf   = длина 14 (0еh) байт
+spstr   equ     upbuf+14        ;spstr   = длина 14 (0eh) байт
+mstr    equ     spstr+14        ;mstr   = длина 2*12=24 байт
+strn    equ     mstr+24         ;strn   = длина 12 (0ch) байт
+exitcopy equ    strn+12         ;l = 1
+cfldate equ     exitcopy+1      ; флаг - есть/нет дата файла
+cdate   equ     cfldate+1       ; буфер под дату файла
+
+i5      equ     cdate+5         ;l = 1 Переменные из COPY2
+WORKSCR equ     i5+1            ; ТЕКУЩИЙ ЭКРАН ВЬЮВЕРА
+SPVIEW  equ     WORKSCR+1
+Pwind   equ     SPVIEW+2        ; банк под буфер окон
+Bwind   equ     Pwind+1         ; адрес буфера окон
+Swind   equ     Bwind+2         ; нач. сегмент буфера
+scmass  equ     Swind+1         ; номера сегментов XTPA, в кото-
+				; рых записан экран системы
+find    equ     scmass+4        ;l = 1
+kc      equ     find+1          ;l = 1
+cquant1 equ     kc+1            ;l = 2
+siz     equ     cquant1+2       ;l = 2
+sizz    equ     siz+2           ;l = 2
+size    equ     sizz+2          ;l = 2
+vara    equ     size+2          ;l = 2
+varb    equ     vara+2          ;l = 2
+varc    equ     varb+2          ;l = 2
+StCopy  equ     varc+2          ;l = 2 Указатель стека перед запуском копировщика
+				;Переменные из MC
+realqn  equ     StCopy+2        ;l = 2 Число файлов на диске
+quant   equ     realqn+2        ;l = 2 Число файлов на диске после FILTER
+marked  equ     quant+2         ;l = 2 кол-во отмеченных файлов
+markeds equ     marked+2        ;l = 4 суммарный размер отмеченных файлов
+catsiz  equ     markeds+4       ;l = 1 размер обл. каталога в 128б секторах
+secquant equ    catsiz+1        ;l = 1 кол-во 128б секторов на логической дорожке
+dirpoint equ    secquant+1      ;l = 1 куда пишем в dir...
+resmk   equ     dirpoint+1      ;l = 1
+dsk     equ     resmk+1         ;l = 1
+trk     equ     dsk+1           ;l = 1
+sec     equ     trk+1           ;l = 1
+s       equ     sec+1           ;l = 1
+fnam    equ     s+1             ;l = 2 Адрес nam:st12
+fcod    equ     fnam+2          ;l = 2 Адрес cod:byte
+kk      equ     fcod+2          ;l = 1
+fcount  equ     kk+1            ;l = 2
+ffound  equ     fcount+2        ;l = 1
+
+yy      equ     ffound+1
+ch      equ     yy+1
+rs      equ     ch+1
+selmode equ     rs+1
+rs0     equ     selmode+1
+dy      equ     rs0+1
+rr      equ     dy+1
+dsize   equ     rr+1
+dused   equ     dsize+2
+dfree	equ     dused+2
+dgrp	equ	dfree+2
+already equ	dgrp+1
+ifilt   equ     already+1
+shi     equ     ifilt+1
+ilist   equ     shi+1
+klist   equ     ilist+1
+llist   equ     klist+1
+nlist   equ     llist+1
+ignor   equ     nlist+1
+xcd     equ     ignor+1
+ycd     equ     xcd+1
+imksh   equ     ycd+1
+mxpos   equ     imksh+1
+pushhl  equ     mxpos+1
+pushde  equ     pushhl+2
+bdsstc  equ     pushde+2
+mbeg    equ     bdsstc+2
+mpr     equ     mbeg+1
+rssort  equ     mpr+1
+isort   equ     rssort+1
+i1sort  equ     isort+1
+sizesort equ    i1sort+1
+i34     equ     sizesort+2
+
+asm     equ     i34+1
+buffw   equ     asm+1
+lastd   equ     buffw+30
+lastx   equ     lastd+1
+lasty   equ     lastx+2
+iii     equ     lasty+2
+vaddr   equ     iii+1        ;адрес текущего элемента в массиве верт. эл-тов
+haddr   equ     vaddr+2      ;адрес текущего элемента в массиве гор. эл-тов
+vpoint  equ     haddr+2      ;номер текущего элемента в массиве верт. эл-тов
+hpoint  equ     vpoint+1     ;номер текущего элемента в массиве гор. эл-тов
+prkey   equ     hpoint+1     ;если = 0 , то не обходить точку в modname
+mode1   equ     prkey+1
+winmode equ     mode1+2
+wsiz    equ     winmode+1
+lasttm  equ     wsiz+1
+
+BDSLST  equ     lasttm+1        ; Вектора ошибок BDOS
+
+avail   equ     BDSLST+8        ; для сортировок
+curr    equ     avail+2
+elem    equ     curr+2
+idxptr  equ     elem+2
+catbuf  equ     idxptr+2        ; low bond
+				; vrembuf  equ  bufcat
+catalog equ     catbuf+2
+
+STACKNC equ     catalog+2       ; адрес основного стека
+STACKNC0 equ    stacknc+2       ; адрес всп. стека
+bufpoint equ    stacknc0+2      ; адрес буфера указателя внутри DMA
+				; и номера записи прямого доступа
+;
+i1buff  equ     bufpoint+2
+
+clrflag equ     i1buff+4
+timptr  equ     clrflag+1
+seepk3  equ     timptr+1               ;Признак просмотра архивного файла
+i4      equ     seepk3+2
+renflg  equ     i4+1
+curcur  equ     renflg+1
+nummn   equ     curcur+1
+kr      equ     nummn+1
+i1      equ     kr+1
+ltc     equ     i1+1
+lbc     equ     ltc+1
+key     equ     lbc+1
+i14     equ     key+1
+i15     equ     i14+1
+first   equ     i15+1
+exitera equ     first+2
+iodata  equ     exitera+1
+alarm   equ     iodata+1
+dorst   equ     alarm+1
+point   equ     dorst+1
+posx    equ     point+2
+posy    equ     posx+2
+PageView equ    posy+2          ; Номер страницы
+lock    equ     pageview+1
+count   equ     lock+1
+lastwinms equ   count+2
+checksumr equ   lastwinms+4     ;к.с. исходного файла
+checksumv equ   checksumr+1     ;к.с. копии
+ctw     equ     checksumv+1
+scancode equ    ctw+1
+gotoend equ     scancode+1
+qnf     equ     gotoend+1
+lindex  equ     qnf+1           ; Индексный массив левый
+rindex  equ     lindex+256      ; То же правой панели
+
+fcb1    equ     rindex+256
+
+bufset  equ     fcb1+36          ;Kонтроль измен. в PullDn
+
+lname   equ     endset-begset+bufset
+lstatus equ     12+lname        ;Статус файла и н-р области
+lssize  equ     1+lstatus       ;Размер файла
+ldate   equ     2+lssize        ;даты и время файлов
+
+rname   equ     5+ldate         ;                            12b
+rstatus equ     12+rname        ;Статус файла и н-р области   1b
+rssize  equ     1+rstatus       ;Размер файла                 2b
+rdate   equ     2+rssize        ;даты и время файлов          5b
+				;                           -----
+elsize  equ     rname-lname     ;                            20b
+elsize2 equ     elsize*2        ;                            40b
+readbuf equ     elsize2*256+lname
+
+      hl,de
+	ld      (size),hl
+	jr   

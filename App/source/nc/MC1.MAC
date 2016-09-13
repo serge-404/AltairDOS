@@ -1,0 +1,536 @@
+
+;***************************************
+;******* Makecat sub. 2 - fillcat ******
+;***************************************
+fillcat:
+	call    activ64
+	ld      d,0
+	ld      e,a
+	ld      hl,usrqn
+	add     hl,de
+	ld      (hl),d          ; d=0
+	ld      d,h
+	ld      e,l
+	inc     de
+	ld      bc,15
+	ldir
+	call    arrsel2         ; hl=index adr.
+	push    hl
+	ld      (hl),0
+	ld      d,h
+	ld      e,l
+	inc     de
+	ld      bc,255
+	ldir                    ; инициал. массива масок 256 байт
+	pop     ix
+	LD      A,(qnf)
+	LD      B,A
+	ld      hl,readbuf
+	xor     a
+	ld      (dsk),a
+fcatc:  push    bc
+	ld      a,(hl)
+	cp      16
+	jr      nc,mkcat81
+	ld      (resmk),a
+	push    hl
+	pop     iy
+	ld      a,(iy+15)
+	cp      80h
+	jr      nc,mkcat8
+	call    mkcatsub
+
+mkcat81:ld      (ix),1          ; поставить флаг "описатель уже рассмотрен"
+mkcat8: pop     bc
+	ld      de,32
+	add     hl,de
+	inc     ix              ; след. эл-т в табл. масок
+	djnz    fcatc
+;
+; кусок, выявляющий файлы - призраки
+;
+	ld      a,(qnf)
+	ld      b,a             ; b= кол-во описателей для повторного осмотра
+mkcat15:push    bc
+	ld      de,-32
+	add     hl,de
+	dec     ix
+
+	ld      a,(ix)
+	or      a
+	jr      nz,mkcat16
+	ld      a,(hl)
+	ld      (resmk),a
+	push    hl
+	pop     iy
+	ld      a,(iy+15)
+	cp      80h
+	call    z,mkcatsub
+mkcat16:
+	pop     bc
+	djnz    mkcat15
+mkexit:
+	call    getrealqn
+mkex3:
+	ld      a,(dsk)
+	ld      (hl),a
+
+	ld      hl,realqn
+	ld      a,(hl)
+	inc     hl
+	cp      (hl)
+	jr      nc,mkex4
+	ld      a,(hl)
+mkex4:  inc     a
+	call    getname1
+	ld      (catbuf),hl
+	ex      de,hl
+	ld      hl,(bufpoint)
+	or      a
+	sbc     hl,de           ; hl=bufpoint-catsize
+	ld      b,7
+div128: srl     h
+	rr      l
+	djnz    div128
+	ld      (sizebuf),hl
+	ret
+
+mkcatsub:
+	push    hl
+	push    hl
+	inc     hl
+	call    MoveFileExt
+	call    activ64
+	add     a,(iy)
+	ld      d,0
+	ld      e,a
+	ld      hl,usrqn
+	add     hl,de
+	inc     (hl)            ; счетчик файлов в юзерах
+	ld      l,(iy+12)
+	ld      h,d             ; h:=0
+	ld      b,7
+mkcat10:add     hl,hl
+	djnz    mkcat10
+	ld      e,(iy+15)
+	add     hl,de
+	call    MoveSizeSSUN
+
+	pop     de              ; de=описатель файла
+masker: call    arrsel2
+	push    hl
+	pop     iy
+	ld      hl,readbuf
+	xor     a
+	ld      (isort),a
+	ld      a,(qnf)
+	ld      b,a
+mask1:  push    bc
+	ld      a,(iy)
+	or      a
+	jr      nz,mask3
+
+	ld      b,12
+	push    de
+	push    hl
+	call    cmpstr
+	jr      nz,mask2
+	ld      (iy),1
+
+	ld      hl,isort
+	ld      a,(hl)
+	or      a
+	jr      nz,mask2
+	ld      (hl),1
+	ld      hl,(curr)
+	ld      de,ldate-lname
+	add     hl,de
+	ex      de,hl           ; de=ldate(куда)
+
+	pop     hl
+	push    hl
+	ld      bc,16
+	add     hl,bc           ; (hl)=дата файла
+	ld      c,5
+	ldir                    ; переслали даты
+mask2:
+	pop     hl
+	pop     de
+mask3:  inc     iy
+	ld      bc,32
+	add     hl,bc
+	pop     bc
+	djnz    mask1
+	pop     hl
+	ret
+
+;***************************************
+;******* Makecat - fillbuf *************
+;***************************************
+
+eqvdisk:ld      hl,disk         ;disk[0]=disk[1] => Z:=1 else Z:=0
+	ld      a,(hl)
+	inc     hl
+	cp      (hl)
+	ret
+
+;
+; F38 - получить дату последнего открытого(найденного) файла
+;       в массив по DE (DE+16...DE+20)
+;
+;makecat:
+fillbuf:call    resact          ;resactiv
+	call    getdatepr
+	xor     a
+	ld      (hl),a
+	LD      (qnf),A
+	ld      de,readbuf
+	ld      c,17
+fbuf1:  push    de
+	push    bc
+	call    setpdp
+	pop     bc
+fbuf10: ld      de,5ch
+	ld      a,'?'
+	ld      (de),a
+	call    bdscall
+	call    erranl          ; сбросить флаг ошибки, если она была
+	LD      C,A
+	LD      HL,qnf
+	LD      A,(HL)
+	INC     A
+	JR      Z,fbufskip
+	INC     (HL)
+fbufskip:
+	LD      A,C
+	push    af
+
+	cp      4
+	jr      nc,skipdate
+	call    getdatepr       ; =0/1=есть/нет даты
+	jr      nz,skipdate
+
+	pop     af
+	push    af
+	rrca
+	rrca
+	rrca
+	ld      hl,vvm
+	ld      b,0
+	ld      c,a
+	add     hl,bc
+	ld      (hl),b
+	ex      de,hl
+
+	ld      c,38h
+	call    bdscall         ; получить дату
+	call    erranl          ; сбросить флаг ошибки, если она была
+	push    af
+	call    getdatepr
+	pop     af
+	and     0fch
+	ld      (hl),a
+skipdate:
+	pop     af
+	ld      c,18
+	cp      3
+	jr      c,fbuf10
+	pop     hl
+	push    af
+	push    hl              ; адрес тек. 128б записи
+movdate:ld      bc,16           ; вход: hl - DMA BUF
+	add     hl,bc
+	ex      de,hl
+	ld      a,4
+	ld      hl,vvm+16
+datemov:push    hl
+	push    de
+	ld      c,5             ; bc=5
+	ldir
+	pop     hl
+	ld      c,32
+	add     hl,bc
+	ex      de,hl
+	pop     hl
+	add     hl,bc
+	dec     a
+	jr      nz,datemov      ; end movdate
+
+	pop     hl
+	pop     af
+	cp      4
+	jr      nc,fbuf2
+	ld      c,128
+	add     hl,bc
+	ex      de,hl
+	ld      c,18
+	jr      fbuf1
+
+fbuf2:  call    fbzero
+	call    eqvdisk
+	ret     nz
+;        jr      nz,fbuf0
+	call    getdatepr
+	push    af
+	call    ractpn
+	call    getdatepr
+	pop     af
+	ld      (hl),a
+	call    fbzero          ; см. cd1.mac
+	jp      ractpn
+fbuf0:
+;        call    fillcat
+
+;***************************************
+;******* Makecat sub. 3 - filldir ******
+;***************************************
+filldir:call    askusr
+	ld      (isort),a
+	xor     a
+	call    setusr
+	call    activ64
+	ld      (dirpoint),a
+	call    getdirname
+	push    hl
+	ex      de,hl
+	call    getusnm
+	push    af
+	call    getnamespr
+	pop     af
+	ld      (hl),a          ; <>0 если нет имен юзеров
+	pop     hl
+	or      a
+	jr      nz,nousrnm
+	ld      bc,0f01h
+unames1:ld      de,16
+	add     hl,de
+	ex      de,hl
+	push    bc
+	push    de
+	ld      a,c
+	call    setusr
+	pop     de
+	push    de
+	call    getusnm
+	pop     hl
+	pop     bc
+	inc     c
+	djnz    unames1
+srcuser:ld      a,(isort)
+	jp      setusr
+
+nousrnm:ld      (hl),0
+	ld      d,h
+	ld      e,l
+	inc     de
+	ld      bc,17
+	ldir
+	ld      (hl),' '
+	ld      bc,15*16-1      ;64
+	ldir
+
+fdirc0: call    activ64
+	call    getdirname
+	ld      b,15
+fdirc2: ld      de,16
+	add     hl,de
+	ld      a,16
+	sub     b               ; a:=15-b
+	cp      0Ah
+	push    af
+	jr      c,WR_N_0
+	ld      (hl),'1'
+	sub     0Ah
+	inc     hl
+WR_N_0: add     a,'0'
+	ld      (hl),a
+	pop     af
+	jr      c,wr_n_1
+	dec     hl
+wr_n_1: djnz    fdirc2
+	jr      srcuser
+
+MoveFileExt:
+; Пересылка имени и расширения файла в filname
+	ld      de,filname
+	call    ldir8
+	ld      a,'.'
+	ld      (de),a
+	inc     de
+ldir3:  ld      bc,3
+	ldir
+	ret
+
+MoveSizeSSUN:
+; Пересылка некомпр. размера файла в массив размеров
+; Заполнение массива атрибутов, перевод имени на верхн. рег.
+	push    hl
+	ld      a,(dsk)
+	call    getname1
+	ld      (curr),hl
+	ld      b,h
+	ld      c,l
+	ld      de,lssize-lname
+	add     hl,de
+	pop     de
+	ld      (hl),e
+	inc     hl
+	ld      (hl),d          ;занесение размера файла в массив размеров
+
+	ld      hl,filname+9
+	ld      a,(resmk)
+	bit     7,(hl)
+	res     7,(hl)
+	jr      z,mkcat3
+	set     7,a
+mkcat3: inc     hl
+	bit     7,(hl)
+	res     7,(hl)
+	jr      z,mkcat4
+	set     6,a
+mkcat4: ex      af,af'          ;push    af
+
+	ld      h,b
+	ld      l,c
+	push    hl              ; hl=elem name
+	ld      de,lstatus-lname
+	add     hl,de
+
+	ex      af,af'          ;pop     af
+	ld      (hl),a
+	ld      hl,filname
+	ld      b,12
+mkcat5: ld      a,(hl)
+	cp      '@'+1
+	jr      c,mkcat6
+	cp      '`'
+	jr      nc,mkcat6
+	add     a,32
+	ld      (hl),a
+mkcat6: inc     hl
+	djnz    mkcat5
+	pop     de              ; de=elem name
+	call    lhfl12
+	ld      hl,dsk
+	inc     (hl)
+	ret
+
+;===================== Просмотр файлов *.pk3 ===================================
+; Вызывается из процедуры f0d
+pk3view:
+	call    catname1
+	push    hl
+	push    hl
+	call    getpk3name
+	ld      d,h
+	ld      e,l
+	pop     hl
+	call    ldhfl12
+	pop     hl
+	call    initfcb         ;Инициализация fcb
+	call    dmaopen         ;DMA: = bufcat, открыть файл (см. copy3.mac)
+	ret     z               ;Невозможно открыть файл - выход
+	call    zerosize        ; Размер файла = 0 --> выход
+	ret     z
+;======== Чтение и анализ PK3 файла =========
+	xor     a
+	ld      (i4),a          ; Сброс признака конца каталога
+	ld      (dsk),a         ; dsk -> D7-actpan, D6..D0-номер файла
+	call    getseepk3
+	ld      (hl),1          ; Уст. признака просмотра PK3 файла
+	call    getuser
+	ld      (resmk),a       ; resmk - номер юзера
+
+	call    getdatepr       ; в pk3 нет дат файлов
+	ld      (hl),1
+
+pk3read:call    rbfcb           ; Читать сектор из файла
+	or      a
+	jr      nz,mkexit0      ; Каталог занимает весь файл ( конец файла )
+	call    getalarm
+	jr      nz,pk3err
+
+; Анализ сектора архивного файла, выделение из него имен, размеров, статуса
+; файлов и занесение их в массивы
+	ld      hl,(catbuf)     ; hl - адрес начала сектора
+	ld      b,4             ; Анализ 4-х описателей в секторе
+
+pk3analcycl:
+	ld      a,(hl)          ; hl указывает на (описатель+0) файла
+	or      a
+	jr      z,contanal      ; признак конца каталога *.PK3 файла (0ffh)
+	inc     a
+	ld      a,0
+	jr      nz,pk3err
+	dec     a
+	ld      (i4),a          ;      =>  i4:= <>0
+contanal:
+	push    bc
+	push    hl
+	inc     hl              ; hl указывает на имя файла
+	call    MoveFileExt     ; пересылка в filname имени файла из архива
+	ld      de,6            ; (см. mc1.mac)
+	add     hl,de           ; hl указывает на некомпрессированный
+	ld      e,(hl)          ; размер файла
+	inc     hl
+	ld      d,(hl)
+	inc     hl
+	ld      a,(hl)          ;размер файла (байт) в рег. A,D,E
+	ld      b,7
+pk3div: srl     a               ;деление размера на 128
+	rr      d
+	rr      e
+	djnz    pk3div
+	ex      de,hl           ;размер файла ( число секторов ) в рег. H,L
+	call    MoveSizeSSUN    ;запись некомпр. размера файла в масс. размеров
+				;запись статуса в масс. статусов ( см. mc1.mac )
+				;перевод имени файла на верхний регистр
+	pop     hl
+	pop     bc
+
+	ld      de,32
+	add     hl,de           ;Установка hl на следующий описатель
+	ld      a,(i4)
+	or      a
+	jr      nz,mkexit0      ;Переход, если обработан последний описатель
+	djnz    pk3analcycl
+	jr      pk3read
+
+mkexit0:ld      a,1
+pk3err: ld      (dorst),a       ; doreset := 1 or 0 (pk3err)
+	call    mkexit          ; запись в quanty числа файлов
+				; вызовы filt, sort ( см. mc1.mac )
+	call    getquant
+	call    mkex3
+reslsts:
+	xor     a
+	call    respan          ; отображение в текущей панели каталога
+	jp      lstsys          ; архивного файла
+
+;=============== Блокировка функций при режиме pk3 - view ======================
+quantypk3:
+	call    getseepk3
+	ret     nz
+quanty: call    getquant
+	ret     z
+	call    getseepk3
+	dec     a
+	ret     nz
+
+pk3lock:push    af
+	ld      a,(wsiz)
+	push    af
+	ld      hl,winpk3lock
+	call    initwin
+	pop     af
+	ld      (wsiz),a
+	call    wset
+	pop     af
+	ret
+
+
+
+ : ld      hl,ilist
+	ld      a,(hl)
+	or      a
+	ret 

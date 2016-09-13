@@ -1,0 +1,663 @@
+;*****************************
+;     NORTHON COMMANDER      *
+;       Модуль B6.MAC        *
+;      bits,filt,catname     *
+;   quanty,mini2,list,info   *
+;    oneline,drawpan,lines   *
+;*****************************
+;***** filt.mac *****
+filt:   xor     a
+	ld      (shi),a
+	ld      (ifilt),a
+	inc     a
+	ld      (already),a
+	call    getquant
+	ld      (hl),0
+	call    getrealqn
+	ret     z
+filtcl:
+	call    getuser
+	push    hl
+	ld      a,(ifilt)
+	call    getname1
+	ld      (elem),hl
+	ld      bc,lstatus-lname
+	add     hl,bc
+	ld      a,(hl)
+	ld      c,a
+	and     3fh
+	pop     hl
+	cp      (hl)
+	jr      nz,filt1
+	ld      a,c             ; проверка hidden
+	and     40h
+	jr      z,ifnohdd       ; если не hidden
+	ld      a,(actpan)
+	call    gethidx
+	jr      z,filt1         ; если не показывать hidden
+ifnohdd:ld      a,(actpan)
+	call    getexex
+	jr      z,ifnohid       ; если все файлы
+	ld      hl,(elem)
+	ld      de,9
+	add     hl,de           ; hl=расширение файла
+	ld      de,runext       ; 'com'
+	push    hl
+	call    cmpext
+	pop     hl              ; hl=расширение файла
+	jr      z,ifnohid       ; если СОМ-файл
+	ld      de,batext       ; 'bat'
+	call    cmpext
+	jr      nz,filt1        ; если не ВАТ-файл
+ifnohid:call    getfilt
+	ld      de,(elem)       ; hl=фильтр, de=имя файла
+	call    equalx
+	jr      z,filt1         ;если не проходит по фильтру
+
+	ld      hl,lindex-1
+	ld      a,(actpan)
+	or      a
+	jr      z,indexx
+	ld      hl,rindex-1         ; hl = lindex or rindex
+indexx:                             ; dec hl
+	ld      a,(already)
+	call    allde1
+	ld      a,(ifilt)
+	ld      (hl),a
+	ld      hl,already
+	inc     (hl)
+filt1:  call    getrealqn
+	ld      hl,ifilt
+	inc     (hl)
+	ld      b,(hl)
+	cp	b
+	jp      nz,filtcl
+	call    getquant
+	ld      a,(already)
+	dec	a
+	ld      (hl),a
+	ret
+
+mini2:  ld      a,(minist)
+	add     a,a
+	ld      b,a
+	ld      a,20
+	sub     b
+	ret
+posxsh2:ld      a,2
+	call    dosft
+	push    af
+	call    getposx
+	pop     af
+	ld      (hl),a
+	ret
+
+comm18: push    hl             ;Вход в hl
+	call    mini2
+	pop     de
+	ld      hl,0
+c180:   add     hl,de
+	dec     a
+	jr      nz,c180
+	push    hl
+	call    getfirst
+	pop     de
+	add     a,e
+	ld      (hl),a
+;        jp      list
+
+;******* list.mac *******
+
+list:   call    quantypk3
+	ret     z
+	ld      a,2
+	ld      l,a
+	call    dosft
+	push    hl
+	call    getlastx
+	pop     bc
+	ld      (hl),b
+	push    bc
+	call    getmode
+	pop     hl
+	or      a
+	jr      z,ifbrief
+	cp      2
+	ret     nc
+	push    hl
+	call    mini2           ; full
+	push    af
+	call    getfirst        ; а=текущий файл
+	pop     bc              ; b=сколько выводить
+	pop     hl              ; hl=позиция вывода
+list0:  push    bc
+	push    af
+	inc     l
+	push    hl
+	call    gotoxy
+	call    getquant
+	pop     hl              ; hl=позиция вывода
+	pop     bc              ; b=текущий файл
+	cp      b
+	jr      nc,list10
+freelst:pop     bc              ; b=сколько выводить
+	ld      a,(clrflag)
+	or      a
+	ret     z
+frlst0: push    bc              ; закрасить остальное место
+	push    hl
+	call    gotoxy
+	ld      a,12
+	call    space
+	ld      a,24
+	call    conouta
+	ld      a,10
+	call    space
+	ld      a,24
+	call    conouta
+	ld      a,14
+	call    space
+	pop     hl
+	inc     l
+	pop     bc
+	djnz    frlst0
+	jr      setclrf
+
+list10: ld      a,b
+	ld      b,24
+	push    af
+	push    hl
+	call    fullst
+	call    getlasty
+	pop     de
+	ld      (hl),e
+	ex      de,hl           ; позиция вывода
+	pop     af              ; текущий файл
+	inc     a               ; следующий файл
+	pop     bc              ; сколько файлов в столбце
+	djnz    list0
+setclrf:ld      a,1
+	ld      (clrflag),a
+	ret
+
+ifbrief:call    getfirst
+	ld      (ilist),a
+	ld      b,3
+listrp: push    bc
+	ld      a,1
+	ld      (llist),a
+listc0: call    getlastx
+	ld      h,a
+	ld      a,(llist)
+	add     a,2
+	ld      l,a
+	call    gotoxy
+	call    getquant
+	ld      hl,ilist
+	cp      (hl)
+	jr      nc,list1        ; i<=quant
+	ld      a,(clrflag)
+	or      a
+	call    nz,space12
+	jr      list2
+list1:  call    getlasty
+	ld      a,(llist)
+	add     a,2
+	ld      (hl),a
+	ld      a,(ilist)
+	call    catname
+	call    wrst12
+	ld      hl,ilist
+	inc     (hl)
+list2:  ld      hl,llist
+	inc     (hl)
+	call    mini2
+	cp      (hl)
+	jr      nc,listc0
+
+	call    getquant
+	ld      hl,ilist
+	cp      (hl)
+	pop     bc
+	jr      c,setclrf       ; i>quant
+				; if new column
+	push    bc
+	call    getlastx
+	add     a,13
+	ld      (hl),a
+	pop     bc
+	djnz    listrp
+	jr      setclrf
+
+
+;list:   call    quantypk3
+;        ret     z
+;        call    getmode
+;        ld      a,3
+;        jr      z,list0
+;        ld      a,1
+;list0:  ld      (nlist),a
+;        xor     a
+;        ld      (klist),a
+;        call    getfirst
+;        ld      (ilist),a
+;listrp: call    getlastx
+;        ld      a,(klist)
+;        inc     a
+;        ld      b,a
+;        ld      a,-13
+;lst0:   add     a,13
+;        djnz    lst0
+;        add     a,2
+;        push    hl
+;        call    dosft
+;        pop     hl
+;        ld      (hl),a
+;        ld      a,1
+;        ld      (llist),a
+;listc0: call    getlastx
+;        ld      h,a
+;        ld      a,(llist)
+;        add     a,2
+;        ld      l,a
+;        call    gotoxy
+;        call    getquant
+;        ld      hl,ilist
+;        cp      (hl)
+;        jr      nc,list1        ;i<=quant
+;        call    space12
+;        jr      list2
+;list1:  call    getlasty
+;        ld      a,(llist)
+;        add     a,2
+;        ld      (hl),a
+;        ld      a,(ilist)
+;        call    catname
+;        call    wrst12
+;        ld      hl,ilist
+;        inc     (hl)
+;list2:  ld      hl,llist
+;        inc     (hl)
+;        call    mini2
+;        cp      (hl)
+;        jr      nc,listc0
+;
+;        call    getquant                        ;!!
+;        ld      hl,ilist                        ;!!
+;        cp      (hl)                            ;!!
+;        jr      c,list123         ;i>quant       !!
+;
+;        ld      hl,klist
+;        inc     (hl)
+;        ld      a,(hl)
+;        ld      hl,nlist
+;        cp      (hl)
+;        jr      c,listrp
+;
+;list123:                                        ;!!
+;        call    getmode
+;        dec     a
+;        ret     nz
+;        call    posxsh2
+;        call    getfirst
+;        ld      (klist),a
+;        call    mini2
+;        ld      (llist),a
+;listc1: ld      a,(klist)
+;        add     a,3
+;        push    af
+;        call    getfirst
+;        ld      b,(hl)
+;        pop     af
+;        sub     b
+;        ld      l,a
+;        ld      a,15
+;        call    gotoch
+;
+;        call    getquant
+;        ld      a,(klist)
+;        ld      b,a
+;        ld      a,(hl)
+;        cp      b
+;        jr      c,list3
+;        ld      a,(klist)
+;        call    fsize
+;        call    wr179
+;        ld      a,(klist)
+;        call    comm9
+;        jr      list4
+;list3:  call    space12
+;        call    wr179
+;        call    space12
+;list4:  ld      hl,klist
+;        inc     (hl)
+;        ld      hl,llist
+;        dec     (hl)
+;        ld      a,(hl)
+;        or      a
+;        jr      nz,listc1
+;        ret
+
+norton: DB      03BH,007H,00AH,04FH,021H,000H            ;The No
+	DB      01DH,01BH,000H,001H,04FH,02CH,000H,002H  ;rton Com
+	DB      002H,00EH,001H,00BH,00AH,01DH,043H,039H  ;mander,V
+	DB      05DH,041H,05FH,007H,06FH                 ;2.0h
+
+;borland:DB      02CH,000H,01FH                           ;Cop
+;        DB      016H,01DH,006H,008H,007H,01BH,04FH,05EH  ;yright 1
+;        DB      056H,056H,059H,04FH,00DH,016H,04FH,02CH  ;996 by C
+;chist:  DB      007H,006H,01CH,01BH,016H,00EH,004H,000H  ;histyako
+;        DB      019H,04FH,039H,003H,041H,06FH            ;v Vl.
+
+infoms2:DB      03FH,01DH,000H,00BH,01AH,00CH,00AH,00BH  ;Produced
+	DB      04FH,00DH,016H,04FH,02DH,003H,00EH,00CH  ; by Blac
+bcat:   DB      004H,04FH,02CH,00EH,01BH,04FH,006H,001H  ;k Cat in
+	DB      00CH,041H,06FH                           ;c.
+
+info:   call    drawpan         ;drawpanel
+	ld      a,17
+	ld      l,1
+	call    gotoch
+	call    writest
+infoms1:db      1bh,36h,' Info ',1bh,37h,0
+	ld      a,8
+	call    colcur2
+	ld      hl,norton
+	call    wrprotect
+	ld      a,8
+	ld      l,3
+	call    gotoch
+	ld      hl,infoms2
+	call    wrprotect
+;        ld      a,6
+;        ld      l,22
+;        call    gotoch
+;        ld      hl,borland
+;        call    wrprotect
+	ld      a,2
+	ld      l,4     ;5
+	call    gotoch
+	call    line38
+	ld      a,17
+	ld      l,5     ;6
+	call    gotoch
+	call    writest
+infoms4:db      'drive ',0
+	call    ractpn
+	call    fullwin
+	call    resact
+;
+;	call	getdisks
+;
+	CALL    getdph
+        INC     HL
+        INC     HL
+        INC     HL
+        LD      A,(HL)
+        INC     A
+        RRCA
+        RRCA
+        RRCA                    ; пюглеп цпсоош б йа
+	ld	(dgrp), a
+        INC     HL
+        INC     HL
+        LD      E,(HL)
+        INC     HL
+        LD      D,(HL)
+        INC     DE              ; пюглеп дхяйю б цпсооюу
+	ld	(dsize), de
+        PUSH    DE
+	CALL    getaddr
+        POP     DE      	; йнк-бн цпсоо (явервхй)
+        PUSH    HL
+        POP     IX
+	push	de
+        LD      HL,0
+PRSIZE0:LD      C,(IX)
+        LD      B,8
+PRSIZE1:RLC     C
+        PUSH    BC
+        LD      BC,0
+        ADC     HL,BC
+        POP     BC
+        DEC     DE
+        LD      A,D
+        OR      E
+        JR      Z,PRSIZE2
+        DJNZ    PRSIZE1
+        INC     IX
+        JR      PRSIZE0
+PRSIZE2:ld	(dused), hl     
+	ex	de, hl		; DE=ГЮМЪРН б цпсооюу
+	pop	hl
+	sbc	hl, de
+	ld	(dfree), hl	; ЯБНАНДМН (Б ЦПСООЮУ)
+;
+	call    wrdsk2
+	call    ractpn
+; конец вывода рекламы
+
+; вывод label
+	ld      a,11    ;12
+	ld      l,6     ;7
+	call    gotoch
+	call    getlabel
+	or      a
+	jr      nz,nolabel
+	ld      hl,wlabstr+2
+	call    write
+	ld      hl,vvm
+	ld      a,16
+	call    wstrng
+	jr      nextinfo
+nolabel:call    writest
+infoms9:db      '      No label',0
+
+; вывод параметров диска
+nextinfo:
+	ld      l,8             ;9
+	call    lincur11
+	ld      hl,(dsize)
+	call    wrgsize
+	call    messkbyt
+	ld	hl, infoms5
+	call    write
+	ld      l,9             ;10
+	call    lincur11
+	ld      hl,(dused)
+	call    wrgsize
+	call    messkbyt
+	call    writest
+	db      'used',0
+	ld      l,10            ;11
+	call    lincur11
+	ld      hl,(dfree)
+	call    wrgsize
+	call    messkbyt
+	call    writest
+	db      'free',0
+;
+; вывод параметров памяти
+;
+;  Ф. 110 (6Eh)
+;  Получить информацию о памяти
+;  Выход: H=размер всего исправного ОЗУ в сегментах
+;         L=размер свободного ОЗУ в сегментах
+;
+	ld      c,110
+	call    BDOS
+	ld      d,0
+	ld      e,h
+	ld      h,0
+	ld      b,5
+calcfrm:add     hl,hl   ; * 32
+	djnz    calcfrm
+	PUSH    HL      ; XTPA
+	ex      de,hl
+	ld      b,5
+calctm: add     hl,hl   ; * 32
+	djnz    calctm
+	PUSH    HL      ; TOTAL
+;
+	ld      a,2     ;x
+	ld      l,12    ;13    ;y
+	call    gotoch
+	call    line38
+	ld      a,17
+	ld      l,14    ;15
+	call    gotoch
+	call    writest
+	db      'Memory:',0
+
+; вывод total
+	ld      l,16    ;17
+	call    lincur11
+	POP     HL      ; POP TOTAL
+	call    wrsize  ; вывод размера total memory
+	call    writest
+infoms0:db      ' bytes ',0
+	call    writest
+infoms5:db      'total',0
+
+; вывод XTPA
+	ld      l,17    ;18
+	call    lincur11
+	POP     HL      ; POP XTPA
+	call    wrsize  ; вывод размера XTPA
+	call    messbyt
+	call    writest
+	db      'XTPA free',0
+
+; вывод TPA
+	ld      l,18    ;19
+	call    lincur11
+	ld      hl,(6)
+;       ld      de,-256
+;       add     hl,de
+	dec     h
+	push    hl
+	pop     bc
+	xor     a
+	call    wrdata                  ; вывод размера TPA
+	call    messbyt
+	call    writest
+	db      'TPA',0
+	ret
+;
+messbyt:ld      hl,infoms0
+	jp      write
+messkbyt:
+	call    writest
+	db      ' kb ',0
+	ret
+;
+;21.01.96
+wr179st:
+	push    hl
+	push    bc
+	call    wr179
+	pop     bc
+	pop     hl
+	ret
+wr145:  ld      c,145
+	jp      conout
+
+lines:  call    getmode
+	or      a
+	ld      a,27
+	jr      z,mod0
+	ld      a,25
+mod0:   push    af
+	ld      l,1
+	call    lincur14
+	call    wr145
+	ld      l,1
+	pop     af
+	push    af
+	call    curall
+	call    wr145
+
+	ld      l,2
+	call    mini2
+	inc     a
+	ld      b,a
+
+lines0:
+	call    lincur14
+	call    wr179st
+	pop     af
+	push    af
+	call    curall
+	call    wr179st
+	inc     l
+	djnz    lines0
+	ld      a,(minist)
+	dec     a
+	jr      nz,lines1
+	call    oneline
+
+	ld      l,21
+	call    lincur14
+	call    wr81h
+
+	ld      l,21
+	pop     af
+	call    curall
+wr81h:  ld      c,81H
+	jr      conout9
+
+lines1: ld      l,23
+	call    lincur14
+
+	call    wr8fh
+
+	ld      l,23
+	pop     af
+	call    curall
+wr8fh:  ld      c,8fh
+	jr      conout9
+
+oneline:ld      a,2
+	call    colcur21
+	call    line38
+	ld      a,1
+	call    colcur21
+	ld      c,87h
+	call    conout
+	ld      a,40
+	call    colcur21
+	ld      c,0b6h
+conout9:jp      conout
+;Вызовы gotoch с фиксированными значениями
+colcur21:ld     l,21
+	jr      curall
+colcur2:ld      l,2
+	jr      curall
+lincur11:ld     a,11
+	jr      curall
+lincur14:ld     a,14
+	jr      curall
+curall: push    hl
+	push    bc
+	call    gotoch
+	pop     bc
+	pop     hl
+	ret
+vsln:   ld      b,11
+	jr      xln
+superln:ld      b,3ch
+xln:    ld      c,8dh
+	jr      space0
+line38: ld      bc,2684h
+	jr      space0
+;
+space:  ld      c,' '
+spacex: ld      b,a
+space0: push    bc
+	call    conout
+	pop     bc
+	djnz    space0
+	ret
+space12:ld      a,12
+	jr      space
+

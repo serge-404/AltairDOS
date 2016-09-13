@@ -1,0 +1,673 @@
+;*****************************
+;     NORTHON COMMANDER      *
+;       Модуль FN1.MAC       *
+; f15,(16),17,18             *
+;  ignore,era,getchar,view   *
+;         setstat            *
+;*****************************
+;
+wignorproc:
+	call    offwritest
+ignms0: db      4,1,'File ',0
+	call    set12col
+	ld      hl,403h
+	call    gotoxy
+	ld      hl,(pushhl)
+	jp      write           ;str
+
+wignorcase:
+	ld      (ignor),a
+	pop     hl
+	jp      cansel
+
+ignore: ld      (pushhl),hl      ;Вход в hl
+	ld      hl,winignor
+	call    initwin
+	ld      a,27
+	ld      (ignor),a
+	ret
+
+ignore1:ld      hl,commms1
+ignore2:call    ignore
+ignor23:ld      a,(ignor)
+	dec     a
+	ret
+
+setro:  ld      hl,fcb+9
+	set     7,(hl)
+	ret
+resro:  ld      hl,fcb+9
+	res     7,(hl)
+	ret
+setsys: ld      hl,fcb+10
+	set     7,(hl)
+	ret
+ressys: ld      hl,fcb+10
+	res     7,(hl)
+	ret
+
+setstat:push    af        ;setstatus Вход в рег. A:
+;0 - r/o
+;1 - non r/o
+;2 - sys
+;3 - nonsys
+	call    c1init
+	call    catro
+	dec     a
+	call    z,setro
+	call    catsys
+	dec     a
+	call    z,setsys
+	pop     af
+	ld      hl,setst0
+	push    hl
+	or      a
+	jr      z,setro
+	dec     a
+	jr      z,resro
+	dec     a
+	jr      z,setsys
+	dec     a
+	jr      z,ressys
+	pop     hl
+	ret
+setst0: ld      de,fcb  ;*!
+	jp      setatt
+;
+erams0: db      'is set to READ/ONLY.',0
+;
+exera:  ld      a,1
+	ld      (exitera),a
+	ret
+era:    xor     a
+	ld      (exitera),a
+	call    catro
+	dec     a
+	jr      nz,era0
+	call    ignor23
+	jr      z,exera
+	inc     a
+	jr      z,eraf0
+	cp      1bh
+	jr      nz,era0
+
+eraf0:  ld      hl,erams0
+	call    ignore2
+	jr      z,exera
+	cp      26
+	jr      z,exera
+
+era0:   ld      a,(exitera)
+	dec     a
+	ret     z
+	call    catro
+	dec     a
+	ld      a,1
+	call    z,setstat
+	call    c1init
+	jp      efcb
+
+comm3:  ld      a,(key)
+	sub     19
+	jp      z,copyfl  ;copyfile
+	dec     a
+	jr      nz,era    ;delete
+	ld      a,(ilist)
+	or      a
+	jr      z,isren   ;rename
+	call    copyfl    ;move
+	ld      a,(rssort)
+	or      a
+	ret     z
+	call    catro
+	dec     a
+	ld      a,1
+	call    z,setstat
+	jr      era
+;
+isren:  call    catname1        ; hl=file name
+	push    hl
+	ld      ix,filname      ; de=filter
+	ld      de,fcb1
+	push    de
+	ld      b,12
+orfil:  ld      a,(ix)
+	cp      '?'
+	jr      nz,putchar
+	ld      a,(hl)
+putchar:ld      (de),a
+	inc     ix
+	inc     hl
+	inc     de
+	djnz    orfil
+	pop     de
+	pop     hl
+	push    de
+	call    equalx
+	pop     hl              ; fcb1=new name
+	ret     nz
+	call    initfcb
+	call    ffirst          ; см. copy3
+	cp      4
+	jr      nc,notexist
+
+	call    ignor23
+	ret     z             ;ignor=1 - выход из копировщика
+	inc     a
+	jr      z,comm32
+	cp      27
+	jr      nz,comm33
+
+comm32: ld      hl,renflg
+	inc     (hl)
+	push    hl
+	call    ignore1
+	pop     hl
+	ld      (hl),0
+	ret     z             ;ignor =1 или 1bh - выход из копировщика
+	cp      26
+	ret     z
+
+comm33: call    efcb
+
+notexist:
+	ld      hl,fcb
+	push    hl
+	ld      de,fcb1
+	push    de
+	call    ldir16
+	push    hl
+	call    c1init
+	pop     de              ; de=fcb+16
+	pop     hl              ; hl=fcb1
+	call    ldir16
+	pop     de              ; de=fcb
+	jp      rename
+;
+sccn:   call    catname1
+	ld      de,strn
+	call    ldhfl12
+	ld      a,'.'
+	ld      (strn+8),a
+;	ld      a,(sysline)	; 2008.09.18
+;	or      a
+;	jr      nz,sccn0
+;	ld      hl,2020h
+;	ld      (strn+8),hl
+;	ld      (strn+10),hl
+sccn0:  ld      hl,strn
+	call    spdel
+	push    hl
+	call    sumlength
+	pop     hl
+	dec     hl
+	add     a,(hl)
+	cp      79
+	ret     nc
+	push    hl
+	ld      hl,sysline
+	ld      e,(hl)
+	inc     e
+	ld      d,0
+	add     hl,de
+	ex      de,hl
+	pop     hl
+	push    hl
+	ld      c,(hl)
+	inc     hl
+	ld      b,0
+	ldir
+	ld      a,' '
+	ld      (de),a
+	pop     hl
+	ld      de,sysline
+	ld      a,(de)
+	add     a,(hl)
+	inc     a
+	ld      (de),a
+	ld      (curcur),a
+	ret
+;
+getcat9:call    arrsel2
+	dec     hl
+	push    hl
+	call    getpoint
+	pop     hl
+	call    allde1
+	call    getname1
+	ld      de,8
+	add     hl,de
+	ld      a,(hl)
+	cp      178
+	ret
+
+psetcat9:ld     a,'.'
+setcat9:push    af      ;setcatname9, вход в рег. A
+	call    getcat9
+	pop     af
+	ld      (hl),a
+	ret
+;==========================================================
+
+pushpoint:                      ; Запись в буфер указателя внутри DMA и номера
+	call    getbufpoint     ; записи для прямого доступа
+	ld      de,(fcb+21h)
+	ld      (hl),d
+	dec     hl
+	ld      (hl),e
+	dec     hl
+	ld      a,(count)
+	ld      (hl),a
+	ret
+
+poppoint:call   getbufpoint     ; Восст. указатель DMA и номер записи для преды-
+	ld      d,(hl)          ; дущей страницы
+	dec     hl
+	ld      e,(hl)
+	ld      (fcb+21h),de
+	dec     hl
+	ld      a,(hl)
+getcharx: ld    (count),a       ; Уст. указателя по A
+	ld      hl,(fcb+21h)
+	call    seekrec         ; Уст. номера записи по hl
+	jp      rbpfcb          ; Прямое чтение из файла
+
+getchar:ld      a,(count)
+	rla
+	jr      nc,getc0
+
+	call    increc
+	xor     a
+	call    getcharx
+	ld      hl,alarm
+	or      (hl)
+	jr      z,getcnt
+	xor     a               ; Ошибка BDOS или EOF - выход с Z=1
+	ret
+
+getcnt:
+getc0:  ld      hl,count
+	ld      e,(hl)
+	inc     (hl)
+	ld      d,0
+	ld      hl,vvm
+	add     hl,de
+	or      0ffh
+	ld      a,(hl)
+	ld      (i1),a
+	ret
+f170:   ld      a,(i4)
+	call    getext1
+	call    spdel
+	dec     hl
+	ld      a,(hl)
+	dec     a
+	ret     z       ;В имени редактора / вьювера 0 знач. символов - возврат
+	inc     hl
+	ld      de,sysline+1
+	ld      b,1
+f171:   ld      a,(hl)
+	inc     hl
+	cp      '.'
+	jr      z,f172
+	inc     b
+	ld      (de),a
+	inc     de
+	jr      f171
+f172:   ld      a,' '
+	ld      (de),a
+	ld      a,b
+	ld      (sysline),a
+	jp      comm40          ;21
+
+;
+;WORKSCR:DS      1       ; ТЕКУЩИЙ ЭКРАН
+;SPVIEW: ds      2
+;
+
+f17:
+f18:    call    quanty
+	ret     z
+	call    resact
+	ld      a,(key)
+	sub     17
+	ld      (i4),a
+	call    getins1
+	jr      nz,f170
+;
+view:   call    wset6
+	call    fullwin
+	call    dorst3
+	call    catname1
+	call    iofcb
+	inc     a
+	ret     z       ; Не открыт файл для VIEW - выход
+;
+	call    cm2
+	ld      (SPVIEW),sp
+	LD      A,1
+	CALL    SELSCR  ; ВКЛЮЧИТЬ активный ЭКРАН 1
+			; ВХОД: РГ.А - НОМЕР ЭКРАНА
+			; ВЫХОД: РГ.А - ТЕКУЩИЙ ЭКРАН
+	LD      (WORKSCR),A
+			; окно установлено на 6/25/80
+;       call    writest
+;       db      27,'C',3,12
+;       db      27,'5'          ; выкл. автоперевод
+;       db      27,'Y',38h,20h  ; уст. курсор
+;       db      27,'P',20h      ; уст. цвет
+;       db      27,'C',2        ; уст. режим CM2
+;       db      27,'K'          ; очистка до конца строки
+;       db      27,'C',3        ; уст. режим CM3
+;       db      27,'4',0        ; вкл. автоперевод
+
+NOSCR1:
+	ld      de,yellow*256+black
+	call    setcl
+	call    clrscr
+	call    lstsys
+;
+	ld      a,4     ; " Интерьер "
+	call    wrkeybar
+;                       ; Обнуление: ( в umnsubr )
+	xor     a
+;       ld      (i4),a  ;    -""-   признака конца файла
+;       ld      (i5),a  ;    -""-   максимального номера
+			; страницы
+	ld      (PageView),a
+
+	call    umnsubr
+
+	ld      de,white*256+black
+	call    setcl
+	call    cm2
+	call    wset8
+	ld      hl,101h
+	call    gotoxy
+	call    superln
+	ld      hl,1b01h
+	call    gotoxy
+	ld      hl,f17ms0
+	ld      a,6
+	call    wstrng
+	call    offwritest
+viewms2:db      38,0,' File: ',0
+	call    catname1
+	call    up
+	call    spdel
+	dec     hl
+	ld      a,(hl)
+	inc     hl
+	call    wst
+	call    wr20h
+	call    vdownline
+
+	call    lockoff         ; Снять блокировку вывода символов на экран
+	call    gotoendoff      ; Отменить команду Goto End
+
+; "1","стрелка вверх" - page up
+; "2","стрелка вниз"  - page down
+; "^R"                - scan up
+; "^C"                - scan down
+; "3"                 - goto home
+; "4"                 - goto end file
+; "ESC"               - exit
+viewrp0:
+	ld      hl,102h         ; Установка параметров окна для вывода
+	ld      bc,1550h        ; текста файла
+	ld      de,yellow*256+black
+	call    setpar
+	call    setw
+	call    clrscr          ; Очистка экрана перед выводом страницы
+	call    fillwin
+
+	call    writest
+numpage:db      27,'Q',8,27,'Y',32,35,32,'Page:',0
+	ld      a,(PageView)
+	ld      hl,i5
+	cp      (hl)
+	jr      c,skipmax
+	ld      (hl),a
+skipmax:
+	inc     a
+	call    wrquant         ; Мах номер страницы - 255
+	call    writest
+numpage0:db     32,27,'Q',6,0
+	ld      a,(WORKSCR)
+	cp      1
+; если вывод файла будет на экране 1,то включить видимый экран 1
+	call    z,SETVIS
+
+	call    pushpoint       ; Запись в буфер указателя внутри DMA и номера
+				; записи для прямого доступа
+nomax:  ld      a,2
+	ld      (i14),a         ; Вторая строкa
+
+view1:  ld      l,a
+	ld      h,1
+	call    gotoxy
+	xor     a
+	ld      (rssort),a
+
+view2:  call    getchar
+	jr      z,endfile
+	ld      hl,rssort
+	cp      1ah
+	jr      z,eoffile
+	cp      9
+	jr      z,tabulator
+	cp      0dh
+	jr      z,crcode
+others: inc     (hl)
+	push    hl
+
+	ld      c,a
+	call    getlock         ; lock 1
+	ld      a,c
+	jr      nz,othlock
+
+	cp      ' '
+	push    af
+	call    nc,wri1
+	pop     af
+	call    c,wrlitle
+othlock:
+	pop     hl
+	ld      a,(hl)
+	cp      80
+	jr      nc,view4
+	jr      view2
+tabulator:
+	ld      a,(hl)
+	cp      72
+	jr      nc,view4
+	or      7
+	ld      (hl),a
+
+	call    getlock         ; lock 2
+	call    z,wri1
+	jr      view2
+
+
+crcode: call    getchar
+	jr      z,endfile
+view4:  ld      hl,i14
+	inc     (hl)
+	ld      a,(hl)
+	cp      23
+	jr      c,view1
+
+; left   08h
+; up     05h
+; right  04h
+; down   18h  ;коды курсора в CP/M
+
+	call    vkbrd
+
+scan:   ld      hl,Pageview
+	inc     (hl)
+	or      a               ; key = 5 !!!
+	jp      nz,viewrp0      ; Not Page Up
+
+backfv: dec     (hl)            ; Page Up
+	jr      z,zeropage
+	dec     (hl)
+zeropage:xor    a
+	ld      (i4),a         ; Сброс признака EOF
+
+xpage:  call    poppoint       ; Восст. указатель DMA и номер записи для преды-
+
+	jp      viewrp0        ; дущей страницы
+
+eoffile:ld      b,a
+	ld      a,(eofdetect)
+	or      a
+	ld      a,b
+	jr      z,others
+
+endfile:call    fillwin0
+	call    wset8
+	call    offwritest
+getcms0:db      27,22,27,36h,' End ',27,37h,0
+	call    wset6
+	call    getalarm
+	jp      nz,view3
+	ld      a,1
+	ld      (i4),a          ; Установка признака EOF
+	call    gotoendoff      ; Отменить команду Goto End по достижении
+				; конца файла
+cycleof:call    vkbrd
+	or      a
+	jr      nz,cycleof      ; Not Page Up - переход на cycleof
+				; Page Up
+
+	call    vdownline
+
+	ld      hl,PageView
+	inc     (hl)
+	jr      backfv
+
+;
+vkbrd:  ld      a,(gotoend)     ; Указатель команды gotoend
+	or      a
+	jr      z,vkbrdx        ; Переход, если не команда gotoend
+
+;        LD      A,(i4)
+;        OR      A
+;        JR      NZ,VKBRDX       ; Запрет выполнения команды gotoend, если
+				; выведена последняя страница файла
+
+	call    monink
+
+	pop     hl              ; Баланс стека
+	or      10h
+	cp      34h             ; "4"
+	jr      z,scan          ; Продолжать выполнять команду gotoend
+	cp      0ffh            ; 0ffh
+	jr      z,scan          ; Продолжать выполнять команду gotoend
+
+	call    gotoendoff
+	jr      vkbrdx0         ; Иначе вывести текущую страницу
+
+vkbrdx: call    getlock
+	jr      z,vkbrd0        ; Если lock открыт, то опрос клавиат.
+
+	call    monink          ; Если lock закрыт, то проверка
+	cp      3               ; ^C
+	jr      z,vkbrd1        ; или
+	cp      12h             ; ^R
+	jr      z,vkbrd1
+				; иначе
+vkbrdx1:pop     hl              ; вывести текущую страницу
+vkbrdx0:call    lockoff
+	jp      zeropage
+
+vkbrd0: call    readkey
+	ld      a,(scancode)
+	cp      27
+	jp      z,view3         ; esc - конец просмотра
+
+	or      10h
+	cp      33h              ; "3" - в начало файла
+	jr      nz,nogohome
+
+	call    vdownline
+	xor     a               ; номер страницы --> 1
+	ld      (PageView),a
+	jr      vkbrdx1
+
+nogohome:
+	cp      34h              ; "4" - в конец файла
+	jr      nz,vkbrd1
+
+	ld      a,(i4)
+	OR      A
+	JR      NZ,VKBRD0       ; Запрет выполнения команды gotoend, если
+				; выведена последняя страница файла
+	ld      a,(i5)
+	ld      (PageView),a
+
+	call    gotoendon       ; Вкл. индикатор команды goto end
+	call    lockon
+	pop     hl
+	jp      xpage
+				; Возвращает 0 , если Page Up
+vkbrd1: ld      a,(kr)
+	sub     5               ; стрелка вверх \
+	jr      z,lockoff       ;                >---> page up
+	sub     10              ; "1"           /
+	jr      z,lockoff       ;             /
+				;           /
+	cp      -12             ; ^C
+	jr      z,lockon
+	sub     3               ; ^R      /
+	jr      nz,lockoff
+
+
+lockon: push    af
+	ld      a,1
+
+lockonoff:
+	ld      (lock),a
+	pop     af
+	ret
+
+lockoff:push    af
+	xor     a
+	jr      lockonoff
+
+getlock:ld      a,(lock)
+	or      a
+	ret
+vdownline:
+	call    wset8
+	ld      hl,117h
+	call    gotoxy
+	call    superln
+	jp      wset6
+
+gotoendon: ld      a,1
+	jr      gotoendx
+gotoendoff:
+	xor     a
+gotoendx:
+	ld      (gotoend),a
+	ret
+
+; выход из режима VIEW
+view3:  ld      a,2
+	ld      (dorst),a
+
+	LD      A,(WORKSCR)
+	dec     a               ; вывод файла на экран 0 -
+	jp      nz,fn14         ; - вывести панели
+;
+;        XOR     A
+	CALL    SELSCR          ; включить АКТИВНЫЙ экран 0
+	xor     a
+	call    SETVIS          ; включить ВИДИМЫЙ экран 0
+	ld      sp,(SPVIEW)
+	jp      dorst3
+ еню
+	ld      b,a             ;b-количество пунктов верт.меню
+	ld      a,(ix+10)       ;a= длина (размер) элемен
