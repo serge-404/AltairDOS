@@ -1,0 +1,1312 @@
+	TITLE	'ORDOS SD/IDE/FDD/ROM CP/M boot LOADER, v1.2.'
+;
+	.Z80
+;
+mon_out	equ	0f809h
+mon_ink	equ	0f803h
+mon_key	equ	0F803h
+mon_msg	equ	0F818h
+pr_hex	equ	0F815h
+mon_ide	equ	0F834h		; this subroutine exists in mon35zrkh/mon35zmsh only !!!
+				; so, this signature will be substituted while read IDE sector 
+mon_svb	equ	0f839h
+mon_ldb equ	0f836h
+;
+ROM_PPA	     equ 0F500h
+PFROM	EQU	0FEh		; 0FCH		; in-ROM CP/M start page
+PROM2	EQU	009H		; Orion-PRO ROM2 page register
+PROPA	EQU	00Ah		; D3 - activate "ROM2-BIOS" window
+;
+ide_8255     equ 0F600h    	; PPA base address
+ide_8255_lsb equ ide_8255+02h	; pC - lower 8 bits
+ide_8255_msb equ ide_8255+01h	; pB - upper 8 bits
+ide_8255_ctl equ ide_8255+00h	; pA - control lines
+ide_8255_cfg equ ide_8255+03h	; 8255 configuration register
+rd_ide_8255  equ 10001011b	; ide_8255_ctl out, ide_8255_lsb/msb input
+wr_ide_8255  equ 10000000b	; all three ports output
+;
+ide_a0_line  equ 01h       ;direct from 8255 to ide interface
+ide_a1_line  equ 02h       ;direct from 8255 to ide interface
+ide_a2_line  equ 04h       ;direct from 8255 to ide interface
+ide_cs0_line equ 08h       ;inverter between 8255 and ide interface
+ide_cs1_line equ 10h       ;inverter between 8255 and ide interface
+ide_wr_line  equ 20h       ;inverter between 8255 and ide interface
+ide_rd_line  equ 40h       ;inverter between 8255 and ide interface
+ide_rst_line equ 80h       ;inverter between 8255 and ide interface
+;
+ide_data     equ   ide_cs0_line
+ide_err      equ   ide_cs0_line + ide_a0_line
+ide_sec_cnt  equ   ide_cs0_line + ide_a1_line
+ide_sector   equ   ide_cs0_line + ide_a1_line + ide_a0_line
+ide_cyl_lsb  equ   ide_cs0_line + ide_a2_line
+ide_cyl_msb  equ   ide_cs0_line + ide_a2_line + ide_a0_line
+ide_head     equ   ide_cs0_line + ide_a2_line + ide_a1_line
+ide_command  equ   ide_cs0_line + ide_a2_line + ide_a1_line + ide_a0_line
+ide_status   equ   ide_cs0_line + ide_a2_line + ide_a1_line + ide_a0_line
+ide_control  equ   ide_cs1_line + ide_a2_line + ide_a1_line
+ide_astatus  equ   ide_cs1_line + ide_a2_line + ide_a1_line + ide_a0_line
+;
+;IDE Command Constants.  These should never change.
+;
+ide_cmd_none	 equ 0
+ide_cmd_recal    equ 10h
+ide_cmd_read     equ 20h
+ide_cmd_write    equ 30h
+ide_cmd_init     equ 91h
+ide_cmd_id       equ 0ECh
+ide_cmd_spindown equ 0E0h
+ide_cmd_spinup   equ 0E1h
+;
+ide_error_busy 	 equ 0FFh
+ide_error_nohdd	 equ 0FEh
+;
+intinchl equ	2756	; initial constant for 10ms timing loop
+;
+masterboot_check equ buffer+1FEh
+;
+SD_ADDR	equ	0F762h
+SD_ADR2	equ	0F763h
+SD_PWR	equ	08h	; POWER OFF/ON=0/1 (positive logic)
+SD_CS	equ 	04h 	; NPN inverter, positive logic.
+SD_CLK	equ 	02h
+SD_DOUT	equ 	01h
+SD_DIN	equ	80h 
+FTimeout equ	20000
+;
+CMD0   equ 040h +  0 ; resets the card
+CMD9   equ 040h +  9 ; read CSD
+CMD10  equ 040h + 10 ; read CID
+CMD16  equ 040h + 16 ; set R/W block
+CMD17  equ 040h + 17 ; read block
+CMD24  equ 040h + 24 ; write block
+CMD55  equ 040h + 55 ; next command is ACMDxx
+CMD58  equ 040h + 58 ; READ_OCR
+ACMD41 equ 040h + 41 ; send host capacity support, init card
+;
+buffer	equ	7000h	; IDE-sector (512 bytes) temporary buffer
+codesize equ	2000	; 1952	; 1712	; 1520	
+DPBSize	equ	31	; DBP size
+;
+	.phase	7400h-16
+;
+	db	'MBOOT$  '
+	dw	7400h			; start address at page0
+	dw	codesize		; code length
+	db	0, 0FFh, 0FFh, 0FFh	; reserved	
+;
+codebeg:
+        XOR     A
+	out	(0F8h),a
+	out	(0FAh),a
+        DEC     A
+        JP      PO,IFZ80
+	LD	HL,msgZ80
+	jp	prerr0
+IFZ80:	ld	bc, call0end-call0	; ReadSector wrapper
+	ld	de, call0
+	ld	hl, codend
+	ldir
+main_loop:       
+	LD	HL, msgtitle
+	CALL	mon_msg
+        call    mon_ink
+main1:  push	af
+	ld	c, a
+        call    mon_out
+	ld	hl, msg_crlf
+	CALL	mon_msg
+	pop	af
+	cp	27
+	jr	z, ordos
+	cp	3
+ordos:	jp	z, 0bffdh	; 0F800h
+	ld	d, 1		; 1=SDC
+	cp	13
+	jr	z, toSD		; default choice
+	sub	'1'
+	jr	c, main_loop	; key<'1'
+toSD:	jp	z, BOOTSD
+	dec	a
+	jr	z, BOOTROM
+	dec	a
+	jp	z, BOOTFDD14
+	dec	a
+	jr	z, BOOTFDD20
+	dec	a
+	ld	d, a		; 0=IDE_MASTER
+	jr	z, toIDE
+	dec	a
+	ld	d, 10h		; 10h=ide_slave
+toIDE:	jp	z, BOOTIDE
+	jr	main_loop	
+;				
+; 7455H
+;
+GETROM:	JP	xGETROM
+;
+BOOTROM:IN	a,(0BH)		; 08H..0AH ports control register PPA 8255 (Orion-PRO)
+	inc	a
+	jr	z,OR128		; SKIP IF HOST IS ORION-128
+	ld	hl,yGETROM
+	ld	(GETROM+1),hl
+	jr	ySELROM
+OR128:	LD	A,090H
+	LD	(ROM_PPA+3),A	; init ROM-DISK PPA
+ySELROM:xor	a		; y* = Orion-PRO type ROMDISK
+	ld	h,a
+	ld	l,a		; disk offset = 0
+	inc	a		; a=1 (ROM 64kb page index = 1..N )
+	ld	de, buffer
+	push	de
+	CALL    GETROM		; read 512 bytes to buffer
+	pop	hl
+;
+; check for valid CP/M bootsector (DPB crc)
+;
+	ld	a, 0C3h		; "jp" opcode
+	cp	(hl)
+	jr	nz, invalid	; not a CPM bootsector
+	ld	a, 066h
+	ld	b, DPBSize
+calccrc:add 	a, (hl)
+	inc	hl
+	djnz	calccrc	
+	cp	(hl)
+	jp	z, ROMBOOT	; if DBP crc valid
+invalid:ld	hl, msg_rdy
+msg_ink:call	mon_msg
+        call    mon_ink
+	jr	main_loop
+;
+;====================== FDD routines ====================
+;
+BOOTFDD20:
+	ld	e, a		; non-HD=800k (F720.D3=0)  a=e=0
+	call	BFDD		; first, try read in nonHD mode
+	ld	e, 8		; second, HD mode >800k (F720.D3=1)
+	LD	HL,prnerr	; return address if error -
+	PUSH	HL		;    if HD mode read failed too
+BFDD:	LD	A,010H
+	or	e
+	LD	HL,0F720H
+	LD	(hl), a
+	LD	A,0D0H		; force interrupt
+	CALL	FDD_CMD
+	LD	(HL), 030H
+	ld	a, 010H
+	or	e		; assume HD bit
+	LD	(HL), a
+;	LD	A,008H		; goto TRACK 0			;
+;	CALL	FDD_CMD						;
+	XOR	A						;;
+	LD	(0F701h),A	; write TRACK register		;;
+	LD	A,04BH						;;
+	CALL	FDD_CMD		; Step IN			;;
+	LD	A,00BH						;;
+	CALL	FDD_CMD		; goto TRACK 0			;;
+;
+	call	delay2		; delay 500ms  B=0
+	LD	C,B		; BC=0
+FDD0:	LD	A,(0F700h)
+	RLCA
+	JR	NC,READS1	; go if Fdd Ready
+;	LD	(HL),030H
+;	ld	a, 010H
+;	or	e		; assume HD bit
+;	LD	(HL), a
+	DEC	BC
+	LD	A,B
+	OR	C
+	JR	NZ,FDD0
+	dec	a		; a=0FFh - not ready
+	RET			; goto prnerr
+;
+READS1:	LD	A,001H
+	LD	(0F702h),A	; sector N 1
+	LD	HL,buffer
+	PUSH	HL
+	LD	BC,0F700H
+	LD	A,084H		; read single sector with 15ms delay
+	LD	(BC),A
+	LD	DE,0F703H
+RDSEC:	LD	A,(BC)
+	RRA
+	JR	NC,FDD1	; go if not Busy (sector readed)
+	RRA
+	JR	NC,RDSEC	; go if no data to read
+	LD	A,(DE)
+	LD	(HL),A
+	INC	HL
+	JR	RDSEC
+;
+FDD1:	pop	de	; de=buffer
+	LD	A,(BC)
+	AND	0DFH
+	RET 	NZ	; data read error
+;
+; переслать блок и передать управление на аддр. 0h в странице 1
+;
+fddmvblk:
+	ld	h, a
+	ld	l, a			; hl=0
+	ld	b, a			; b=0 - send 256 bytes
+mvblk:	LD	A,(DE)
+	LD	C,A
+	LD	A,1			; memory page number
+	CALL	mon_svb			; put byte into other memory page
+	INC	DE
+	INC	HL
+	DJNZ	mvblk
+	ld	a, 0C3H	; first MASTERBOOT command is JMP
+	pop	hl	; correct stack (hl=prnerr)
+	jp	JUMP1
+;
+; ¬ыполнить команду FDD + ожидание готовности FDD
+;
+FDD_CMD:LD	(0F700h),A
+	ld	bc, 0B000h
+FDD2:	LD	A,(0F700h)
+	RRCA
+	RET	nc		
+	dec	bc
+	ld	a,b
+	or	c
+	JR	nz, FDD2  	; while BUSY
+	ld	a,0FEh
+	pop	bc		; correct stack
+	ret			; goto prnerr
+;
+;---------------------- F710/F714 -----------------------
+;
+YB400	EQU	buffer
+YB42F	EQU	YB400+2FH
+YF711	EQU	0F711H
+YF712	EQU	0F712H
+YF714	EQU	0F714H
+
+BOOTFDD14:
+	LD	DE,0F710H
+	LD	A,010H
+	LD	(YF714),A
+	LD	A,0D0H
+	CALL	WGCMD
+	CALL	AB0DE
+	JP	C,invalid
+	LD	A,001H
+	LD	(YF712),A
+	LD	HL,YB400
+	CALL	READFDD
+	LD	HL,msgerr
+TOMSGINK:
+	JP	NZ,MSG_INK
+;
+AB07A:	LD	A,(YB400)	; analyse sector content
+	CP	0C3H
+	LD	HL,NONSYS
+	Jr	NZ,TOMSGINK
+	LD	A,(YB42F)
+	AND	003H
+	Jr	NZ,AB0BB	; jp if OS working in page 1
+	LD	HL,YB400+3
+	LD	DE,TB0A3
+	LD	B,005H
+AB095:	LD	A,(DE)
+	CP	(HL)
+	Jr	NZ,AB0A8
+	INC	HL
+	INC	DE
+	DEC	B
+	Jr	NZ,AB095
+	Jr	AB0AE
+;
+TB0A3:	DEFB	041H		; 'ATLAS'
+	DEFB	054H
+	DEFB	04CH
+	DEFB	041H
+	DEFB	053H
+AB0A8:	LD	HL,msg_os48
+	CALL	mon_msg
+AB0AE:	LD	HL,YB400
+	LD	DE,00000H
+	LD	BC,00400H
+	LDIR			; move bootsector to 0:0000
+	RST	000H		; goto bootcode
+;
+AB0BB:	DEC	A
+	JP	NZ,0BFFDh	; 0F800h
+	LD	HL,msg_os60
+	PUSH	DE
+	CALL	mon_msg
+	POP	DE
+	XOR	A
+	OUT	(0F8H),A
+	CALL	AB0DE
+	xor	a
+	ld	de,YB400 
+	push	de
+	JP	fddmvblk
+;
+AB0DE:	XOR	A
+	LD	(YF711),A
+	LD	A,04BH
+	CALL	WGCMD
+	LD	A,00BH
+	CALL	WGCMD
+	LD	BC,00000H
+AB0EF:	LD	A,(DE)
+	RLCA
+	RET	NC
+	DEC	BC
+	LD	A,B
+	OR	C
+	Jr	NZ,AB0EF
+	SCF
+	RET
+;
+AB0FA:	LD	(DE),A
+	LD	A,00FH
+AB0FD:	DEC	A
+	Jr	NZ,AB0FD
+	RET
+;
+WGCMD:	CALL	AB0FA
+AB105:	LD	A,(DE)
+	RRCA
+	Jr	C,AB105
+	RET
+;
+AB10B:	LD	A,084H
+	CALL	AB0FA
+	LD	BC,0F713H
+AB113:	LD	A,(DE)
+	RRCA
+	RET	NC
+	RRCA
+	Jr	NC,AB113
+	LD	A,(BC)
+	LD	(HL),A
+	INC	HL
+	Jr	AB113
+;
+READFDD:LD	B,003H		; attempts 3 times
+AB122:	PUSH	BC
+	CALL	AB10B
+	POP	BC
+	LD	A,(DE)
+	AND	0DDH
+	RET	Z		; return Z = OK
+	djnz	AB122
+	DEC	B		; return NZ = failed
+	RET
+;
+;
+;====================== ROM routines ====================
+;
+; 7510H
+;
+ROMBOOT:
+	ld	hl, buffer+11
+	ld	b, 8
+	ld	a, 6Ah
+ROMB1:	add	a, (hl)
+	dec	hl
+	djnz	ROMB1
+	ld	(hl), a 		; CRC = buffer[3] = buffer[4]+buffer[5]+...+buffer[12]+66h
+	ld	a, 4
+	ld	(buffer+12), a 		; source device := ROM (4)
+	ld	hl, ReadROM
+	call	aSetVector
+	ld	hl,0
+	push	hl
+	call	tomoveblk
+	jp	c1ret			; CALL HDD MASTERBOOT
+;
+;
+;
+ReadROM:call 	GetMInfo		; hl=MasterInfo+8
+	LD	A,090H
+	LD	(ROM_PPA+3),A		; init ROM-DISK PPA
+	dec	hl
+	dec	hl
+	ld	d,(hl)
+	dec	hl
+	ld	e,(hl)			; de=sector address (LBA)
+	dec	hl
+	ld	a,(hl)
+	dec	hl
+	ld	l,(hl)			
+	ld	h,a			; hl=destination buffer address (in page 1)
+	push	hl
+	ex	de,hl			; hl=sector address (LBA)
+	ld	a,l
+	and	7fh			; a=sector offset inside page in 512b blocks
+	ld	b,a
+	add	hl, hl
+	ld	a, h			; a=hl/128 (one 64k ROM page = 128 512b sectors)
+	inc	a			; CPM starting from page 1, page 0 = ORDOS	:: A=ROM page
+	ld	l, b
+	ld	b, 9
+shifthl:add	hl, hl
+	djnz    shifthl			; hl=hl*512 - ROM page offset
+	ld	de, buffer
+	CALL    GETROM			; read 512 bytes from ROM to buffer
+	pop	hl			; hl=destination (ram page 1) buffer address
+tomoveblk:
+	xor	a
+	ld	bc,(drv_sign)	; c=(drv_sign)
+	ld	de, ROM_PPA
+	jp	moveblk
+;
+; READ 512bytes sector from pre-selected ROMdisk page
+; Input:  A=from_page (ROM 64k page index = 1..N )
+;	 HL=from_addr (ROM page offset within 64k basis), 
+;        DE=to_addr   (RAM offset)
+;
+; x* = Orion-128 type ROMDISK
+;
+xGETROM:out	(PFROM), a	; Orion-128 ROMDISK 64kb page index	
+	push	bc
+	ld	b,0
+GETROMD:LD	(ROM_PPA+1),HL
+	LD	A,(ROM_PPA)	
+	ld	(de), a
+	inc	hl
+	inc	de
+	LD	(ROM_PPA+1),HL
+	LD	A,(ROM_PPA)	
+	ld	(de), a
+	inc	hl
+	inc	de
+	djnz	GETROMD	
+	pop	bc
+	ret
+;
+; y* = Orion-PRO type ROMDISK read
+;
+yGETROM:push	bc
+	ld	b,3
+	ld	c,h
+pGetROM:rl	c	
+	adc	a,a		
+	djnz	pGetROM
+	out	(PROM2), a	; Orion-PRO ROM2 8kb page index
+	ld	a,h
+	and	1Fh
+	add	a,20h		; 8k ROM window at 2000h
+	ld	h,a		; 3 higher bits moved from H7..H5 shifted 3 times Acc
+	in	a,(PROPA)
+	ld	c,a
+	or	08h		; D3=1 - activate "ROM2-BIOS" window
+	out	(PROPA),a
+	ld	a,c
+	ld	bc,512		; sector size
+	LDIR
+	out	(PROPA),a	; deactivate "ROM2-BIOS" window
+	pop	bc
+	ret
+;
+;====================== SDcard routines ====================
+;
+; керналь дл€ двух вариантов схем SD card
+;
+sd_tab0:
+sd_wiggle:
+	jp	sd_wiggle_msx
+sd_fini:
+	jp	sd_fini_msx
+sd_put:
+	jp	sd_put_msx
+sd_get:
+	jp	sd_get_msx
+;sd_read_block:
+;	jp	sd_read_block_msx
+;
+sd_tab1:
+	jp	sd_wiggle_n8vem
+	jp	sd_fini_n8vem
+	jp	sd_put_n8vem
+	jp	sd_get_n8vem
+;	jp	sd_read_block_n8vem
+sd_tab2:
+	jp	sd_wiggle_msx
+	jp	sd_fini_msx
+	jp	sd_put_msx
+	jp	sd_get_msx
+;	jp	sd_read_block_msx
+sd_tab3:
+;
+; z return if ok
+; idle, ready, size, set block size
+;
+sd_select:
+	call	sd_fini		;
+	or 	SD_PWR + SD_CS	; select, still idle data
+	ld	(DE), a		; DE=SD_ADDR
+	ret			; af bc' hl' trashed
+;
+sd_wiggle_n8vem:
+	ld	bc, 255*256 + SD_CLK
+	jr	sd_wig_n8vem
+;
+; sd_fini return: DE=SD_ADDR
+;
+sd_fini_n8vem:
+	ld 	bc, 17*256 + SD_CLK	; clock low high low high ... low, 8 pulses
+sd_wig_n8vem:
+	ld	de, SD_ADDR 
+	ld 	a, SD_DOUT + SD_PWR	; unselected, idle data
+L1:	ld	(de), a
+	xor	c		; c=SD_CLK
+	djnz	L1
+	ret			; af bc' hl' trashed
+;
+sd_put_n8vem:
+	push	hl                	; byte from a
+	ld	c, a
+	ld 	b, 8
+	ld	hl, SD_ADDR 
+L3:	ld 	a, 6		; (SD_PWR+SD_CS)/2  	
+	rl 	c
+	rla			; SD_DOUT is RTC.0
+	ld	(hl), a		; clock is low
+	or 	SD_CLK
+	ld	(hl), a		; rising clock edge
+	djnz	L3
+	xor	SD_CLK		; and	NOT SD_CLK
+	ld	(hl), a		; leave with clock low
+	pop	hl
+	ret			; af bc' hl' trashed
+;
+sd_get_n8vem:
+	push	hl             	; byte to a
+	ld	d, 8
+	ld	hl, SD_ADDR 
+L2:	ld	a, (hl)
+	rla			; SD_DIN is RTC.7
+	rl	e
+	ld	a, SD_PWR + SD_CS + SD_DOUT + SD_CLK
+	ld	(hl), a
+	and	NOT SD_CLK
+	ld	(hl), a
+	dec	d
+	jr	nz, L2
+	ld	a, e
+	pop	hl
+	ret			; af bc' hl' trashed
+;
+sd_wiggle_msx:
+	ld	b, 70h
+	jr	sd_wig_msx
+;
+; sd_fini return: DE=SD_ADDR
+;
+sd_fini_msx:
+	ld	b, 8
+sd_wig_msx:
+	ld	a, SD_PWR
+	ld	de, SD_ADDR
+	ld	(de), a
+	ld	a, 0FFh
+	inc	de		; DE=SD_ADR2
+LL0:	ld	(de), a		; out & /CLK		 
+	djnz	LL0
+	dec	de		; DE=SD_ADDR
+	xor	a		; for MSX<=>NVEM compability!
+	ret			; af b de trashed
+;
+sd_put_msx:
+	ld	bc, SD_ADR2
+	ld	(bc), a		 
+	rlca	
+	ld	(bc), a
+	rlca	
+	ld	(bc), a
+	rlca	
+	ld	(bc), a
+	rlca	
+	ld	(bc), a
+	rlca	
+	ld	(bc), a
+	rlca	
+	ld	(bc), a
+	rlca	
+	ld	(bc), a		; 84 tstates
+	ret			; a bc trashed
+;
+sd_get_msx:
+	ld	de, SD_ADR2
+	ld	a, d		; A.D7=1
+	ld	(de), a
+	ld	(de), a
+	ld	(de), a
+	ld	(de), a
+	ld	(de), a
+	ld	(de), a
+	ld	(de), a
+	ld	(de), a		; 7*9=63 tstates
+	ld	a, (de)
+	ret			; a=result,  de trashed  
+;
+; command in a, includes fixed msbits
+; arg32 in dehl
+; z return, if R1 (in a) is 0
+; saves BC
+;
+sd_command_no_arg:
+	ld	hl, 0
+;
+sd_command_word_arg:  ; fits in HL
+	ld	de, 0
+;
+sd_command:		; command in a, dword arg in dehl
+	push	bc
+	call	sd_put	; command includes fixed 01 startbits
+	ld	a, d	; arg highest (D31..D24) - Xhi
+	call	sd_put
+	ld	a, e	;             (D23..D16) - Xlo
+	call	sd_put
+	ld	a, h	;             (D15..D08) - Yhi 
+	call	sd_put
+	ld	a, l	; arg lowest  (D07..D00) - Ylo
+	call	sd_put
+
+	ld	a, 095h	; crc7 only valid for initial CMD0
+	call	sd_put	; DOUT ends up idle because of the stopbit
+	ld hl,FTimeout	; XXX timeout XTAL dependent
+	pop	bc
+L4:
+	call	sd_get	; R1 response, when msbit is clear
+	or	a	; zero and sign valid
+	ret	p	; R1 in a. z if ok
+	dec	hl
+	bit	7, h	; until HL wraps negative
+	jr	z, L4
+	ret		; 0x80 | ? in a, nz
+;
+; command response R1
+; 0x00 ok
+; or bitfield
+; 0x01 idle state
+; 0x02 erase reset
+; 0x04 illegal command
+; 0x08 command crc error
+; 0x10 erase sequence error
+; 0x20 address error
+; 0x40 parameter error
+; 0x80 timeout (other bits meaningless)
+;
+; packet token
+; 0xFF none yet
+; 0xFE ok
+; or bitfield
+; 0x01 error
+; 0x02 controller error
+; 0x04 media ecc failed
+; 0x08 out of range
+; 0x10 card is locked
+;
+sd_wait_token:
+	ld hl, FTimeout	; XXX timeout XTAL dependent
+L5:
+	call	sd_get	; token is first non-FF
+	cp	0FFh
+	ret	nz	; token in a
+
+	dec	hl
+	bit	7, h	; until HL wraps negative
+	jr	z, L5
+	ret		; FF in a
+;
+delay2: ld	b, 50
+delay2x:call	delay10		; 10ms
+	djnz	delay2x		; 500ms total
+	ret
+;
+; SD probe, disappears on mount
+;
+sd_init:xor	a
+	ld	(SD_ADDR), a	; power off
+	call	delay2
+	ld	a, SD_PWR
+	ld	(SD_ADDR), a	; power on
+	call	delay2
+sdinit:	call	sd_wiggle	; power on, wiggle
+	call	sd_select	; ignore busy condition
+	call	sd_init_1
+	jr	sd_done		
+;
+ReadSd:	call 	GetMInfo
+	call	sd_select   ; saves HL
+sd_wait_busy:
+	ld bc, FTimeout	; XXX timeout XTAL dependent
+L6:
+	call	sd_get	; 8 clocks. data output activates after 1 clock;   trashing DE !
+	inc	a	; FF is not busy
+	jr	z, LL6	; z, ok. a=0
+
+	dec	bc	; else busy or something
+	bit	7, b	; until HL wraps negative
+	jr	z, L6
+;
+; nz if timed out, z a=0 if ok
+;
+LL6:
+	jr	nz, sd_done
+	ld	bc, 0FFFBh      ; -5
+	add	hl, bc
+	ld	c, (hl)
+	inc	hl
+	ld	b, (hl)		; bc=buffer adress
+	push	bc		; 
+	ld	bc,buffer	; temporary buffer
+;	ld	a, d
+;	and	2		; check D1 bit for SDHC flag
+	inc	hl		; saves Z
+	ld	e, (hl)			; lba+0
+	inc	hl
+        ld      d, (hl)			; lba+1
+	inc     hl
+        ld      a, (hl)			; lba+2
+	inc	hl
+        ld      h, (hl)			; lba+3
+        ld      l, a
+;	push	de			; d=drive_sign (1/3)
+	ex	de, hl
+;	jr	nz, sd_read_block	; SDHC - skip LBA*512
+;
+; DEHL (D31..D00) * 512 = DEHL*2*256 
+;
+	add	hl,hl
+	ex	de,hl
+	adc	hl,hl
+	ex	de,hl	; DEHL=DEHL*2
+	ld	d,e
+	ld	e,h
+	ld	h,l
+	ld	l,0	; DEHL=DEHL*256
+sd_read_block:
+	ld	a, CMD17	; READ_SINGLE_BLOCK
+	call	sd_command	; dehl byteaddress, saves BC
+	jr	nz, sd_done1	; not "ok"
+	call	sd_wait_token	; packet start or FF if timed out, saves BC
+	cp	0FEh
+	jr	nz, sd_done1	;  or error
+	ld	h, b	
+	ld	l, c	; buffer address
+	ld	b, 0	; loop counter
+RDLOOP:
+	call	sd_get	; data		trashing DE
+	ld	(hl), a
+	inc	hl
+	call	sd_get	; data
+	ld	(hl), a
+	inc	hl
+	djnz	RDLOOP	; do the sector (512 bytes)
+	call	sd_get  ; crc16
+	call	sd_get  ; crcs are not used
+	xor	a	; zero, no carry
+sd_done1:
+;	pop	de
+	pop	hl	; hl=buffer address at destination page
+sd_done:			
+;	ld	c, d	; c=drive_sign (1=SDC, 3=SDHC)
+	push	af
+	call	sd_fini
+	ld	a, SD_PWR
+	ld	(DE), a	; de=SD_ADDR. Unselect: /CS=high, NVEM:clock,dout=low
+	pop	af
+	ld	c, 1	; only SDC allways
+	ret	nz	; fail
+	xor	a
+	jp	moveblk
+;
+sd_init_1:			
+	ld	a, CMD0		; GO_IDLE_STATE
+	call	sd_command_no_arg
+	cp	001h
+	ret	nz		; not "idle"
+
+sd_notready:
+	ld	a, CMD55	; APP_CMD
+	call	sd_command_no_arg
+	and	11111110b	; ~001h
+	ret	nz		; not "idle" nor "ok"
+
+	ld	a, ACMD41	; SD_SEND_OP_COND. arg 0x40000000 is HCS
+	call	sd_command_no_arg	;F8DF
+	cp	001h
+	jr	z, sd_notready	; wait, while idle
+	or	a
+	ret	nz		; not ok
+
+	ld	a, CMD9		; SEND_CSD
+	call	sd_command_no_arg
+	ret	nz		; not ok
+
+	call	sd_wait_token	; packet start or FF if timed out
+	cp	0FEh
+	ret	nz		;  or error
+
+;	ld	hl, csdbuf	; XXX
+	ld	b, 16+2         ; including crc16
+L7:
+	call	sd_get
+;	ld	(hl), a		; temporary read CSD to /dev/null :)
+;	inc	hl
+	djnz	L7		; do 16+2 bytes
+;
+; CSD in csdbuf. calculate something
+;
+	ld	a, CMD58	; READ_OCR
+	call	sd_command_no_arg
+	ret	nz		; not ok   F900
+	call	sd_get
+	push	af
+	call	sd_get
+	call	sd_get
+	call	sd_get
+	pop	af
+	and	040h    	; NZ if SDHC  NZ=error : SDHC not supported
+	jr	sd_done		
+;
+BOOTSD:
+	ld	hl, ReadSd
+	call	SetVector
+	call	sd_init
+	ld	hl, msg_msx
+	jr	z, scheme	; if card present & MSX scheme
+	ld	hl, sd_tab1	; 
+	ld	de, sd_tab0
+	ld	bc, sd_tab2-sd_tab1
+	ldir			; else switch to N8VEM scheme
+	call	sd_init
+	ld	hl, msg_n8v
+	jr	z, scheme
+	ld	hl, sd_tab2	; 
+	ld	de, sd_tab0
+	ld	bc, sd_tab3-sd_tab2
+	ldir			; back to MSX scheme (default scheme)
+	ld	hl, msg_rdy
+	call	mon_msg
+	ld	hl, msgf4
+	jp	prerr0
+scheme:	call	mon_msg
+	jr	GetMBR
+;
+;
+;====================== IDE routines ====================
+;
+BOOTIDE:
+;
+; Hard reset on the drive, by pulsing its reset pin.
+; this should usually be followed with a call to "ide_init".
+;
+	ld	hl, ReadIde
+	call	SetVector
+        ld      a, rd_ide_8255
+	ld      (ide_8255_cfg), a	; config 8255 chip, read mode
+	ld	hl, ide_8255_ctl
+	ld      (hl), ide_rst_line	; hard reset the disk drive
+        call    delay10			; de=0
+	ld      (hl), d       		; no ide control lines asserted
+;
+; initialize the ide drive. Return Z if NOT_READY, NZ if OK
+;
+ide_init:
+	ld	a, (drv_sign)
+	or	10100000b
+        ld      e, a
+        ld      a, ide_head
+        call    ide_wr_8                ; select the ide device
+        call    ide_wait_ready
+	ld	a, ide_error_nohdd
+	jr	z, prnerr		; no IDE devices - exit without boot
+;
+GetMBR:					; read drive MBR and execute MBR BootLoader
+	ld	hl, MasterInfo+8
+	ld	a, (drv_sign)
+	ld	d, a			; d: 0=master, 10h=slave
+        ld      e, ide_cmd_read		
+readsector:
+        call	ReadIde			; default master (if ready), LBA=0, carry=0
+	jr	nz, prnerr		; if read_sector failed
+	ld	a, 0C3H			; first MASTERBOOT command is JMP
+	ld	de, 55ABh
+	ld	hl, (masterboot_check)	; AA55
+	adc	hl, de			; hl=0
+	JR	NZ, prnerr		; wrong MBR
+JUMP1:	ld	hl, buffer
+	cp	(hl)			
+	JR	NZ, prnerr		; not a CPM bootloader
+	ld	hl,0
+	push	hl
+	jp	c1ret			; CALL HDD MASTERBOOT
+;
+prnerr: call	pr_hex
+	LD	HL, msgerr
+prerr0:	CALL	mon_msg
+prerr1:	CALL	mon_key
+	cp	3		; ^c
+	jp	nz, main_loop
+	jp	0F800h
+;
+;------------------------------------------------------------------------------------------------
+;
+get_err:ld      a, ide_err
+	call    ide_rd_8
+        or	a
+	ret	nz
+rdretff:dec	a		; ld      a, ide_error_busy ; a=0FFh
+	ret
+;
+; read a IDE sector, specified by the 4 bytes in "lba" 
+; Input: HL=DriveInfo_array+8, 
+;	 d=drive_sign ( 0=master, 10h=slave )
+;        e=command_mode (ide_cmd_read, ide_cmd_id, ide_cmd_none=0)
+; Return, acc=zero on success, non-zero for an error
+;
+ReadIde:call 	GetMInfo
+	push	de
+@@30:   call    ide_wait_not_busy       ; make sure drive is ready
+	pop	de
+        jr      z, rdretff		; if a=0,Z=true
+	push	de
+@@31:   call    wr_lba                  ; tell it which sector we want
+	dec	hl
+	ld	a, (hl)
+	dec	hl
+	ld	l, (hl)
+	ld	h, a			; hl = buffer addres from DriveInfo_array
+@@32:   call    ide_wait_not_busy       ; make sure drive is ready
+	pop	de
+        jr      z, get_err
+        rrca
+        jr      c, get_err
+        ld      a, ide_command
+	push	de
+@@33:   call    ide_wr_8                ; ask the drive to read it
+@@34:   call    ide_wait_drq            ; wait until it's got the data
+	pop	de			; d=drv_sign (0,10h,1,3), e=ide_cmd
+	jr	z, get_err
+        rrca
+        jr      c, get_err
+;	ld	a, e
+;	sub	ide_cmd_write
+;	ret	z
+;
+; Read a block of 512 bytes (one sector) from the drive
+; and store it in memory (hl)
+;
+read_data:				; hl=buffer address
+	push	hl
+	ld	hl,buffer		; temporary buffer
+;
+        ld      b, 0
+	ld	c, d
+	push	bc
+	ld	c, ide_data		; b=0, c=ide_data
+        ld      de, ide_8255_ctl	; 0F600h
+rdblk2: ld      a, c
+        ld      (de), a                 ; drive address onto control lines
+        or      ide_rd_line 
+        ld      (de), a                 ; assert read pin on control lines
+@@P2:	ld      a, (ide_8255_lsb)       ; read the lower byte
+        ld      (hl), a
+        inc     hl
+@@P3:	ld      a, (ide_8255_msb)       ; read the upper byte
+        ld      (hl), a
+        inc     hl
+        xor     a
+        ld      (de), a                 ; deassert all control pins
+        djnz    rdblk2
+	pop	bc			; b=0, c=drv_sign (0,10h,1,3)
+	pop	hl			; hl=buffer address at destination page
+;
+; Replace mon_ide="0F834h" for "call0" inside buffer and move block to destination (page 1)
+; INP:  hl=buffer address at destination page (page 1)
+;       c=drv_sign (0,10h,1,3,4)
+;	de=IDE PPA address
+;       A=0, Z=true
+; OUT:  hl=hl+512
+; saves BC,DE,AF
+;  
+moveblk:push	af
+	push	de
+;
+; replace mon_ide="0F834h" for "call0". 
+; "0F834h" usually appears at bootsector only. But...
+;
+	ld	de,buffer-1
+	ld	(de),a			; a=0
+	ld	b,2			; two cycles
+rdblk30:push	bc
+	ld	b,0			; test 256 bytes
+rdblk3: ld	a, (de)
+	inc	de
+	cp	LOW mon_ide
+	jr	nz, rdblk31
+	ld	a, (de)
+	cp	HIGH mon_ide
+	jr	nz, rdblk31
+	dec	de
+	ld	a, LOW call0
+	ld	(de), a
+	inc	de
+	ld	a, HIGH call0
+	ld	(de), a
+	inc	de
+rdblk31:djnz	rdblk3
+	pop	bc
+	djnz	rdblk30
+	push	bc
+	ld	DE, buffer		; b=0 (send 512 bytes)
+rdblk4:	LD	A,(DE)
+	LD	C,A
+	LD	A,1			; memory page number
+	CALL	mon_svb			; put byte into other memory page
+	INC	DE
+	INC	HL
+	LD	A,(DE)
+	LD	C,A
+	LD	A,1			; memory page number
+	CALL	mon_svb			; put byte into other memory page
+	INC	DE
+	INC	HL
+	DJNZ	rdblk4
+	pop	bc			; b=0, c=drv_sign (0,10h,1,3,4)
+	pop	de			; de=base PPA address
+	pop	af
+        ret
+;
+;================================================================================
+;
+; IDE Status Register:
+;  bit 7: Busy  1=busy, 0=not busy
+;  bit 6: Ready 1=ready for command, 0=not ready yet
+;  bit 5: DF    1=fault occured inside drive
+;  bit 4: DSC   1=seek complete
+;  bit 3: DRQ   1=data request ready, 0=not ready to xfer yet
+;  bit 2: CORR  1=correctable error occured
+;  bit 1: IDX   vendor specific
+;  bit 0: ERR   1=error occured
+;
+; when an error occurs, we get acc.0 set from a call to ide_drq
+; or ide_wait_not_busy (which read the drive's status register).  If
+; that error bit is set, we should jump here to read the drive's
+; explaination of the error, to be returned to the user.  If for
+; some reason the error code is zero (shouldn't happen), we'll
+; return 255, so that the main program can always depend on a
+; return of zero to indicate success.
+;
+;
+; Wait for NOT_BUSY.  if Z at exit => error(timeout), NZ=OK
+;
+ide_wait_not_busy:
+        xor     a
+        ld      b, a			; rdy_repeat=256
+ide_wbsy:
+        ld      a, ide_status           ; wait for RDY bit to be set
+@@58:   call    ide_rd_8
+        cpl
+        and     10000000b
+        ret     nz			; nz = OK
+@@59:   call    delay10
+        djnz    ide_wbsy
+        ret     			; z = FAIL
+;
+; Wait for the drive to be ready to command/control.
+; Returns the drive's status in Acc.  if Z at exit => error(timeout), NZ=OK
+;
+ide_wait_ready:
+        xor     a
+        ld      b, a			; rdy_repeat=256
+ide_wrdy:
+        ld      a, ide_status           ; wait for RDY bit to be set
+@@56:   call    ide_rd_8                
+        and     01000000b
+        jr      nz, ide_wait_not_busy
+@@57:   call    delay10                 ; dirt A, de:=0
+        djnz    ide_wrdy
+        ret     			; z = FAIL
+;
+; Wait for the drive to be ready to transfer data.
+; Returns the drive's status in Acc.  if Z at exit => error(timeout), NZ=OK
+;
+ide_wait_drq:
+        ld      b, 0			; rdy_repeat=256
+ide_wdrq:
+        ld      a, ide_status		; wait for DRQ bit to be set
+@@60:   call    ide_rd_8
+	ld	c, a
+        and     10000000b
+        jr      nz, ide_wdrq1		; wait for BSY to be clear
+        ld      a, c
+        and     00001000b		; wait for DRQ to be set
+        ret     nz
+ide_wdrq1:
+@@61:   call    delay10
+        djnz    ide_wdrq
+        ld      a, c
+        ret     			; z = FAIL
+;
+; Read byte from IDE register
+; input  a = ide regsiter address
+; output a = byte readed from ide drive
+;
+; bc, hl - not used
+;
+ide_rd_8:
+        ex	de, hl
+        ld	hl, ide_8255_ctl
+@@P15:	ld      (hl), a       		; drive address onto control lines
+        or      ide_rd_line 
+@@P16:	ld      (hl), a       		; assert read pin
+@@P17:	ld      a, (ide_8255_lsb)       ; read the lower byte
+@@P18:	ld      (hl), 0			; deassert all control pins
+	ex	de, hl
+        ret
+;
+; Load position registers (sector number in LBA notation)
+;   (Input: HL=DriveInfo_array+8)
+;
+wr_lba:
+        ld      a, 0E0h			; 11100000b - LBA mode, Master, head 0 
+	or	d			; 0=master, 10h=slave
+	or 	(hl)			; lba+3
+	ld	e, a
+        ld      a, ide_head
+@@62:   call    ide_wr_8
+        ld      a, ide_cyl_msb
+	dec	hl
+        ld      e, (hl)			; lba+2
+@@63:   call    ide_wr_8
+        ld      a, ide_cyl_lsb
+	dec     hl
+        ld      e, (hl)			; lba+1
+@@64:   call    ide_wr_8
+        ld      a, ide_sector
+	dec	hl
+        ld      e, (hl)			; lba+0
+@@65:   call    ide_wr_8
+        ld      a, ide_sec_cnt
+        ld      e, 1
+;
+; Write byte to IDE register
+; input  a = ide regsiter address
+;        e = byte to write to ide drive
+; hl - not used
+;
+ide_wr_8:
+        ld      c, a                    ; address in  c
+        ld      a, wr_ide_8255
+@@P19:	ld      (ide_8255_cfg), a     	; config 8255 chip, write mode
+        ld      a, e
+@@P20:	ld      (ide_8255_lsb), a       ; drive lower lines with lsb (r2)
+        ld      a, c
+	ex	de, hl
+@@P21:	ld      hl, ide_8255_ctl
+        ld      (hl), a                 ; drive address onto control lines
+        or      ide_wr_line 
+        ld      (hl), a                 ; assert write pin
+        ld      a, rd_ide_8255          ; delay 7 tstates  7+7=14= 3 mks
+        ld      (hl), c                 ; delay 7 tstates. deassert write pin
+	ex	de, hl
+@@P22:	ld      (ide_8255_cfg), a	; config 8255 chip, read mode
+        ret
+;
+;===================== Common routines =======================
+;
+SetVector:
+	ld	a, d
+aSetVector:
+	ld	(drv_sign), a
+	ld	(readsec+1), hl
+	inc	hl
+	inc	hl			; skip  "call GetMInfo"
+	inc	hl
+	ld	(readsector+1), hl
+	ret
+;
+GetMInfo:
+	ld	b,7
+	push	de
+	ld	de, MasterInfo+8
+	push	de
+rdblk0: ld	a,1
+	call	mon_ldb
+	ld	a,c
+	ld	(de),a
+	DEC	DE
+	DEC	HL
+	DJNZ	rdblk0
+	pop	hl			; hl=MasterInfo+8
+	pop	de
+	ld	a, (drv_sign)
+	ld	d, a
+	ret
+;
+delay10:
+@@55:   ld      de, intinchl
+delayx: dec     de			; 6
+        ld      a, d			; 4
+        or      e			; 4
+        ret	z			; 5
+        jr      delayx			; 12  total=31 tstates
+;
+drv_sign:db	0	; 0=IDEMASTER, 10h=IDESLAVE, 1=SDC, 3=SDHC, 4=ROMdisk, 5=ROM2PRO
+msgZ80:	 db	'NO Z80 CPU'
+msgerr:  db	' - ERROR !'
+msgf4:	 db	0dh,0ah,'PRESS CTRL+C (F4) TO EXIT',0
+msgtitle:db	1Fh,0ah,'CP/M BOOT LOADER, V1.2.',0dh,0ah,0ah
+	 db	'SELECT BOOT DEVICE:',0dh,0ah,0ah
+	 db	' 1. SD-CARD',9,'(PORT F762/F763)',0dh,0ah
+	 db	' 2. ROM DISK',9,'(I8255 PPA F500 + PORT_FE)',0dh,0ah
+	 db	' 3. FDD 0="A"',9,'(PORT F710/F714)',0dh,0ah
+	 db	' 4. FDD 0="A"',9,'(PORT F700/F720)',0dh,0ah
+	 db	' 5. IDE MASTER',9,'(I8255 PPA F600)',0dh,0ah
+	 db	' 6. IDE SLAVE',9,'(I8255 PPA F600)',0dh,0ah
+	 db	0ah,'ENTER YOU CHOICE (1..6, DEFAULT=1): ',0
+msg_rdy: db	13,10,"DRIVE NOT READY",0
+msg_os48:db	13,10,"OSDOS 48K",0
+msg_os60:db	13,10,"OSDOS 60K",0
+NONSYS:  db	13,10,"NONSYSTEM DISK",0
+msg_n8v: db	13,10,"N8VEM SCHEME"
+msg_crlf:db	13,10,0
+msg_msx: db	13,10,"MSX SCHEME"
+;
+MasterInfo:
+	DEFB	13
+	DEFB	10
+MIpage:	DEFB	000H	; buffer_page
+MIbuff:	DEFW	000H	; buffer_addr
+MIaddr:	DEFB	000H	; LBA0 or sec
+	DEFB	000H	; LBA1 or cyl_low
+	DEFB	000H	; LBA2 or cyl_high
+	DEFB	000H	; LBA3 or head
+;
+codend:
+;
+	.dephase
+
+	.phase	0F3F2h
+;
+call0:	xor	a
+	out	(0F9h), a
+readsec:call	ReadIde
+c1ret:	push	af
+	ld	a,1
+	out	(0F9h), a
+	pop	af
+	ret
+call0end:
+	.dephase
+;
+	ds	codesize+codebeg-codend+call0-call0end, 0FFh	; round to 16
+	dw	BOOTROM
+	dw	yGETROM
+;
+	END
+
+
+
+                                                                                                   

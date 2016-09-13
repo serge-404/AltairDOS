@@ -1,0 +1,781 @@
+	.Z80
+	ORDOS	equ	1	; 0=compile for CPM, 1=compile for ORDOS
+;
+	ASEG
+	ORG	100h
+;
+BDOS	equ	5
+mon_out	equ	0f809h
+mon_in	equ	0f803h
+mon_svb	equ	0f839h
+mon_ldb equ	0f836h
+;
+rdy_repeat   equ 400h	; repeat count in  ide_wait_ready
+;
+;------------------------------------------------------------------
+; Main Program, a simple menu driven interface.
+;
+codesize equ	2192     ;2176
+;
+IF ORDOS
+	.phase	0100h-16
+;
+	db	'TESTDEV$'
+	dw	0100h			; start address at page0
+	dw	codesize		; code length
+	db	0, 0FFh, 0FFh, 0FFh	; reserved	
+ENDIF
+;
+codebeg:
+	jp	BEGIN
+;
+;	jp	device_init
+;	jp	device_read
+;	jp	device_writå
+;
+;spinup: jp	sd_init
+;
+;spindown:
+;	call	sd_setup	; select, wait busy
+;	call	sd_done		; /CS high, clock and dout low
+;	push	af
+;	xor	a
+;	ld	(SD_ADDR), a	; PWR low (OFF) 
+;	pop	af
+;	ret
+;
+INCLUDE BIOSSD		; SD-card procedures
+INCLUDE BIOSIDE		; IDE procedures
+;
+begin:	
+IF ORDOS
+;
+ELSE
+;
+;	CP/M	specific
+;
+        LD      HL,(1)
+        LD      DE,6
+        ADD     HL,DE
+        LD      (CON1),HL       ; DOS-BIOS - CONIN
+	inc	hl
+	inc	hl
+	inc	hl
+        LD      (CON0),HL       ; DOS-BIOS - CONOUT
+        LD      HL,(6)
+        LD      (STACK),HL
+        DB      31H             ; ld sp,xxxx
+STACK:  DS      2
+;
+ENDIF
+        ld      hl, msg_1	;print a welcome message
+        call    pstr
+	call	setdevice
+;
+main_loop:       
+	ld	hl, main_loop
+	push	hl		; place loop top on the stack
+	call	newline   	;
+	call	newline   	; print a 1-line prompt	
+        ld      hl, msg_p	; "(P)AGE"
+        call    pstr
+        ld      a, (DriveInfo+2)	; memory bank
+        call    PRHEX0		; phex
+        ld      hl, msg_a	; "(A)DDR"
+        call    pstr
+        ld      a, (address+1)	; HI(buffer)
+        call    phex
+        ld      a, (address)	; LO(buffer)
+        call    phex
+        ld      hl, msg_c	; "(C)OUNT"
+        call    pstr
+        ld      a, (count)	; count
+        call    phex
+        ld      hl, msg_l	; "(L)BA"
+        call    pstr
+	ld	hl,DriveInfo+8	; lba+3
+        call    phex32
+
+	ld	hl, msg_mlba	; MAXLBA
+	call	pstr
+	ld	hl, maxlba0+3
+	call	phex32
+	
+        ld      hl, msg_d
+        call    pstr
+	ld	hl,(devicehl)
+	call	pstr
+        ld      hl, msg_pmt
+        call    pstr
+        call    cin
+        call    upper
+	ld	hl, functab
+	ld	b,a
+mainl0:	ld	a,(hl)
+	or	a
+	ret	z		; goto main_loop			
+	inc	hl
+	ld	e, (hl)
+	inc	hl
+	ld	d, (hl)
+	inc	hl
+	sub	b
+	jr	nz, mainl0
+	ex	de, hl
+	jp	(hl)
+;
+functab:db	'R'		; read a sector
+	dw	main1
+	db	'W'		; write a sector
+	dw	main2
+	db	'L'		; set the logical block address
+	dw	main3
+	db	'D'           	; set device
+        dw	setdevice
+	db	'Q'		; quit
+IF ORDOS
+	dw	0F800h
+ELSE
+	dw	0
+ENDIF
+	db	'H'		; hexdump
+        dw	hexdump
+	db	'A'		; address
+	dw	main8
+	db	'P'		; page
+	dw	main9
+	db	'C'		; count
+	dw	main10
+	db	'M'		; count
+	dw	minus
+	db	'G'
+	dw	plus
+	db	0
+;
+putbyte:LD	a,(de)
+	ld	c,a
+	LD	a,(bank0)		; memory page number
+	CALL	mon_svb			; put byte into other memory page
+pb1:	inc	hl
+	inc	de
+	ret
+;
+getbyte:LD	A,(bank0)		; memory page number
+	CALL	mon_ldb			; get byte from other memory page
+	ld	a,c
+	ld	(de),a
+	jr	pb1
+;
+plus:	ld	hl,Bank0
+	ld	a,(hl)
+	inc	a
+	and	0Fh
+	ld	(hl),a
+	ret
+;
+minus:	ld	bc,(count)
+;
+;
+; HL=addr+3 (high)
+;         c - int8
+;
+sbcLBA:	ld	hl,lba0+3
+sbc32:	ld      d,(hl)
+	dec	hl
+	ld	e,(hl)
+	dec	hl
+	ld	a,(hl)
+	dec	hl
+	ld	l,(hl)
+	ld	h,a
+	or	d
+	or	e
+	ret	z
+	xor	a		; CY=0
+	ld	b,a
+	sbc	hl,bc	
+	ld	(lba0),hl
+	ex	de,hl
+	ld	c,a
+	sbc	hl,bc		; HL=HL-CY
+	ld	(lba0+2),hl
+	ret
+;
+main1:  ld	hl, (address)
+	ld	a, (count)
+	ld	b, a
+	ld	c, 0
+main1a:	inc	c
+	push	bc
+	push	hl
+	call	phex13		; sector number
+ 	ld	hl, DriveInfo+8
+        call    device_read
+	pop	hl
+	pop	bc
+        or      a
+        jr      nz, errphex
+	call	inc_lba
+	ld	a,(bank0)		; color off for page1
+	dec	a
+	jr	nz,putb0
+	ld	a,h
+	or	3Fh
+	inc	a
+	jr	nz,putb0
+	out	(0F8H),a		; if h=0Cxh, 0Dxh, 0Exh, 0Fxh
+putb0:	push	bc
+	ld	de, (buffer0)
+	ld	b,0
+putb:	ld	a,h
+	cp	0F0h
+	jr	nc, putbt
+	call	putbyte
+	call	putbyte
+	djnz	putb
+putbt:	pop	bc
+	djnz	main1a
+;
+main1b: ld      hl, msg_rd
+;        jr      pstr
+;
+; print null-terminated string on (hl)
+;
+pstr:   ld    a, (hl)
+        or    a
+        ret   z
+        inc   hl
+        call  cout
+        jr    pstr
+;
+setdevice:
+	ld	hl,device
+	or	(hl)
+	ld	(hl), 10H
+	jr	z,setdev1	; IF MasterIDE, set SlaveIDE
+	dec	a
+	ld	(hl), 0
+	jr	z,setdev1	; if SDCard, set MasterIDE
+	ld	(hl), 1		; if SlaveIDE, set SDCard
+setdev1:
+	call	device_init
+	ld	(devicehl),hl
+        push    af
+        call    nz,pstr
+        pop     af
+	ld	hl, msg_rdy
+	jr	nz,pstr		; if no device (init failed)
+	ld	bc,(count)
+	ld	hl,maxlba0+3
+	jp	sbc32
+;
+space:  ld      a, ' '
+cout:   push    bc
+        ld      c,a
+        call    conout
+        pop     bc
+        ret
+;
+errphex:push    af
+        ld      hl, msg_err
+        call    pstr
+        pop     af
+phexnl: call    phex
+;
+newline:ld      a, 13
+        call    cout
+        ld      a, 10
+        jr      cout
+;
+; HL=addr+3 (high)
+;
+phex32: ld      d,(hl)
+	dec	hl
+	ld	e,(hl)
+	dec	hl
+	ld	a,(hl)
+	dec	hl
+	ld	l,(hl)
+	ld	h,a
+	ld	a,d
+        call    phex
+        ld      a,e
+        call    phex
+        ld      a,h
+        call    phex
+        ld      a,l
+;
+phex:   PUSH    AF
+        RRCA
+        RRCA
+        RRCA
+        RRCA
+        CALL    PRHEX0
+        POP     AF
+PRHEX0: AND     0FH
+        OR      30H
+        cp      3AH
+        jr      c, cout
+        add     a, 7 
+        jr      cout
+;
+phex13:	ld	a, 13		; CR
+	call	cout
+phexc:	ld	a, c
+	jr	phex
+;
+main2:  ld      hl, msg_sure
+        call    pstr
+        call    cin
+        call    upper
+        cp      'Y'
+        ret	nz
+	ld	hl, (address)
+	ld	a, (count)
+	ld	b, a
+	ld	c, 0
+main2a:	inc	c
+	ld	de, (buffer0)
+	push	bc
+	ld	b,0
+getb:	call	getbyte
+	call	getbyte
+	djnz	getb
+;
+	push	hl
+ 	ld	hl, DriveInfo+8
+	call    device_write
+	pop	hl
+	pop	bc
+        or      a
+        jr      nz,     errphex
+	call	phex13		; CR + sector number
+	call	inc_lba
+	djnz	main2a
+main2b: ld      hl, msg_wr
+        jp	pstr
+;
+inc_lba:push	hl
+	ld	de,1
+	ld	hl,(lba0)
+	add	hl,de
+	ld	(lba0),hl
+	jr	nc,inclba1
+	ld	hl,(lba0+2)
+	inc	hl
+	ld	(lba0+2),hl
+inclba1:pop	hl
+	ret
+;
+main8:  ld      hl, msg_cya
+	ld	c,4
+        call    getvalue
+        ret     c
+        ld      (address), hl
+	ret
+;
+main3:  ld      hl, msg_cyl
+	ld	c,8
+	call	getvalue	; return dehl
+        ret	c
+	ld	b,h		;             
+	ld	c,l		; debc        
+	ld	hl, (maxlba0)
+	sbc	hl, bc
+	ld	hl, (maxlba0+2)
+	sbc	hl, de
+	ret	c		; if entered value > MAXLBA
+setlba: ld      (lba0+2), de
+        ld      (lba0), bc
+	ret
+;
+main9:  ld      hl, msg_cyp
+	ld	c,1
+        call    getvalue
+        ret	c
+	ld	a,l
+        ld      (DriveInfo+2),a ; bank0
+	ret
+;
+main10:	ld      hl, msg_cyc
+	ld	c,2
+        call    getvalue
+        ret	c
+	ld	a, l
+	cp	121		; 120 sectors max (61440 bytes)
+	ret	nc
+        ld      (count), a	; 
+	ret
+;
+conout: push    hl
+        push    de
+        push    af
+        DB      0CDH	; call 
+CON0:   DW      mon_out	; BIOS CONOUT
+        pop     af
+        pop     de
+        pop     hl
+        ret
+
+cin_filter:
+        push    bc
+        push    de
+        push    hl
+        call    conin
+        pop     hl
+        pop     de
+        pop     bc
+        ret 
+cin:
+conin:  db      0C3h	; jp
+CON1:   dw      mon_in	; BIOS CONIN
+;
+upper:  AND     7FH
+        CP      61H
+        RET     C
+        CP      7BH
+        RET     NC
+        SUB     20H
+        RET
+;
+; Input: HL=title , C=input digits count
+;
+getvalue:
+	push	bc
+	push	hl
+	ld	a, '0'
+	add	a, c
+	call	cout
+        ld      hl, msg_cye
+        call    pstr
+	pop	hl
+        call    pstr
+        ld      hl, msg_cyv
+        call    pstr
+	pop	bc
+;                    
+; get input value in hex, <C reg> digits
+;
+ghex:   ld      hl, 0
+        ld      de, 0
+gh32c:  call    cin_filter
+        call    upper
+        cp      27
+        scf
+        ret     z
+        or      a
+        cp      30h
+        jr      c, gh32c      ; if a<'0'
+        cp      47h 
+        jr      nc, gh32c     ; if a>'F'
+        cp      40h
+        call    c, cout
+        jr      c, gh320      ; if a in ['0'..'9']             
+        cp      41h          
+        jr      c, gh32c      ; if not ( a in ['A'...'F'] )
+        call    cout
+        sub     7 
+gh320:  sub     30h
+        ld      b, 4
+        rla
+        rla
+	rla
+        rla
+gh32yy: rla                   ; left shift acc 
+        adc     hl, hl        ; left shift hl  with carry
+        ex      de, hl
+        adc     hl, hl        ; left shift de  with carry
+        ex      de, hl
+        djnz    gh32yy
+        dec     c
+        jr      nz, gh32c
+        or      a             ; reset carry flag 
+        ret
+;
+; print a hexdump of the data in the 512 byte buffer
+;
+hexdump:
+        call    newline
+        ld      b, 32           ; print 32 lines
+        ld      hl, (address)
+hd1:	push	bc
+	ld      a, h
+        push    hl
+	call    phex            ; print buffer address
+        ld      a, l
+	call    phex
+        ld      a, ':'
+        call    cout
+        call    space
+        ld      b, 16           ; print 16 hex bytes per line
+hd2:    LD	A,(bank0)	; memory page number
+	CALL	mon_ldb		; get byte from other memory page
+        inc     hl
+	call    phexc		;print each byte in hex
+IF ORDOS
+ELSE
+        call    space
+ENDIF
+        djnz    hd2
+        call    space
+        call    space
+        call    space
+        pop     hl
+        ld      b, 16           ; print 16 ascii bytes per line
+hd3:    LD	A,(bank0)	; memory page number
+	CALL	mon_ldb		; put byte into other memory page
+	ld	a,c
+        inc     hl
+        and     01111111b       ;only 7 bits for ascii
+        cp      127
+        jr      z, hd30         ;avoid 127/255 (delete/rubout) char
+        cp      33
+        jr      nc, hd31        ;avoid control characters
+hd30:   ld      a, '.'           
+hd31:   call    cout
+        djnz    hd3
+	pop	bc
+        ld      a, b
+        cp      17
+        jr      nz, hd32
+        push    hl
+        ld      hl, msg_any
+        call    pstr
+        call    cin_filter
+        pop     hl
+	cp	3		; ^c
+	jr	z, hd33
+	cp	27		; ESC
+	jr	z, hd33
+hd32:   call    newline
+        djnz	hd1
+hd33:   jp      newline
+;
+;-------------------- SD-card cold init ------------------------------
+;
+sd_tab1:
+	jp	sd_wiggle_n8vem
+	jp	sd_fini_n8vem
+	jp	sd_put_n8vem
+	jp	sd_get_n8vem
+sd_tab2:
+	jp	sd_wiggle_msx
+	jp	sd_fini_msx
+	jp	sd_put_msx
+	jp	sd_get_msx
+sd_tab3:
+;
+;RDLOOP: 		
+	ex	de, hl	; hl:=buffer address
+	call	sd_get	; data
+	ld	(hl), a
+	inc	hl
+	call	sd_get	; data
+	ex	de, hl	; de:=buffer address
+	jp	RDJNZ
+sd_tab4:
+;
+; SD probe, disappears after cold boot
+;   (and SD scheme autodetect - N8VEM / MSX SD V1)
+;
+cold_sd:call	sd_init
+coldsd0:ld	hl, (sd_msg)
+	ret	z		; if card present & MSX scheme
+	ld	bc, sd_tab2-sd_tab1
+	ld	hl, sd_tab1	; 
+	ld	de, sd_tab0
+	ldir    		; else switch to N8VEM scheme
+	call	sd_init
+	jr	nz, coldsd1	; if sd_init fail
+	ld	bc, sd_tab4-sd_tab3
+	ld	hl, sd_tab3
+	ld 	de, RDLOOP 
+	ldir
+	ld	hl, msg_n8v
+        jr      coldsd2
+coldsd1:
+	ld	bc, sd_tab3-sd_tab2
+	ld	hl, sd_tab2	; 
+        ld	de, sd_tab0
+	ldir			; both tests fail -> back to MSX scheme (default scheme)
+        ld      hl, msg_msx
+coldsd2:ld      (sd_msg),hl
+	ret
+;
+;--------------------
+;
+device_sd:			; SDC=1 (Z), MasterIDE=0 (NZ), SlaveIDE=10h (NZ)
+	ld	a, (device)	
+	ld	d,a
+	bit	0,a
+	ret
+;
+; Return Z if init OK
+;
+device_init:
+	call	device_sd
+	jr	z,inide
+	call	cold_sd
+	push	hl		; hl=device message string
+	push	af
+;
+; display CSD data
+;
+;0   ZERO:              byte;       // D7=D6=00  D5:D0=reserved=00000
+;1   TAAC:              byte;       // D7:D0=TAAC[7:0]
+;2   NSAC:              byte;       // D7:D0=NSAC[7:0]
+;3   TRAN_SPEED:        byte;       // D7:D0=TRAN_SPEED[7:0]
+;4   CCC:               byte;       // D7:D0=CCC[11:4]
+;5   CCC_READ_BL_LEN:   byte;       // D7:D4=CCC[3:0]  D3:D0=READ_BL_LEN[3:0]
+;6   BITFIELD1_CSIZE:   byte;       // D7=RD_BL_PARTIAL  D6=WR_BL_MISALIGN  D5=RD_BL_MISALIGN  D4=DSR_IMP  D3:D2=reserved=00  D1:D0=CSIZE[11:10]
+;7   CSIZE:             byte;       // D7:D0=C_SIZE[9:2]
+;8   CSIZE_VDD:         byte;       // D7:D6=C_SIZE[1:0]  D5:D3=VDD_R_CURR_MIN[2:0]  D2:D0=VDD_R_CURR_MAX[2:0]
+;9   VDD_CSIZE_MULT:    byte;       // D7:D5=VDD_W_CURR_MIN[2:0]  D4:D2=VDD_W_CURR_MAX[2:0]  D2:D0=C_SIZE_MULT[2:1]
+;10  CSIZE_MULT_SECSIZE:byte;       // D7=C_SIZE_MULT[0]  D6=ERASE_BLK_EN  D5:D0=SECTOR_SIZE[6:1]
+;11  SECSIZE_WPGRP_SIZE:byte;       // D7=SECTOR_SIZE[0]  D6:D0=WP_GRP_SIZE[6:0]
+;12  WPGRP_ENA_WRBL_LEN:byte;       // D7=WP_GRP_ENABLE   D6:D5=reserved=00  D4:D2=R2W_FACTOR[2:0]  D1:D0=WRITE_BL_LEN[3:2]
+;13  WRBL_LEN__ZERO:    byte;       // D7:D6=WRITE_BL_LEN[1:0]  D5=0  D4:D0=reserved=00000
+;14  BITFIELD2:         byte;       // D7=FILE_FORMAT_GRP  D6=COPY  D5=PERM_WRITE_PROTECT  D4=TMP_WRITE_PROTECT  D3:D2=FILE_FORMAT[1:0]  D1:D0=reserved=00
+;15  CRC:               byte;       // D7:D1= CRC-7 checksum   D0=1
+;
+; Capacity (bytes) = ("C_SIZE"+1) * (2 ^ (CSIZE_MULT+2)) * (2^READ_BL_LEN) = ("C_SIZE"+1) * (2 ^ (CSIZE_MULT+2+READ_BL_LEN))
+; Capacity (512b sectors) = MaxLBA = ("C_SIZE"+1) * (2 ^ (CSIZE_MULT+READ_BL_LEN-7))
+;
+; c_size = ix[8] + ix[7] * 256 + (ix[6] & 0x03) * 65536
+; c_size >>= 6   ( 12 bits )
+;
+	ld 	iy, csdbuf			
+	ld 	l, (iy+8)
+	ld	h, (iy+7)
+	ld	a, (iy+6)
+	and	3
+	add	hl, hl
+	rla
+	add	hl, hl
+	rla
+	ld	l, h
+	ld	h, a
+	inc	hl		; hl = c_size + 1
+;
+; c_size_mult = ix[10] + (ix[9] & 0x03) * 256
+; c_size_mult >>= 7    ( 3 bits )
+;
+	ld	a, (iy+10)	;d
+	rla
+	ld	a, (iy+9)	;e
+	rla
+	and	7			
+	ld	b, a		; b = c_size_mult
+;
+; read_bl_len = ix[5] & 0x0F  ( 4 bits )
+;
+	ld	a, (iy+5)
+	and	0Fh		; a = read_bl_len
+	add	a, b
+	sub	7		; a = c_size_mult + read_bl_len - 7
+	ld	de, 0
+;	jr	c, sderr	; ERROR - negative exponent
+	jr	z, skipsl	; exponent=0 -> no shift
+;
+; dehl <<= a,  A is 1...31
+;
+	ld	b, a
+sl_dehl:add	hl, hl
+	rl	e
+	rl	d
+	djnz	sl_dehl
+skipsl:	ld	(maxlba0),hl		; dehl = MaxLBA
+	ld	(maxlba0+2),de
+	pop	af
+	jr	retinit
+;				; IDE
+inide:	ld	hl, msg_idem
+	or	a
+	jr	z, inide2
+	ld	hl, msg_ides
+inide2: push	hl
+	push	af
+	call	ide_init
+	pop	de		; d=device index (1,0,10h)
+	jr	z,inide3
+	ld	hl,(Buffer0)
+	push	hl
+	call	drive_id
+        pop     hl		; hl=buffer
+	ld	bc, 120
+	add	hl,bc
+	ld	c,4
+	ld	de, maxlba0
+	ldir			; capacity for LBA-supported IDEs
+retinit:pop	hl
+	ret
+inide3: dec	a		; set NZ = error
+	pop	hl
+	ret
+;
+msg_1:  
+IF ORDOS
+	db	1Fh
+ENDIF 
+	db     "SD/IDE TEST PROGRAM. Z80 ONLY.",0
+msg_n8v: db	"SD N8VEM",0
+msg_msx: db	"SD MSX",0
+msg_idem:db	"IDE 8255 M",0
+msg_ides:db	"IDE 8255 S",0
+msg_fdd: db    "FDD0 F720"
+msg_cye: db     "> ENTER ",0
+msg_cyp: db     "PAGE",0
+msg_cya: db     "ADDRESS", 0
+msg_cyc: db     "SECTORS COUNT",0
+msg_cyv: db     " IN HEX (ESC=ABORT): ", 0
+IF ORDOS
+msg_p:	 db	127,"P",127,"A",127,"G",127,"E=",0
+msg_a:	 db	"H ",127,"A",127,"DDR=",0
+msg_c:   db     "H ",127,"C",127,"OUNT=",0
+msg_l:   db     "H ",127,"L",127,"BA=",0
+msg_d:	 db	"H)",13,10,127,"D",127,"EVICE=",0
+msg_pmt: db	9,127,"R",127,"EAD ",127,"W",127,"RITE ",127,"H",127,"EXDUMP",9,127,"Q",127,"UIT",13,10,0
+msg_mlba:db	"H (",127,"M",127,"AX"
+ELSE
+msg_p:	 db	"P)AGE=",0
+msg_a:	 db	"H A)DDR=",0
+msg_l:   db     "H L)BA=",0
+msg_c:   db     "H C)OUNT=",0
+msg_d:	 db	"H)",13,10,"D)EVICE=",9,0
+msg_pmt: db     "R)EAD W)RITE H)EXDUMP Q)UIT",13,10,0
+msg_mlba:db	"H (M)AX"
+ENDIF
+msg_cyl: db     "LBA ",0
+msg_sure:db     "SURE (Y/N)?",13,10,0
+msg_rdy: db	": DEVICE NOT READY",0
+msg_rd:  db     "H SECTOR(S) READED",0
+msg_wr:  db     "H SECTOR(S) WRITED",0
+msg_err: db     " ERROR ",0
+msg_any: db     13,10,10,"PRESS ANY KEY (ESC=ABORT)"
+msg_nl:	 db	13,10,0
+;
+sd_msg: dw      msg_msx
+device:	db	1	; SDC=1, MasterIDE=0, 10h=SlaveIDE
+address:dw	0
+count:	db	120
+DriveInfo:
+DevMsk0:ds	1	; 0=IDE_Master, 10h=IDE_Slave, 1=SDC, 3=SDHC
+ISLBA0:	ds	1	; 0=work in CHS mode (ByteAddr for SDC), !0(2 for IDE or 40h for SDHC)=Work in LBA mode  
+Bank0:  db      1	; memory page
+Buffer0:dw	buffer	; 512bytes buffer address
+lba0:	; db	0,0,0,0 ; 28bit Logical Block Address
+codend:
+devicehl equ	lba0+4
+maxlba0	equ	devicehl+2
+csdbuf	equ	maxlba0+4	; buffer for sd card information
+buffer	equ	csdbuf+16	; a 512 byte buffer
+	.dephase
+;
+IF ORDOS
+	ds	codesize+codebeg-codend, 0FFh	; round to 16
+ENDIF
+;
+        END     begin
+
+
+
