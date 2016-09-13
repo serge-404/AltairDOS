@@ -1,0 +1,884 @@
+	.z80
+	aseg
+	org     100h
+;
+; Модуль  HELP          ; компилятор  HELPа
+;
+inpfcb  equ     5ch
+bufword equ     80h
+bdos    equ     5
+;
+INCLUDE STARTUP         ; начальный загрузчик HELPа
+INCLUDE B0HELP          ; просмотрщик HELPа
+INCLUDE B1HELP          ; оконный драйвер
+;
+codexor:push    hl
+@565:   ld      hl,xorcode
+	xor     (hl)
+	pop     hl
+	ret
+;
+; ПЕРЕВОД СИМВОЛА НА БОЛЬШИЕ ЛАТИНСКИЕ СИМВОЛЫ
+;
+UPCASE: AND     7FH
+	CP      61H
+	RET     C
+	CP      7BH
+	RET     NC
+	SUB     20H
+	RET
+;
+@566:
+xorcode:db      0
+MSGPTR: DW      TEXT            ; ук-ль на список строк
+@567:
+tselect:db      0fh
+BUTPTR: DW      TEXT+1          ; --"--"--"--"-- кнопок
+@568:
+cselect:db      0fh             ;
+TXTPTR: DW      TEXT+2          ; --"--"-- начало текста
+x1:     db      0
+y1:     db      0
+dx1:    db      0
+dy1:    db      0
+tc1:    db      0
+bc1:    db      0
+x2:     db      0
+y2:     db      0
+dx2:    db      0
+dy2:    db      0
+tc2:    db      0
+bc2:    db      0
+stacklim:
+;
+; таблица меток перемещающего загрузчика
+;
+HLATTAB:
+	dw	@1+1,@2+1,@3+1,@4+1,@5+1,@6+1,@7+1
+	dw	@8+1,@9+1,@10+1,@11+1,@12+1,@13+1,@14+1
+	dw	@15+1,@16+1,@17+1,@18+1,@19+1,@20+1,@21+1
+	dw	@22+1,@23+1,@24+1,@25+1,@26+1,@27+1,@28+1
+	dw	@29+1,@30+1,@31+1,@32+1,@33+1,@34+1,@35+1
+	dw	@36+1,@37+1,@38+1,@39+1,@40+1,@41+1,@42+1
+	dw	@43+1,@44+1,@45+1,@46+1,@47+1,@48+1,@49+1
+	dw	@50+1,@51+1,@52+1,@53+1,@54+1,@55+1,@56+1
+	dw	@57+1,@58+1,@59+1,@60+1,@61+1,@62+1,@63+1
+	dw	@64+1,@65+1,@66+1,@67+1,@68+1,@69+1,@70+1
+	dw	@71+1,@72+1,@73+1,@74+1,@75+1,@76+1,@77+1
+	dw	@78+1,@79+1,@80+1,@81+1,@82+1,@83+1,@84+1
+	dw	@85+1,@86+1,@87+1,@88+1,@89+1,@90+1,@91+1
+	dw	@92+1,@93+1,@94+1,@95+1,@96+1,@97+1,@98+1
+	dw	@99+1,@100+1,@101+1,@102+1,@103+1,@104+1,@105+1
+	dw	@106+1,@107+1,@108+1,@109+1,@110+1,@111+1,@112+1
+	dw	@113+1,@114+1,@115+1,@116+1,@117+1,@118+1,@119+1
+	dw	@120+1,@121+1,@122+1,@123+1,@124+1,@125+1,@126+1
+	dw	@127+1,@128+1,@129+1,@130+1,@131+1,@132+1,@133+1
+	dw	@134+1,@135+1,@136+1,@137+1,@138+1,@139+1,@140+1
+	dw	@141+1,@142+1,@143+1,@144+1,@145+1,@146+1,@147+1
+	dw      @148+1,@149+1,@150+1,@151+1,@152+1,@153+1,@154+1
+	dw      @155+1,@156+1,@157+1,@158+1,@159+1,@160+1,@161+1
+	dw	@162+1,@163+1,@164+1,@165+1,@166+1,@167+1,@168+1
+	dw	@169+1,@170+1,@171+1,@172+1,@173+1,@174+1,@175+1
+	dw	@176+1,@177+1,@178+1,@179+1,@180+1,@181+1,@182+1
+	dw	@183+1,@184+1,@185+1,@186+1,@187+1,@188+1,@189+1
+	dw	@190+1,@191+1,@192+1,@193+1,@194+1,@195+1,@196+1
+	dw	@197+1,@198+1,@199+1,@200+1,@201+1,@202+1,@203+1
+	dw	@204+1,@205+1,@206+1,@207+1,@208+1,@209+1,@210+1
+	dw	@211+1,@212+1,@213+1,@214+1,@215+1,@216+1,@217+1
+	dw	@218+1,@219+1,@220+1,@221+1,@222+1,@223+1,@224+1
+	dw	@225+1,@226+1,@227+1,@228+1,@229+1,@230+1,@231+1
+	dw	@232+1,@233+1,@234+1,@235+1,@236+1,@237+1,@238+1
+	dw	@239+1,@240+1,@241+1,@242+1,@243+1,@244+1,@245+1
+	dw	@246+1,@247+1,@248+1,@249+1,@250+1,@251+1,@252+1
+	dw	@253+1,@254+1,@255+1,@256+1,@257+1,@258+1,@259+1
+	dw	@260+1,@261+1,@262+1,@263+1,@264+1,@265+1,@266+1
+	dw	@267+1,@268+1,@269+1,@270+1,@271+1,@272+1,@273+1
+	dw	@274+1,@275+1,@276+1,@277+1,@278+1,@279+1,@280+1
+	dw      @281+1,@282+1,@283+1,@284+1,@285+1,@286+1,@287+1
+	dw	@288+1,@289+1,@290+1,@291+1,@292+1,@293+1,@294+1
+	dw	@295+1,@296+1,@297+1,@298+1,@299+1,@300+1,@301+1
+	dw	@302+1,@303+1,@304+1,@305+1,@306+1,@307+1,@308+1
+	dw	@309+1,@310+1,@311+1,@312+1,@313+1,@314+1,@315+1
+	dw	@316+1,@317+1,@318+1,@319+1,@320+1,@321+1,@322+1
+	dw	@323+1,@324+1,@325+1,@326+1,@327+1,@328+1,@329+1
+	dw	@330+1,@331+1,@332+1,@333+1,@334+1,@335+1,@336+1
+	dw	@337+1,@338+1,@339+1,@340+1,@341+1,@342+1,@343+1
+	dw	@344+1,@345+1,@346+1,@347+1,@348+1,@349+1,@350+1
+	dw	@351+1,@352+1,@353+1,@354+1,@355+1,@356+1,@357+1
+	dw	@358+1,@359+1,@360+1,@361+1,@362+1,@363+1,@364+1
+	dw	@365+1,@366+1,@367+1,@368+1,@369+1,@370+1,@371+1
+	dw	@372+1,@373+1,@374+1,@375+1,@376+1,@377+1,@378+1
+	dw	@379+1,@380+1,@381+1,@382+1,@383+1,@384+1,@385+1
+	dw	@386+1,@387+1,@388+1,@389+1,@390+1,@391+1,@392+1
+	dw	@393+1,@394+1,@395+1,@396+1,@397+1,@398+1,@399+1
+	dw	@400+1,@401+1,@402+1,@403+1,@404+1,@405+1,@406+1
+	dw	@407+1,@408+1,@409+1,@410+1,@411+1,@412+1,@413+1
+	dw	@414+1,@415+1,@416+1,@417+1,@418+1,@419+1,@420+1
+	dw	@421+1,@422+1,@423+1,@424+1,@425+1,@426+1,@427+1
+	dw	@428+1,@429+1,@430+1,@431+1,@432+1,@433+1,@434+1
+	dw	@435+1,@436+1,@437+1,@438+1,@439+1,@440+1,@441+1
+	dw	@442+1,@443+1,@444+1,@445+1,@446+1,@447+1,@448+1
+	dw	@449+1,@450+1,@451+1,@452+1,@453+1,@454+1,@455+1
+	dw	@456+1,@457+1,@458+1,@459+1,@460+1,@461+1,@462+1
+	dw	@463+1,@464+1,@465+1,@466+1,@467+1,@468+1,@469+1
+	dw	@470+1,@471+1,@472+1,@473+1,@474+1,@475+1,@476+1
+	dw	@477+1,@478+1,@479+1,@480+1,@481+1,@482+1,@483+1
+	dw	@484+1,@485+1,@486+1,@487+1,@488+1,@489+1,@490+1
+	dw	@491+1,@492+1,@493+1,@494+1,@495+1,@496+1,@497+1
+	dw	@498+1,@499+1,@500+1,@501+1,@502+1,@503+1,@504+1
+	dw	@505+1,@506+1,@507+1,@508+1,@509+1,@510+1,@511+1
+	dw	@512+1,@513+1,@514+1,@515+1,@516+1,@517+1,@518+1
+	dw	@519+1,@520+1,@521+1,@522+1,@523+1,@524+1,@525+1
+	dw	@526+1,@527+1,@528+1,@529+1,@530+1,@531+1,@532+1
+	dw	@533+1,@534+1,@535+1,@536+1,@537+1,@538+1,@539+1
+	dw	@540+1,@541+1,@542+1,@543+1,@544+1,@545+1,@546+1
+	dw	@547+1,@548+1,@549+1,@550+1,@551+1,@552+1,@553+1
+	dw	@554+1,@555+1,@556+1,@557+1,@558+1,@559+1,@560+1
+	dw      @561+1,@562+1,@563+1,@564+1,@565+1,@566+1,@567+1
+	dw      @568+1,@569+1,@570+1,@571+1,0
+
+;
+; ================================================
+; ============ Компилятор HELP'а =================
+;
+ANALIS: LD      A,(HL)
+	CP      0AH
+	call    z,inclnct
+	LD      A,(HL)
+	INC     HL
+	CALL    EOF
+	JP      Z,error         ; не найдена <0>
+	CALL    EOSTR
+	JR      Z,ANALIS
+	DEC     HL
+	PUSH    HL
+	CALL    EXEC
+	POP     HL
+SEARC:  LD      A,(HL)
+	INC     HL
+	CALL    EOF
+	JP      Z,error
+	CALL    EOSTR
+	JR      NZ,SEARC
+	JR      ANALIS
+;
+EXEC:   CALL    BLANK           ; ПРОПУСК ПРОБЕЛОВ
+	LD      A,(HL)
+	CP      ';'
+	RET     Z
+	CALL    GETWORD         ; ПОЛУЧИТЬ СЛОВО
+	CALL    BLANK
+	PUSH    HL
+	LD      DE,TABWORD
+	CALL    CPSTR
+	EX      (SP),HL
+	RET     NZ           ; ЕСЛИ НАЙДЕН, ТО ВЫЗОВ ПО (HL)
+	POP     HL
+	RET
+;
+; ВЫДЕЛЯЕТ СЛОВО ИЗ ФРАЗЫ И ПОМЕЩАЕТ ЕГО НА BUFWORD
+;
+GETWORD:LD      DE,BUFWORD
+	LD      C,0
+ABF11:  LD      A,(HL)
+	CALL    UPCASE
+	CP      20H
+	RET     Z
+	CP      9
+	RET     Z
+	CALL    EOSTR
+	RET     Z
+	CP      3DH
+	RET     Z
+	CP      2CH
+	RET     Z
+	LD      (DE),A
+	INC	HL
+	INC	DE
+	INC	C
+	JR      ABF11
+;
+; П/П ИЩЕТ В ТАБЛИЦЕ КЛЮЧЕВЫХ СЛОВ СЛОВО , СОВПАДАЮЩЕЕ СО СЛОВОМ В BUFWORD
+; ВЫХОД: ЕСЛИ НАЙДЕНО , ТО ВОЗВРАЩ. А=0FFH, Z=FALSE, HL=АДРЕС ПОДПРОГРАММЫ
+;        ИНАЧЕ ВОЗВРАЩАЕТ  А=0, Z=TRUE
+;
+CPSTR:  LD      HL,BUFWORD
+	LD      A,(DE)          ; A= ДЛИНА ТАБЛИЧНОГО ОБРАЗЦА
+	OR	A
+	RET     Z               ; A=0 ЕСЛИ КОНЕЦ ТАБЛИЦЫ
+	CP      C               ; C= ДЛИНА СЛОВА В BUFWORD
+	INC     DE
+	LD      B,A
+	JR      NZ,NEXT
+ABF56:  LD      A,(DE)
+	CP	(HL)
+	JR      NZ,NEXT
+	INC	DE
+	INC	HL
+	DJNZ    ABF56
+	LD	A,(DE)
+	LD	L,A
+	INC	DE
+	LD	A,(DE)
+	LD	H,A
+	LD	A,0FFH
+	OR	A
+	RET
+;
+NEXT:   INC     DE              ; СЛЕДУЩЕЕ СЛОВО ИЗ ТАБЛИЦЫ
+	DJNZ    NEXT
+	INC	DE
+	INC	DE
+	JR      CPSTR
+;
+EOSTR:  CP      10
+	RET     Z
+	CP      13
+	RET     Z
+EOF:    CP      1AH
+	RET     Z
+	OR      A
+	RET
+;
+; ПРОПУСК ПРОБЕЛОВ
+;
+BLANK:  LD      A,(HL)
+	CP      ' '
+	JR      Z,BLANK1
+	CP      9
+	RET     NZ
+BLANK1: INC     HL
+	JR      BLANK
+;
+@MENUW:
+	ld      a,(waswin)
+	inc     a
+	ld      (waswin),a
+	ld      de,x1
+	call    getnumm
+	jr      z,errors
+	cp      56
+	jr      nc,errors
+	ld      de,y1
+	call    getnumm
+	jr      z,errors
+	cp      24
+	jr      nc,errors
+	ld      de,dx1
+	call    getnumm
+	ex      de,hl
+	ld      hl,x1
+	add     a,(hl)
+	ex      de,hl
+	cp      62
+	jr      nc,errors
+	ld      de,dy1
+	call    getnumm
+	ex      de,hl
+	ld      hl,y1
+	add     a,(hl)
+	ex      de,hl
+	cp      25
+	jr      nc,errors
+	ld      de,tc1
+	call    getnumm
+	cp      16
+	jr      nc,errors
+	ld      de,bc1
+;
+getnumm:push    de
+	call    getnum
+	call    blank           ; (hl)=','
+	inc     hl
+	pop     de
+	jr      c,errors
+	ld      a,b
+	ld      (de),a
+	or      a
+	ret
+errors: jp      error
+;
+@TEXTW:
+	ld      a,(waswin)
+	inc     a
+	ld      (waswin),a
+	ld      de,x2
+	call    getnumm
+	jr      z,errors
+	cp      56
+	jr      nc,errors
+	ld      de,y2
+	call    getnumm
+	jr      z,errors
+	cp      24
+	jr      nc,errors
+	ld      de,dx2
+	call    getnumm
+	cp      16
+	jr      c,errors
+	sub     2
+	ld      (xcnt),a
+	sub     2
+	ld      (xsize),a       ; определяем размеры
+	ex      de,hl
+	ld      hl,x2
+	add     a,(hl)
+	ex      de,hl
+	cp      58
+	jr      nc,errors
+	ld      de,dy2
+	call    getnumm
+	cp      7
+	jr      c,errors
+	sub     2               ; полос прокрутки
+	ld      (ycnt),a
+	sub     2
+	ld      (ysize),a
+	ex      de,hl
+	ld      hl,y2
+	add     a,(hl)
+	ex      de,hl
+	cp      22
+	jr      nc,errors
+	ld      de,tc2
+	call    getnumm
+	cp      16
+	jr      nc,errors
+	ld      de,bc2
+	jr      getnumm
+;
+@SELECTXT:
+	ld      de,tselect
+	call    getnumm
+	cp      16
+	jr      nc,errors
+	ret
+;
+@SELECHAR:
+	ld      de,cselect
+	call    getnumm
+	cp      16
+	jp      nc,errors
+	ret
+;
+; текст. строка в памяти:  X,Y,текст',X,Y,текст',...,0
+;
+@MESSAGE:
+	ld      a,(waswin)      ; message не бывает до window
+	cp      2
+	jp      c,error
+	ld      a,(wasbut)      ; message не бывает после button
+	or      a
+	jp      nz,error
+	ld      a,1
+	ld      (wasmsg),a
+	call    getnum
+	jp      c,error
+	call    blank
+	inc     hl
+	push    bc
+	call    getnum
+	pop     de              ; d=число
+	ld      c,d
+	jp      c,error
+	call    blank
+	inc     hl
+	ld      de,(butptr)
+	dec     de
+	ld      a,c
+	ld      (de),a
+	inc     de
+	ld      a,b
+	ld      (de),a
+	inc     de
+	call    blank
+	ld      a,(hl)
+	cp      39              ;'
+	jp      nz,error
+	inc     hl
+mvmes:  ld      a,(hl)
+	ld      (de),a
+	inc     de
+	xor     a
+	ld      (de),a
+	inc     de
+	ld      (de),a
+	ld      (butptr),de
+	inc     de
+	ld      (de),a
+	ld      (txtptr),de
+	dec     de
+	dec     de
+	ld      a,(hl)
+	cp      0dh
+	jp      z,error
+	cp      39              ;'
+	ret     z
+	inc     hl
+	jr      mvmes
+;
+@PAGEUP:LD      DE,PGUPPROC
+	JR      MOVEBUTTON
+;
+@PAGEDN:LD      DE,PGDNPROC
+	JR      MOVEBUTTON
+;
+@GOTOP: LD      DE,GOTPPROC
+	JR      MOVEBUTTON
+;
+@RETURN:LD      DE,RETPROC
+	JR      MOVEBUTTON
+;
+@LIST:  LD      DE,LISTPROC
+	JR      MOVEBUTTON
+;
+@SEARCH:LD      DE,SEARPROC
+	JR      MOVEBUTTON
+;
+@PRINT: LD      DE,PRNTPROC
+	JR      MOVEBUTTON
+;
+@EXIT:  LD      DE,EXITPROC
+;
+; ФОРМАТ КНОПOК: POINTER,X,Y,TEXT',ADDR,X,Y,TEXT',ADDR,...,0
+;
+MOVEBUTTON:
+	ld      a,(waswin)
+	cp      2
+	jp      c,error
+	push    de
+	call    getnum
+	jr      c,ifer1
+	call    blank
+	inc     hl
+	push    bc
+	call    getnum
+	pop     de              ; d=число
+	ld      c,d
+	jr      c,ifer1
+	call    blank
+	inc     hl
+	ld      a,1
+	ld      (wasbut),a      ; message не бывает после button
+	ld      de,(txtptr)
+	ld      a,c
+	ld      (de),a
+	inc     de
+	ld      a,b
+	ld      (de),a
+	inc     de
+	call    blank
+	ld      a,(hl)
+	cp      39              ;'
+	jp      nz,error
+	inc     hl
+mvmess: ld      a,(hl)
+	ld      (de),a
+	cp      0dh
+	jp      z,error
+	inc     de
+	inc     hl
+	cp      39              ;'
+	jr      nz,mvmess
+eobut:  pop     bc              ; BC- адрес п/п
+	ex      de,hl
+	ld      (hl),c
+	inc     hl
+	ld      (hl),b
+	inc     hl
+	ld      (hl),0
+	ld      (txtptr),hl
+	ex      de,hl
+	ret
+ifer1:  pop     de
+	jp      error
+;
+; спец. символы: 0-начало выделенных фраз (для справки)
+;  (токены)      1-пустой конец выделенных фраз
+;                2-конец выделенной фразы с меткой перехода
+;                3-обрамление смысловых фрагментов текста
+;                4-конец строки
+;                5-конец файла
+;
+@BEGIN:
+	ld      de,(txtptr)
+	inc     de
+	ld      (txtptr),de
+	ld      a,3
+	call    codexor
+	ld      (de),a
+	inc     de
+	ld      a,6
+	call    codexor
+	ld      (de),a
+	inc     de
+txtloop:ld      a,(hl)
+	inc     hl
+	cp      0dh
+	jr      z,iscr          ; если cr
+	cp      1ah
+	jp      z,endcomp
+	cp      '{'
+	jr      z,issko
+	cp      '}'
+	jr      z,isskz
+	cp      '<'
+	jr      z,isles
+	cp      9
+	jr      z,savech
+	cp      ' '
+	jr      c,txtloop
+	jr      z,savech
+	ld      b,a
+	xor     a
+	ld      (skzflag),a
+	ld      a,b
+savech: call    codexor
+	ld      (de),a
+	inc     de
+	ld      (maxde),de
+	ld      a,(qnstr)
+	inc     a
+	ld      (qnstr),a
+	jr      txtloop
+;
+iscr:   call    inclnct
+	ld      a,4
+	jr      savech
+;
+issko:  cp      (hl)
+	inc     hl
+	jr      z,savech
+	dec     hl
+	xor     a
+	ld      (skzflag),a     ; флаг закрывающей скобки
+	jr      savech
+;
+isskz:  cp      (hl)
+	inc     hl
+	jr      z,savech
+	dec     hl
+	ld      (skzaddr),de    ; адр. последней закрывающей
+	ld      a,1
+	ld      (skzflag),a     ; флаг --"--"--"--"--"--"--
+	jr      savech
+;
+isles:  cp      (hl)
+	inc     hl
+	jr      z,savech
+	dec     hl
+	call    getnum
+	jp      c,error
+	call    blank
+	ld      a,(hl)
+	cp      '>'
+	jp      nz,error
+	inc     hl
+	ld      a,(skzflag)
+	or      a
+	ld      a,3
+	jr      z,noeosk
+	ld      de,(skzaddr)
+	dec     a
+noeosk: call    codexor
+	ld      (de),a
+	xor     a
+	ld      (skzflag),a
+	inc     de
+	ld      a,b
+	add     a,6             ; не совпадать с токенами
+	jr      nc,savech
+	jp      error
+;
+endcomp:ld      a,5
+	call    codexor
+	ld      (de),a          ; конец файла
+	ld      hl,(butptr)
+	ld      (hl),0
+	ld      a,(wasmsg)
+	or      a
+	jr      nz,endc1
+	ld      hl,(msgptr)
+	ld      (hl),0
+endc1:  ld      de,100h         ; begin
+	ld      hl,inpfcb+9
+	ld      (hl),'H'
+	ldi                     ; (de):=(hl),inc hl,inc de
+	ld      (hl),'L'
+	ldi                     ; (de):=(hl),inc hl,inc de
+	ld      (hl),'P'
+	ldi                     ; (de):=(hl),inc hl,inc de
+	ld      (hl),0
+	ld      d,h
+	ld      e,l
+	inc     de
+	ld      bc,30
+	ldir                    ; подготовили fcb
+	ld      c,0fh
+	ld      de,inpfcb
+	xor     a
+	ld      (de),a
+	push    de
+	call    bdos            ; открыть файл
+	cp      4
+	ld      c,16h
+	pop     de
+	push    de
+	call    nc,bdos         ; или создать файл
+	ld      hl,100h
+	pop     de
+	cp      4
+	jp      nc,dfull
+Fsave:  PUSH    HL
+	PUSH	DE
+	EX      DE,HL
+	LD      C,1AH
+	CALL    BDOS            ; УСТ. ПДП
+	POP	DE
+	PUSH	DE
+	LD      C,15H
+	CALL    BDOS            ; ПОСЛЕД. ЗАПИСЬ
+	OR	A
+	POP	DE
+	POP	HL
+	jr      NZ,dfull        ; ВОЗВРАТ, ЕСЛИ ДИСК ПОЛОН
+	PUSH	DE
+	LD      DE,80H
+	ADD     HL,DE
+	push    hl
+	ld      de,(maxde)
+	or      a
+	sbc     hl,de
+	pop     hl
+	POP     DE
+	jr      c,fsave
+	ld      de,complet
+tozero: call    MSG
+	ld      c,10h
+	ld      de,inpfcb
+	call    BDOS            ; закрыть файл
+	pop     hl
+	jp      0
+dfull:  ld      de,diskful
+	jr      tozero
+;
+TABWORD:
+	db      11,'MENU_WINDOW'
+	dw      @MENUW
+	db      11,'TEXT_WINDOW'
+	dw      @TEXTW
+	db      13,'SELECTED_TEXT'
+	dw      @SELECTXT
+	db      13,'SELECTED_CHAR'
+	dw      @SELECHAR
+	db      7,'MESSAGE'
+	dw      @MESSAGE
+	db      13,'PAGEUP_BUTTON'
+	dw      @PAGEUP
+	db      13,'PAGEDN_BUTTON'
+	dw      @PAGEDN
+	db      12,'GOTOP_BUTTON'
+	dw      @GOTOP
+	db      13,'RETURN_BUTTON'
+	dw      @RETURN
+	db      11,'LIST_BUTTON'
+	dw      @LIST
+	db      13,'SEARCH_BUTTON'
+	dw      @SEARCH
+	db      12,'PRINT_BUTTON'
+	dw      @PRINT
+	db      11,'EXIT_BUTTON'
+	dw      @EXIT
+	db      3,'<0>'
+	dw      @BEGIN
+	db      0
+diskful:db      13,10,'Disk full.',13,10,'$'
+complet:db      13,10,'Complete.',13,10,'$'
+errstri:db      13,10,'Error in line ','$'
+;
+inclnct:push    hl
+	ld      hl,(linecnt)
+	inc     hl
+	ld      (linecnt),hl
+	pop     hl
+	ret
+;
+; ПЕЧАТЬ СООБЩЕНИЯ О ОШИБКЕ
+;
+ERROR:  push    hl
+	LD      DE,ERRSTRI
+	CALL    MSG
+	LD      hl,(LINECNT)
+;
+; п/п десятичной коррекции -
+;       вход :  HL - 16-битное шестнадцатиричное число.
+;       выход : DE - 4-значное десятичное число :
+;                     (D7..D4; D3..D0; E7..E4; E3..E0)
+	ld      de,0
+	ld      b,16
+cycl:   add     hl,hl
+	ld      a,e
+	adc     a,e
+	daa
+	ld      e,a
+	ld      a,d
+	adc     a,d
+	daa
+	ld      d,a
+	djnz    cycl            ; КОНЕЦ  КОРРЕКЦИИ
+	pop     hl
+	LD      A,D
+	CALL    DOUTF0
+	LD      A,D
+	CALL    DOUT0F
+	LD      A,E
+	CALL    DOUTF0
+	LD      A,E
+	JR      DOUT0F
+;
+DOUTF0: RRCA
+	RRCA
+	RRCA
+	RRCA
+DOUT0F: PUSH    DE
+	push    hl
+	AND     0FH
+	ADD     A,'0'
+	ld      c,6
+	ld      e,a
+	call    bdos
+	pop     hl
+	pop     de
+	ret
+;
+; ПОЛУЧИТЬ ЧИСЛО ИЗ СТРОКИ.
+; ВЫХОД : В = ЗНАЧЕНИЕ (0..255)
+;         CY = TRUE(C) - ОШИБКА, CY = FALSE(NC) - НОРМАЛЬНО
+;
+GETNUM: LD      A,(HL)
+	INC	HL
+	CALL    EOSTR
+	SCF
+	RET	Z
+	CP      ' '+1
+	JR      C,GETNUM        ; анализ на пустую строку
+	CP      '0'     ; анализ ввода кол-ва блоков
+	RET     C
+	CP      '9'+1
+	CCF
+	RET     C
+
+AC90E:  SUB     '0'
+	LD	B,A
+	LD	A,(HL)
+	CALL    EOSTR   ;OR      A
+	RET     Z
+	CP      '>'
+	ret     z
+	CP      ','
+	RET     Z
+	INC     HL
+	CP      '0'
+	CCF
+	RET     NC      ; ВОЗВРАТ ЕСЛИ <'0'
+	CP      '9'+1
+	JR      C,CONTIN ; ПЕРЕХОД ЕСЛИ <'9'+1
+	CP      '@'
+	CCF
+	RET
+CONTIN: LD      C,A
+	LD	A,B
+	ADD	A,A
+	ADD     A,A     ; A=A*4
+	ADD     A,B
+	ADD     A,A     ; A=A*10
+	ADD	A,C
+	JR	AC90E
+;
+LINECNT:DW      0               ; счетчик строк исходника
+skzflag:db      0
+skzaddr:ds      2
+MAXDE:  ds      2
+qnstr:  db      0
+wasmsg: db      0
+waswin: db      0
+wasbut: db      0
+;
+text:   dw      0
+	db      0
+noz80:  db      13,10,'No Z80 CPU',13,10,'$'
+nofile: db      13,10,'Input file not found.',13,10,'$'
+usage:  db      13,10,'Usage: HELPGEN <inpfile.ext> <xorcode>',13,10,'$'
+compmsg:db      13,10,'HELP compiler, version 1.0. '
+	db            '(c) 1996 BLACK CAT inc.',13,10,'$'
+;
+; ================================================
+; ============ Холодный старт программы ==========
+;
+begin:  LD      C,0CH
+	CALL    BDOS
+	LD      A,l
+	cp      22
+	ld      de,badsys       ; если не CPM 2.2
+	jp      c,MSG
+	xor     a
+	dec     a
+	ld      de,noz80
+	jp      pe,MSG          ; если нет Z80
+	ld      de,compmsg
+	call    MSG             ; вывеска
+	ld      a,(80h)
+	or      a
+	ld      de,usage
+	jp      z,MSG           ; если нет имени файла
+	ld      hl,inpfcb+17
+	ld      a,(hl)
+	cp      ' '
+	ld      b,0
+	call    nz,getnum
+	ld      a,b
+noxor:  ld      (xorcode),a
+	ld      de,inpfcb
+	ld      c,15
+	call    bdos
+	ld      de,nofile
+	cp      4
+	jp      nc,MSG          ; если не найден файл
+	xor     a
+	ld      (qnstr),a       ; текущий символ строки
+	ld      (wasbut),a
+	ld      (waswin),a
+	LD      (LINECNT),A     ; строки входного текста
+	ld      de,endcode
+	push    de
+FREAD:  PUSH    de
+	LD      C,1AH
+	CALL    BDOS            ; УСТ. ПДП
+	ld      de,inpfcb
+	LD      C,14H
+	CALL    BDOS            ; ПОСЛЕД. ЧТЕНИЕ
+	POP     HL
+	LD      DE,80H
+	ADD     HL,DE
+	ld      (hl),1ah
+	OR	A
+	JR      NZ,toanal       ; ВОЗВРАТ, ЕСЛИ КОНЕЦ ФАЙЛА
+	ex      de,hl
+	ld      bc,(6)
+	ld      hl,-2500
+	add     hl,bc
+	or      a
+	sbc     hl,de           ; hl-top TPA, de-dma
+	jr      nc,fread
+toanal: pop     hl              ; LD  HL,text
+	jp      analis
+endcode:
+
+	END
+
+
+     DE,BUFWORD
+	LD      C,0
+ABF11:  LD      A,(HL)
+	CALL    UPCASE
+	CP 

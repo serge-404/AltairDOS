@@ -1,0 +1,1385 @@
+;
+searbegtema:
+;
+tobegtema:
+@28:    ld      hl,(txtptr)
+@570:
+find3:  ld      a,(xorcode)     ; поиск нужной темы
+	xor     (hl)
+	inc     hl
+	cp      5
+	jr      z,runtime
+	cp      3
+	jr      nz,find3
+@29:    call    axorinc
+@30:    call    cpcurr          ; текущая тема ?
+	jr      nz,find3
+@31:    ld      (listadr),hl
+	ret
+;
+@32:
+runcomm:call    dectextpar
+	inc     h
+	inc     l
+	ld      bc,517h
+	ld      de,0207h
+@33:    call    window
+@34:    jp      setw
+;
+@35:
+runtime:call    runcomm
+@36:    call    offwritest
+	db      5,2,'Run time error',0
+@37:    call    inkey
+@38:    jp      exithlp
+;
+@39:
+listpg: call    cm2
+@40:    call    norm
+@41:    call    dectarea        ; уст. окно вывода
+@42:    call    noscrol         ; выкл. скроллинг
+@43:    call    clrscr          ; cls+home
+@44:    call    tobegtema       ; уст. hl на начало темы
+	push    hl              ; hl-начало темы (1 строка)
+	xor     a
+	ld      bc,1
+@@45:   ld      (maxline),bc    ; определяем параметры темы:
+@45 EQU @@45+1
+@46:    ld      (maxcol),a      ; пределы прокруток по x и y
+listp1: xor     a
+@47:    ld      (pushhl),a      ; счетчик символов в строке
+@48:
+listp2: call    axorinc
+	jr      z,listp2        ; if 0
+	dec     a
+	jr      z,listp2        ; if 1
+	inc     hl
+	dec     a               ; if 2
+	jr      z,listp2
+	dec     hl              ; if 3
+	dec     a
+	jr      z,ltema         ; ограничитель тем
+	dec     a
+	jr      z,leoln         ; конец строки
+	dec     a
+	jr      z,runtime       ; конец файла
+	push    hl
+@49:    ld      hl,pushhl
+	inc     (hl)
+	sub     4
+	jr      nz,xxtab        ; if  not tab
+	ld      a,(hl)
+	or      7
+	ld      (hl),a
+xxtab:  pop     hl
+	jr      listp2
+@50:
+eotema: ld      hl,(maxline)
+@@51:   ld      bc,(pagelin)
+@51 EQU @@51+1
+	or      a
+	sbc     hl,bc
+	pop     hl              ; hl-начало темы (1 строка)
+	ret     c
+listp3: dec     bc              ; ищем начало нужного предл.
+	ld      a,b
+	or      c
+	jr      z,listhl
+@52:
+listp4: call    axorinc
+	cp      4
+	jr      z,listp3
+	jr      listp4
+;
+; вывод одной страницы темы, начиная с предложения по (hl)
+;
+@53:
+listhl: ld      a,(ycnt)
+@54:    ld      (listadr),hl
+	ld      de,101h
+listpg1:ex      de,hl           ; hl:=позиция вывода
+	push    hl
+	push    af
+	push    de              ; de=адрес текста
+@55:    call    gotoxy
+	pop     hl              ; hl=адрес текста
+@56:    call    strout          ; вывод одной строки
+	pop     af
+	pop     de
+	dec     a
+	jr      z,newcoord      ; новые индикаторы прокрутки
+	inc     e
+	jr      listpg1
+;
+@57:
+ltema:  ld      a,(xorcode)
+	xor     (hl)
+@58:    call    cpcurr          ; текущая тема ?
+	jr      z,eotema
+	inc     hl
+	jr      listp2
+;
+leoln:  push    hl
+@59:    ld      hl,maxcol
+@60:    ld      a,(pushhl)
+	cp      (hl)
+	jr      c,lesshl
+	ld      (hl),a
+@61:
+lesshl: ld      hl,(maxline)
+	inc     hl
+@62:    ld      (maxline),hl
+	pop     hl
+@26:    jp      listp1
+;
+newcoord:
+@63:    ld      a,(actwin)
+	or      a
+	ret     nz
+@64:    call    textarea
+@65:    call    newxcoord
+;
+newycoord:
+	ld      c,176
+@66:    call    writey
+@67:    ld      hl,(pagelin)
+	dec     hl
+@68:    ld      a,(line)
+	ld      e,a
+	ld      d,0
+	add     hl,de
+	ex      de,hl
+	ld      l,0             ; de:=hl, hl:=0
+@69:    ld      a,(ysize)
+	push    af
+	ld      b,a
+ymul:   add     hl,de           ; hl-делимое
+	djnz    ymul            ; hl=ysize*(pagelin+line)
+@@70:   ld      bc,(maxline)    ; bc-делитель
+@70 EQU @@70+1
+@71:    call    d162            ; делим: hl/bc=(de,hl)
+	pop     af
+	cp      e
+	jr      c,noldae
+	ld      a,e
+@72:
+noldae: ld      (ycurr),a
+	ld      c,155
+writey: push    bc
+@73:    call    gettextpar
+	ld      h,c
+@74:    ld      a,(ycurr)
+	add     a,3
+	ld      l,a
+@75:    call    gotoxy
+	pop     bc
+@76:    jp      conout
+;
+newxcoord:
+	ld      c,176
+@77:    call    writex
+@78:    ld      a,(col)
+	ld      e,a
+	ld      d,0
+	ld      h,d
+	ld      l,d             ; de:=col, hl:=0
+@79:    ld      a,(xsize)
+	dec     a
+	ld      b,a
+xmul:   add     hl,de           ; hl-делимое
+	djnz    xmul            ; hl=xsize*col
+@80:    ld      a,(maxcol)      ; b=0
+	ld      c,a             ; bc-делитель
+@81:    call    d162            ; делим: hl/bc=(de,hl)
+	ld      a,e
+@82:    ld      (xcurr),a
+	ld      c,155
+writex: push    bc
+@83:    call    gettextpar
+	ld      l,b
+@84:    ld      a,(xcurr)
+	add     a,3
+	ld      h,a
+@85:    call    gotoxy
+	pop     bc
+@86:    jp      conout
+;
+; деление в формате 16:16. Вход: hl-делимое, bc-делитель
+;       Выход: de-частное, hl-остаток, CY=0-деление на 0
+;
+d162:   ld      a,b
+	or      c
+	ret     z
+	ex      de,hl
+	ld      hl,0
+	ld      a,16
+dloop:  push    af
+	add     hl,hl
+	xor     a
+	ex      de,hl
+	add     hl,hl
+	ex      de,hl
+	adc     a,l
+	sub     c
+	ld      l,a
+	ld      a,h
+	sbc     a,b
+	ld      h,a
+	inc     de
+	jr      nc,per
+	add     hl,bc
+	dec     de
+per:    pop     af
+	dec     a
+	jr      nz,dloop
+	scf
+	ret
+;
+drawcoord:
+@87:    call    gettextpar
+	push    bc
+@88:    call    setarea
+	pop     bc
+	push    bc
+	ld      h,2
+	ld      l,b
+@89:    call    gotoxy
+	ld      c,160
+@90:    call    invchar
+@91:    ld      a,(xsize)
+	ld      b,a
+xloop:  ld      a,176
+@92:    call    conouta
+	djnz    xloop
+	ld      c,161
+@93:    call    invchar
+	pop     bc
+@94:    ld      a,(ysize)
+	ld      b,a
+	ld      h,c
+	ld      l,2
+	push    bc
+	push    hl
+@95:    call    gotoxy
+	ld      c,162
+@96:    call    invchar
+	pop     hl
+	pop     bc
+	inc     l
+yloop:  push    bc
+	push    hl
+@97:    call    gotoxy
+	ld      c,176
+@98:    call    conout
+	pop     hl
+	inc     l
+	pop     bc
+	djnz    yloop
+@99:    call    gotoxy
+	ld      c,163
+@100:
+invchar:call    inv
+@101:   call    conout
+@102:   jp      norm
+;
+gettextpar:                     ; параметры текстового окна
+@103:   ld      a,(x2)
+	ld      h,a
+@104:   ld      a,(y2)
+	ld      l,a
+@105:   ld      a,(dx2)
+	ld      c,a
+@106:   ld      a,(dy2)
+	ld      b,a
+@107:   ld      a,(tc2)
+	ld      d,a
+@108:   ld      a,(bc2)
+	ld      e,a
+	ret
+;
+dectextpar:
+@571:   call    gettextpar
+	inc     h
+	inc     l
+	dec     c
+	dec     c
+	dec     b
+	dec     b
+	ret
+;
+getmenupar:                     ; параметры управл. окна
+@109:   ld      a,(x1)
+	ld      h,a
+@110:   ld      a,(y1)
+	ld      l,a
+@111:   ld      a,(dx1)
+	ld      c,a
+@112:   ld      a,(dy1)
+	ld      b,a
+@113:   ld      a,(tc1)
+	ld      d,a
+@114:   ld      a,(bc1)
+	ld      e,a
+	ret
+		;window:  h l c  b   d   e
+		;        (X,Y,DX,DY,TEXT,BACK:BYTE)
+		;winmode:
+		;d7 = 0/1 = нет/есть рамка
+		;d6 = 0/1 = одинарная/двойная рамка
+		;d0 = 0/1 = нет/есть тень
+@115:
+replwin:ld      hl,actwin
+	ld      a,(hl)
+	xor     1
+	ld      (hl),a
+;
+@116:
+showact:call    getmenupar
+@117:   ld      a,(actwin)      ; какое окно активно:
+	rrca                    ; 0-текстовое 1-управления
+	push    af
+	rrca
+	or      10000000b
+@118:   ld      (winmode),a
+	push    af
+@119:   call    setpar
+@120:   call    framed
+@121:   call    gettextpar
+	pop     af
+	xor     01000000b
+@122:   ld      (winmode),a
+@123:   call    setpar
+@124:   call    framed
+@125:   call    cm3
+	pop     af
+	jr      c,messages
+@21:    call    uprow
+@126:   call    drawcoord       ; рисуем полосы прокрутки
+@127:   call    newcoord
+;
+messages:
+@128:   call    fillwin
+@129:   ld      hl,(msgptr)
+messag1:ld      a,(hl)
+	or      a
+@130:   jp      z,cm2
+	ld      d,(hl)
+	inc     hl
+	ld      e,(hl)
+	inc     hl
+	push    hl
+	ex      de,hl
+@131:   call    gotoxy
+	pop     hl
+messag2:ld      a,(hl)
+	inc     hl
+	cp      39              ;'
+	jr      z,messag1
+@132:   call    conouta
+	jr      messag2
+;
+PGUPPROC:
+@133:   call    dectarea
+@134:   call    keyr
+	jr      oldarea
+PGDNPROC:
+@135:   call    dectarea
+@136:   call    keyc
+	jr      oldarea
+GOTPPROC:
+@137:   ld      hl,text-6
+@138:   ld      (stack),hl
+	ld      a,6
+@139:
+begtema:ld      (currnm),a
+	xor     a
+@140:   ld      (line),a
+@141:   ld      (col),a
+@142:   ld      (leftsft),a
+	inc     a
+@143:   ld      (maxcol),a
+	ld      hl,1
+@144:   ld      (maxline),hl
+@145:   ld      (pagelin),hl
+@146:   call    listpg
+@147:
+oldarea:call    menuarea
+nordprc:xor     a
+	ret
+;
+@148:
+RETPROC:call    keyesc
+	jr      oldarea
+;
+listsorted:                     ; массив сортированных тем
+;
+listunsort:                     ; массив несортированных тем
+	xor     a
+	ret
+;
+;        ld      de,stacklim
+;        ld      hl,(txtptr)
+;        inc     hl
+;        inc     hl
+;lsort0: call    axorinc
+;        cp      5
+;        ret     z               ; конец текста
+;        or      a
+;        jr      nz,lsort0
+;        ex      de,hl
+;        ld      (hl),e
+;        inc     hl
+;        ld      (hl),d
+;        inc     hl
+;        push    hl
+;        ld      bc,(stack)
+;        or      a
+;        sbc     hl,bc
+;        ld      hl,(maxline)
+;        inc     hl
+;        ld      (maxline),hl
+;        pop     hl
+;        jp      nc,runtime
+;        ex      de,hl
+;        jr      lsort0
+
+
+LISTPROC:
+@149:   call    pushst          ; запомнить параметры
+	ld      hl,1
+@150:   ld      (pagelin),hl
+	xor     a
+@151:   ld      (line),a
+	ld      l,a
+@152:   ld      (maxline),hl
+@153:   call    dectextpar
+	inc     h
+	inc     h
+	ld      bc,80fh
+	ld      de,0207h
+@154:   call    window
+@155:   call    setw
+@156:   call    offwritest
+	db      3,0,' Glossary ',0
+@157:   ld      hl,dosort       ; меню "поиск"
+@158:   call    buttdrv
+@159:   call    norm
+@160:   jp      exmnu0          ; заглушка
+
+
+;        ld      a,(dosort)      ; номер пункта меню
+;        cp      2
+;toexmn0:jp      z,exmnu0
+;        ld      hl,(maxline)
+;        ld      a,h
+;        or      l
+;        jr      z,toexmn0
+;        call    textarea
+;        ld      a,11000000b
+;        ld      (winmode),a
+;        call    framed
+;        call    dectextpar      ; b=кол.строк, c-столбцов
+;        ld      a,(tselect)
+;        ld      d,a
+;        push    bc
+;        call    setarea
+;        call    clrscr
+;        pop     bc
+;        ld      hl,(maxline)
+;        ld      a,h
+;        or      a
+;        jr      nz,nonb
+;        ld      a,l
+;        cp      b
+;        jr      nc,nonb
+;        ld      b,l
+;nonb:   ld      hl,stacklim
+;lsort08:push    bc
+;        ld      e,(hl)
+;        inc     hl
+;        ld      d,(hl)
+;        inc     hl
+;        push    hl
+;        ex      de,hl
+;        call    selstr          ; печать строки
+;        pop     hl
+;        pop     bc
+;        djnz    lsort08         ; страница текста
+;
+;lsort10:
+;        ld      a,(line)
+;        inc     a
+;        ld      h,1
+;        ld      l,a
+;        call    gotoxy
+;
+;
+;selstr: ld      a,(ycnt)
+;        ld      b,a
+;lsort09:call    axorinc
+;        cp      5
+;        jp      z,runtime
+;        cp      3
+;        ret     c
+;        inc     hl
+;        jr      z,lsort09
+;        dec     hl
+;        call    conouta
+;        djnz    lsort09
+;        ret
+;
+
+;
+hhstr:  db      7,0,' Search substring '
+	db      27,'Y',25h,27h,' TAB-modify string '
+	db      27,'Y',21h,28h,27,'6',0
+;
+@161:
+showstr:ld      hl,hhstr
+@162:   call    offwrite
+@163:   ld      hl,searstr+1
+	ld      a,(hl)
+	push    af
+	inc     hl
+@164:   call    wstrng
+	pop     bc
+	ld      a,16
+	sub     b
+	ret     z
+	ld      b,a
+inpstr1:ld      a,' '
+@165:   call    conouta
+	djnz    inpstr1
+	ret
+;
+@166:
+inpstr: call    reccur
+@167:   call    showstr
+	ld      hl,902h          ; уст. курсор
+	push    hl
+@168:   call    gotoxy
+	ld      b,16
+procym: ld      a,' '
+@169:   call    conouta
+	djnz    procym
+	pop     hl
+@170:   call    gotoxy
+@171:   ld      de,searstr
+	ld      c,10
+	ld      hl,value
+	ld      a,(hl)
+	set     7,(hl)
+	push    af
+	call    bdos            ; ввести строку
+	pop     af
+	ld      (value),a
+	jr      tobut13
+;
+SEARPROC:
+@172:   call    dectextpar
+	inc     h
+	inc     l
+	ld      bc,621h
+	ld      de,0207h
+@173:   call    window
+@174:   call    setw
+@175:   call    showstr
+@176:
+tobut13:ld      hl,msearch      ; меню "поиск"
+@177:   call    buttdrv
+	cp      9
+	jr      z,inpstr
+@178:   call    norm
+@179:   call    pushst          ; запомнить параметры
+	ld      hl,1
+@180:   ld      (pagelin),hl
+	xor     a
+@181:   ld      (col),a
+@182:   ld      (line),a
+@183:   ld      (modiflg),a
+@184:   ld      a,(msearch)     ; номер пункта меню
+	cp      2
+	jr      z,exmnu0
+	or      a
+	jr      z,sglobal
+scurrent:
+@186:   call    searbegtema     ; начало текущей темы
+@187:
+search0:call    axorinc
+	cp      2
+	jr      c,search0
+	jr      z,search1
+	cp      3
+	jr      nz,more3
+@188:   ld      a,(xorcode)
+	xor     (hl)
+@189:   call    cpcurr
+	jr      z,notfnd
+search1:inc     hl
+	jr      search0
+more3:  cp      4
+	jr      nz,more4
+@190:   ld      (listadr),hl
+@191:   call    incplin
+	xor     a
+@192:   ld      (col),a
+	jr      search0
+more4:  cp      5
+	jr      z,notfnd
+@193:   call    cmpobr            ; сравнить с образцом
+	jr      nz,search0
+@194:
+iffind: call    norm
+@195:   call    replwin
+@196:   call    dectarea
+@197:   call    reccur
+	pop     hl
+@198:   ld      a,(msearch)
+	or      a
+@199:   jp      z,listpg
+@200:   jp      tolist6
+;
+@201:
+notfnd: call    runcomm
+@202:   call    offwritest
+	db      3,2,'String not found',0
+@203:   call    inkey
+@204:
+exmnu0: call    keyesc
+;
+exmenu: pop     hl
+@205:   call    oldarea
+@206:   call    buttons
+@207:   jp      menuproc
+;
+@208:
+sglobal:ld      hl,stacklim
+	ld      d,h
+	ld      e,l
+	inc     de
+	ld      bc,0FFh
+	ld      (hl),b
+	ldir
+@209:   ld      hl,(stack)
+	or      a
+	sbc     hl,de
+@210:   jp      c,runtime
+@212:   ld      hl,(txtptr)
+@213:
+search3:call    axorinc
+	cp      2
+	jr      c,search3       ; 0,1
+	jr      z,search4
+	cp      3
+	jr      z,its3
+	cp      4
+	jr      z,its4
+	cp      5
+	jr      z,notfnd
+@214:   call    cmpobr          ; сравнить с образцом
+	jr      z,iffind
+	jr      search3
+;
+PRNTPROC:
+@215:   call    dectarea
+@216:   call    keyp
+	jr      exmenu
+;
+sbegin4:inc     de
+	inc     hl
+@217:   call    modiadr
+	dec     hl
+	jr      sbegin0
+;
+its4:   xor     a
+@218:   ld      (col),a
+	jr      search3
+;
+@219:
+its3:   ld      a,(xorcode)
+	xor     (hl)            ; код темы
+	push    hl
+@220:   ld      hl,stacklim
+	ld      e,a
+	ld      d,0
+	add     hl,de
+	inc     (hl)            ; сколько раз встретился
+	pop     hl
+search4:inc     hl
+	jr      search3
+;
+@221:
+modiadr:ld      a,(modiflg)
+	or      a
+	ret     nz
+@222:   ld      (listadr),hl
+	ld      a,1
+@223:   ld      (modiflg),a
+	ret
+;
+;
+sbegin: ld      de,1            ; de-счетчик предложений
+sbegin0:dec     hl              ; где начинается тема ?
+@224:   ld      a,(xorcode)
+	xor     (hl)
+	cp      4
+	jr      z,sbegin4       ; конец предложения
+	cp      3
+	jr      nz,sbegin0
+	push    hl              ; ограничитель темы
+	inc     hl
+@225:   ld      a,(xorcode)
+	xor     (hl)
+@226:   ld      hl,stacklim
+	ld      c,a
+	ld      b,0
+	add     hl,bc
+	ld      a,(hl)
+	dec     a
+	pop     hl
+	jr      nz,sbegin0
+	inc     hl
+	inc     hl
+@227:   call    modiadr
+	ex      de,hl
+@228:   ld      (pagelin),hl
+	ld      a,c
+@229:   ld      (currnm),a
+	xor     a
+	JR      @223
+;
+cmpobr: push    hl
+@230:   ld      hl,col
+	inc     (hl)
+	pop     hl
+	push    hl
+	dec     hl
+	ex      de,hl
+@231:   ld      hl,searstr+1
+	ld      b,(hl)
+	ld      a,b
+	or      a
+	jr      nz,nonzero
+	dec     a
+	jr      noneq
+nonzero:inc     hl
+@24:    ld      a,(xorcode)
+	ld      c,a
+	ld      a,(de)
+	xor     c
+@233:   call    upcase
+	ld      c,a
+	ld      a,(hl)
+@232:   call    upcase
+	cp      c
+	inc     de
+	jr      nz,noneq
+	djnz    nonzero
+noneq:  pop     hl
+	ret     nz
+;
+continn:push    hl
+@234:   call    dectextpar      ; c=горизонтал. размер окна
+@25:    ld      a,(col)
+@235:   ld      hl,searstr+1
+	add     a,(hl)
+	sub     c
+	jr      nc,tosft
+	xor     a
+@236:
+tosft:  ld      (leftsft),a
+@237:   call    norm
+@238:   call    dectarea
+	pop     hl
+	push    hl
+@239:   ld      a,(msearch)     ; номер пункта меню
+	or      a
+@240:   call    z,sbegin
+@241:   call    @198            ;tolist6
+@242:   call    runcomm
+@243:   call    offwritest
+	db      3,0,' Substring found ',0
+@244:   ld      hl,iffound      ; меню "поиск"
+@245:   call    buttdrv
+	pop     hl
+@246:   ld      a,(iffound)     ; номер пункта меню
+	or      a
+	ret
+;
+iftabch:ld      a,b
+	or      7
+	sub     b
+@339:   ld      (chbuf),a
+	jr      aswas
+;
+; п/п вывода одной строки в текстовом окне
+; спец. символы: 0-начало выделенных фраз (для справки)
+;                1-пустой конец выделенных фраз
+;                2-конец выделенной фразы с меткой перехода
+;                3-обрамление смысловых фрагментов текста (тем)
+;                4-конец строки
+;                5-конец файла
+;
+strout: ld      b,0             ;счетчик выведенных символов
+@247:
+strout2:ld      a,(chbuf)
+	or      a
+	jr      z,toaxor
+	dec     a
+@371:   ld      (chbuf),a
+aswas:  ld      a,' '
+	or      a
+@372:
+toaxor: call    z,axorinc
+	jr      z,ifsigo        ; =0
+	cp      9
+	jr      z,iftabch       ; tab
+	cp      3
+	jr      c,ifsigz        ; =1,2
+	jr      z,ifboard       ; =3
+	cp      4
+	jr      z,ifeost
+	dec     hl
+	cp      5
+	ret     z               ; конец строки или файла
+	inc     hl
+	push    bc
+	push    hl
+	ld      c,a
+	ld      a,b
+@248:   ld      hl,leftsft
+	sub     (hl)
+	jr      c,noprint
+@249:   ld      hl,xcnt
+	cp      (hl)
+@250:   call    c,conout
+noprint:pop     hl
+	pop     bc
+	inc     b
+	jr      strout2
+;
+ifsigo: push    hl
+	push    bc
+@251:   call    gettextpar      ; inv
+@252:   ld      a,(tselect)
+	ld      d,a
+@253:   call    setcl
+	pop     bc
+	pop     hl
+	jr      strout2
+;
+ifsigz: dec     a
+	jr      z,noinc
+	inc     hl
+noinc:  push    hl
+	push    bc
+@254:   call    gettextpar      ; norm
+@255:   call    setcl
+	pop     bc
+	pop     hl
+	jr      strout2
+;
+@256:
+ifboard:ld      a,(currnm)      ; номер текущего фрагмента
+@257:   call    codexor
+	cp      (hl)
+	jr      z,ifeq
+	inc     hl
+	jr      strout2
+ifeq:   dec     hl
+ifeost: push    hl
+	ld      a,b
+@258:   ld      hl,leftsft
+	sub     (hl)
+@259:   ld      hl,xcnt
+	sub     (hl)
+	ld      c,' '
+@260:   call    c,conout
+	pop     hl
+	ret
+;
+upline: dec     hl
+ul1:    dec     hl
+@261:   ld      a,(xorcode)
+	xor     (hl)
+	cp      3
+	jr      z,ulbgtm
+	cp      4
+	jr      nz,ul1
+decpgl: inc     hl
+	push    hl
+@262:   ld      hl,(pagelin)
+	ld      a,l
+	dec     a
+	or      h
+	jr      z,ifhl1
+	dec     hl
+@263:   ld      (pagelin),hl
+ifhl1:  pop     hl
+	ret
+ulbgtm: inc     hl
+@264:   ld      a,(xorcode)
+	xor     (hl)
+@265:   call    cpcurr          ; текущая тема ?
+	jr      z,decpgl
+	jr      upline
+;
+downline:
+@266:
+dl1:    call    axorinc
+	inc     hl
+	cp      2
+	jr      z,dl1
+	dec     hl
+	cp      3
+	jr      z,dleotm
+	cp      4
+	jr      nz,dl1
+incplin:push    hl
+@267:   ld      hl,(pagelin)
+	inc     hl
+@268:   ld      (pagelin),hl
+	pop     hl
+	ret
+@269:
+dleotm: call    axorinc
+@270:   call    cpcurr          ; текущая тема ?
+	jr      nz,dl1
+	ret                     ; z - конец темы
+;
+@271:
+todown: ld      hl,(listadr)
+@272:   call    downline
+@273:   ld      (listadr),hl
+@@274:  ld      de,(pagelin)
+@274 EQU @@274+1
+@275:
+todown1:call    downline
+	djnz    todown1
+@@276:  ld      (pagelin),de
+@276 EQU @@276+1
+	push    hl
+@277:   call    offwritest
+	db      0,0,27,'M',0    ; удалить строку
+@278:   call    setcursor
+	ld      c,13
+@279:   call    conout
+	pop     hl
+@280:   call    strout
+setcursor:
+@281:   call    newcoord
+@282:   call    dectarea
+@283:   ld      a,(line)        ; текущая строка-где курсор
+	inc     a
+	push    af
+@284:   ld      a,(col)         ; текущий столбец
+@285:   ld      hl,leftsft
+	sub     (hl)
+	inc     a
+	ld      h,a             ; line,col меняются (0..ff)
+	pop     af
+	ld      l,a
+@286:   jp      gotoxy
+;
+@287:
+keydown:ld      hl,(pagelin)
+@288:   ld      a,(line)
+	ld      e,a
+	ld      d,0
+	add     hl,de
+@@289:  ld      de,(maxline)
+@289 EQU @@289+1
+	or      a
+	sbc     hl,de
+	ret     nc
+@290:   call    dectextpar
+	dec     b
+@291:   ld      hl,line
+	ld      a,(hl)
+	cp      b
+	jr      nc,todown        ; последняя строка в окне
+	inc     (hl)
+	ld      c,26
+@292:   jp      conout
+;
+@293:
+keyesc: ld      hl,(stack)
+	push    hl
+@336:   ld      a,(actwin)
+	or      a
+	jr      nz,notop
+@333:   ld      bc,text-14
+	sbc     hl,bc
+	jr      c,notop
+@334:   call    textarea
+@335:   call    offwritest
+	db      2,0,141,141,141,0
+notop:  pop     hl
+	push    hl
+@294:   ld      bc,text-6
+	or      a
+	sbc     hl,bc
+	pop     hl
+	ret     nc              ; если стек пуст
+	ld      a,(hl)
+@295:   ld      (leftsft),a
+	inc     hl
+	ld      a,(hl)
+@296:   ld      (currnm),a
+	inc     hl
+	ld      a,(hl)
+@297:   ld      (col),a
+	inc     hl
+	ld      a,(hl)
+@298:   ld      (line),a
+	inc     hl
+	ld      c,(hl)
+	inc     hl
+	ld      b,(hl)
+@@299:  ld      (pagelin),bc
+@299 EQU @@299+1
+	inc     hl
+@300:   ld      (stack),hl
+@301:   call    listpg
+@338:   jp      setcursor
+;
+keyright:
+@302:   ld      a,(col)
+@303:   ld      hl,maxcol
+	cp      (hl)
+	ret     nc
+@304:   call    dectextpar      ; c=dx
+@305:   ld      hl,col
+	inc     (hl)
+	ld      a,(hl)
+@306:   ld      hl,leftsft
+	sub     (hl)
+	cp      c
+	ld      c,24
+@307:   jp      c,conout
+@308:   ld      hl,leftsft
+	inc     (hl)
+	jr      tolist5
+;
+@309:
+keyu:   call    dectextpar
+	dec     c
+@310:   ld      a,(maxcol)
+@311:   ld      (col),a
+	sub     c
+	ret     c
+@312:   ld      (leftsft),a
+@313:
+tolist6:call    clrscr
+	jr      tolist5
+;
+@314:
+keyleft:ld      a,(col)
+	or      a
+	ret     z
+	dec     a
+@315:   ld      (col),a
+@316:   ld      hl,leftsft
+	cp      (hl)
+	ld      c,8
+@317:   jp      nc,conout
+	dec     (hl)
+tolist5:ld      hl,101h
+@318:   call    gotoxy
+@319:   ld      hl,(listadr)
+	jr      tolist1
+;
+keyt:   xor     a
+@320:   ld      (leftsft),a
+@321:   ld      (col),a
+	jr      tolist5
+;
+textproc:
+@322:   call    setcursor
+@323:   call    inkey
+@324:   ld      bc,textproc
+	push    bc              ; точка выхода из п/п
+	cp      27
+@325:   jp      z,keyesc        ; esc   ;jp!
+	cp      24
+@326:   jp      z,keydown       ; down  ;jp!
+	cp      4
+	jr      z,keyright      ; right
+	cp      8
+	jr      z,keyleft       ; left
+	cp      20
+	jr      z,keyt          ; ^T
+	cp      21
+	jr      z,keyu          ; ^U
+	cp      5
+	jr      z,keyup         ; up
+	cp      3
+	jr      z,keyc          ; ^C
+	cp      18
+	jr      z,keyr          ; ^R
+	cp      12
+@327:   jp      z,keyl          ; ^L
+	cp      13
+@328:   jp      z,keycr         ; cr    ;jp!
+	cp      16
+	jr      z,keyp          ; ^P
+	cp      9
+	ret     nz              ; иначе tab
+@329:   call    hidcur
+@330:   call    replwin         ; поменять активное окно
+@340:   call    buttons
+@341:   jp      menuproc        ; в b1help
+;
+@342:
+keyc:   call    dectextpar
+@343:   ld      hl,(pagelin)
+	ld      e,b
+	ld      d,0
+	add     hl,de
+@@344:  ld      de,(maxline)
+@344 equ @@344+1
+	sbc     hl,de           ; hl=pagelin+dy-maxline < 0
+	ret     nc              ;
+	ld      a,h
+	cpl
+	or      a
+	jr      nz,nonewb
+	ld      a,l
+	neg
+	cp      b
+	jr      nc,nonewb
+	ld      b,a
+@345:
+nonewb: ld      hl,(listadr)
+@346:
+keyc1:  call    downline
+	djnz    keyc1
+@347:
+tolist: call    clrscr
+@348:
+tolist1:call    listhl
+@349:
+tolist2:jp      setcursor
+;
+@350:
+keyr:   ld      hl,(pagelin)
+	ld      a,l
+	dec     a
+	or      h
+	ret     z
+@351:   ld      hl,(listadr)
+	push    hl
+@352:   call    dectextpar
+	pop     hl
+keyr1:  push    bc
+@353:   call    upline
+	pop     bc
+	djnz    keyr1
+	jr      tolist
+;
+@354:
+keyup:  ld      hl,line
+	ld      a,(hl)
+	or      a
+	jr      z,toup          ; если первая строка в окне
+	dec     (hl)
+	ld      c,25            ; 8-kl  24-kr  25-ku  26-kd
+@355:   jp      conout
+@356:
+toup:   ld      hl,(pagelin)
+	ld      a,l
+	dec     a
+	or      h
+	ret     z
+@357:   call    offwritest
+	db      0,0,27,'L',0    ; вставить строку
+@358:   ld      hl,(listadr)
+@359:   call    upline
+@360:   ld      (listadr),hl
+@361:   call    strout
+	jr      tolist2
+;
+@362:
+keyp:   call    tobegtema       ; hl=начало текущей темы
+keyprn1:push    hl
+@363:   call    listst          ; 0-not ready, 0ffh-ready
+	pop     hl
+	or      a
+	jr      nz,print
+	push    hl
+@364:   call    runcomm
+@365:   call    offwritest
+	db      3,0,'Printer not ready',0
+@366:   ld      hl,noready      ; меню "не готов"
+@367:   call    buttdrv
+@368:   call    norm
+@369:   call    dectarea
+@370:   call    tolist6
+@380:   call    reccur
+	pop     hl
+@381:   ld      a,(noready)     ; номер пункта меню
+	or      a
+	ret     nz
+@382:
+print:  call    axorinc         ; a=текущий символ
+	cp      2
+	jr      c,print
+	jr      z,print1
+	cp      3
+	jr      nz,not3
+@383:   ld      a,(xorcode)
+	xor     (hl)
+@384:   call    cpcurr
+	ret     z
+print1: inc     hl
+	jr      print
+not3:   cp      4
+	jr      nz,print2
+	ld      c,13
+	push    hl
+@385:   call    list
+	pop     hl
+	ld      a,10
+print2: ld      c,a
+	push    hl
+@386:   call    list            ; печать символа
+	pop     hl
+	jr      keyprn1
+;
+@387:
+keyl:   ld      a,(currnm)
+@388:   jp      begtema
+;
+@389:
+keycr:  ld      hl,(listadr)
+@390:   ld      a,(line)
+	or      a
+	jr      z,keycr2
+	ld      b,a
+@391:
+keycr1: call    axorinc
+	inc     hl
+	cp      2
+	jr      z,keycr1
+	dec     hl
+	dec     hl
+@392:   call    eostrng         ; по строкам
+	jr      nz,keycr1
+	djnz    keycr1
+@393:
+keycr2: ld      a,(col)         ; внутри строки
+	inc     a
+	ld      b,a
+	ld      e,0
+@394:
+keycr3: call    eostrng
+	ret     z
+	ld      a,d
+	inc     hl
+	cp      2
+	jr      z,keycr3
+	dec     hl
+	cp      6
+	jr      c,keycr3
+	cp      9
+	ld      a,e
+	jr      nz,nottab
+	or      7
+nottab: inc     a
+	ld      e,a
+	cp      b
+	jr      c,keycr3          ; до позиции курсора
+@395:
+keycr4: call    eostrng
+	ret     z
+	ld      a,d
+	or      a
+	ret     z
+	cp      2
+	jr      nz,keycr4
+@396:   ld      a,(xorcode)
+	xor     (hl)            ; a=на какую тему переход
+@397:   call    pushst
+@398:   call    begtema         ; на начало новой темы
+@399:   ld      hl,textproc
+	ex      (sp),hl
+	ret
+;
+pushst: push    af
+@400:   ld      hl,(stack)
+	push    hl
+@401:   ld      bc,stacklim+6
+	or      a
+	sbc     hl,bc           ; анализ переполнения стека
+	pop     hl
+@402:   jp      c,runtime
+@@403:  ld      bc,(pagelin)    ; запомнить параметры
+@403 EQU @@403+1
+	dec     hl              ; текущей темы
+	ld      (hl),b
+	dec     hl
+	ld      (hl),c
+@404:   ld      a,(line)
+	dec     hl
+	ld      (hl),a
+@405:   ld      a,(col)
+	dec     hl
+	ld      (hl),a
+@406:   ld      a,(currnm)
+	dec     hl
+	ld      (hl),a
+@407:   ld      a,(leftsft)
+	dec     hl
+	ld      (hl),a
+@408:   ld      (stack),hl
+	pop     af
+uprow:  push    af
+@337:   ld      hl,(stack)
+@185:   ld      bc,text-8
+	sbc     hl,bc
+	jr      nc,iftop
+@211:   call    textarea
+@332:   call    offwritest
+	db      2,0,181,27,'@',24,134,0
+iftop:  pop     af
+	ret
+;
+@409:
+eostrng:ld      a,(xorcode)
+	ld      c,a
+	xor     (hl)
+	ld      d,a
+	inc     hl
+	cp      4
+	ret     z               ; if 4
+	cp      3
+	ret     nz              ; if not (4 or 3)
+	ld      a,c
+	xor     (hl)
+	inc     hl
+cpcurr: push    hl
+@410:   ld      hl,currnm
+	cp      (hl)
+	pop     hl
+	ret
+;
+@411:
+axorinc:ld      a,(xorcode)
+	xor     (hl)
+	inc     hl
+	ret
+
+@27:
+@373:
+@374:
+@375:
+@376:
+@377:
+@378:
+@379:   DS      3
+
+
+        ;
+	ld      a,h
+	cpl
+	or  

@@ -1,0 +1,667 @@
+csetw    equ     0        ; Коды оконных команд (esc,'W',code,....)
+;
+Winms:  db      1bh,'W'
+Winmod: ds      1       ;esc - code 'W' / select
+memy:   ds      1       ;y
+memx:   ds      1       ;x
+memdy:  ds      1       ;dy
+memdx:  ds      1       ;dx
+;
+setcm0: db      1bh,'C',0 ;монохром
+setcm2: db      1bh,'C',2 ;16-цветн. обычный
+setcm3: db      1bh,'C',3 ;16-цветн. скоростной
+setcolor:db     1bh,'P',0 ;установка цвета
+;
+; П/п установить окно во весь экран
+reswinesc:db    27,'W',csetw,0,0,25,80
+;
+INKEY:  ld      c,6
+	ld      e,0ffh
+	call    bdos
+	or      a
+	jr      z,inkey
+	ret
+;
+norm:   push    hl              ;Выкл. инв.
+	push    bc
+@412:   call    writest
+normms: db      1bh,'7',0       ;выкл. инверсию
+	jr      setmod
+inv:    push    hl              ;Вкл. инв.
+	push    bc
+@413:   call    writest
+invms:  db      1bh,'6',0 ;вкл. инверсию
+setmod: pop     bc
+	pop     hl
+	ret
+;
+@414:
+hidcur: call    writest         ;Погасить курсор
+sethid: db      1bh,';',0       ;выкл. курсор
+	ret
+@415:
+reccur: call    writest         ;Восст. курсор
+setrec: db      1bh,':',0       ;вкл.  курсор
+	ret
+;
+offwrite:
+@416:   call    offset
+write:  ld      a,(hl)
+	inc     hl
+	or      a
+	ret     z
+@417:   call    conouta
+	jr      write
+;
+writest:pop     hl
+@418:   call    write
+	jp      (hl)
+;
+offwritest:
+	pop     hl
+@419:   call    offwrite
+	jp      (hl)
+;
+@420:
+cm0:    ld      hl,setcm0        ;Вкл. монохром
+	jr      cmx
+@421:
+cm2:    ld      hl,setcm2        ;16 - цветн. режим
+	jr      cmx
+@422:
+cm3:    ld      hl,setcm3        ;16 - цветн. режим (без вывода цвета)
+cmx:
+	ld      a,3
+wstrng: or      a                   ;write line, длина в рег. A
+	ret     z
+wstrng0:push    af
+	ld      a,(hl)
+@423:   call    conouta
+	inc     hl
+	pop     af
+	dec     a
+	jr      nz,wstrng0
+	ret
+;
+@424:
+noscrol:call    writest
+	db      27,'5',0
+	ret
+;
+@425:
+onscrol:call    writest
+	db      27,'4',0
+	ret
+;
+gotoxy: ld      bc,1f1fh
+	add     hl,bc
+@426:
+mgotoxy:ld      (gotoxyms+2),hl
+@427:   call    writest
+gotoxyms:
+	db      1bh,'Y',0,0,0
+	ret
+
+setpar:                     ; h  l  c   b     d    e
+                            ; X, Y, DX, DY, TEXT, BACK
+	ld      a,h
+	dec     a
+@428:   ld      (memx),a
+	ld      a,l
+	dec     a
+@429:   ld      (memy),a
+	ld      a,c
+@430:   ld      (memdx),a
+	ld      a,b
+@431:   ld      (memdy),a
+setcl:  ld      a,d             ; SETCOLOR: text=d, back=e
+@432:   ld      (ltc),a
+	ld      a,e
+@433:   ld      (lbc),a
+	rlca
+	rlca
+	rlca
+	rlca
+	or      d
+@434:   ld      (setcolor+2),a
+@435:   ld      hl,setcolor
+	ld      a,3
+setcl1: jr      wstrng          ;установка текущего цвета искейп-кодом
+
+textarea:
+@436:   call    gettextpar
+	jr      setarea
+dectarea:
+@437:   call    dectextpar
+	jr      setarea
+menuarea:
+@438:   call    getmenupar
+@439:
+setarea:call    setpar
+;
+setw:   ld      a,csetw         ;Установка окна по текущим: memx,memy,memdx,memdy
+	ld      b,7
+@440:
+wrescw: ld      (Winms+2),a     ;a - mode, b - lng
+	ld      a,b
+@441:   ld      hl,Winms
+	jr      setcl1
+
+;             √└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└╥
+;             ╨            Параметры окна               ╨
+;             ╨    HL - координаты левого верхнего      ╨
+;             ╨         угла обьекта                    ╨
+;             ╨    B  - размер по вертикали             ╨
+;             ╨    C  - размер по горизонтали           ╨
+;             ╨    DE - цвет окна                       ╨
+;             ⌠└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└╫
+
+window:         ; h l c  b   d   e
+		;(X,Y,DX,DY,TEXT,BACK:BYTE);
+		;d7 = 0/1 = нет/есть рамка
+		;d6 = 0/1 = одинарная/двойная рамка
+		;d0 = 0/1 = нет/есть тень
+	ld      a,11000001b
+newwindow:
+@442:   ld      (winmode),a
+@443:   call    setpar
+
+;             √└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└╥
+;             ╨         П/п "открыть окно"              ╨
+;             ⌠└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└╫
+@444:
+opend:  call    cm2     ; 16 - цветный режим
+@445:   ld      hl,Winms+5
+	dec     hl
+	inc     (hl)
+	dec     hl
+	inc     (hl)    ;inc y,x
+	push    hl
+@446:   ld      a,(ltc)
+	ld      d,a
+@447:   ld      a,(lbc)
+	ld      e,a
+	push    de
+	ld      de,700h
+@448:   call    setcl   ;установка цвета тени
+@449:   call    setw    ;окно для тени
+@450:   ld      a,(winmode)
+	bit     0,a
+@451:   call    nz,clrscr  ;тень
+	pop     de
+@452:   call    setcl
+	pop     hl
+	dec     (hl)
+	inc     hl
+	dec     (hl)    ;dec y,x
+
+@453:   ld      a,(winmode)
+	and     10000000b
+	jr      nz,framed0
+@454:   call    setw
+;
+clrscr: ld      a,1fh
+;
+conouta:push    hl
+	push    de
+	push    bc
+	ld      c,a
+@455:   call    conout
+	pop     bc
+	pop     de
+	pop     hl
+	ret
+;
+;рисование рамки из псевдографики
+;исп. 137 141...141 187   154 132...132 191
+;     186           186   179           179
+;     136 141...141 188   128 132...132 153
+;левый верхний угол [memx]+1,[memy]+1
+;размер по вертикали [memdy], по горизонтали [memdx]
+;
+; вход : WINMODE = ( 0 - одинарная рамка , 1 - двойная рамка )
+;
+single: db      154,132,191,179,128,153
+double: db      137,141,187,186,136,188
+@456:
+framed0:call    setw            ;окно для рамки
+@457:   call    clrscr
+@569:
+framed: call    fillwin
+@458:   ld      de,single
+@459:   ld      a,(winmode)
+	and     01000000b
+	jr      z,fram12
+@460:   ld      de,double
+@461:
+fram12: ld      a,(memy)
+	inc     a
+	ld      l,a
+@462:   ld      a,(memx)
+	inc     a
+	ld      h,a     ;hl - координаты левого верхнего угла рамы
+	push    hl
+;рисование верхней балки рамы   вход: хл - лев. верхний угол
+	push    de
+@463:   call    gotoxy
+	pop     hl
+	ld      a,(hl)
+@464:   call    conouta
+@465:   call    updnline
+	inc     hl
+	ld      c,(hl)
+	inc     hl
+@466:   ld      (pushhl),hl
+@467:   call    conout
+	pop     hl
+	inc     l
+@468:   ld      a,(memdy)
+	sub     2
+	ld      b,a     ;Число информац. строк
+rama0:  push    hl
+	push    bc
+
+	push   hl
+@469:   call    gotoxy
+@470:   ld      hl,(pushhl)     ; ix+3
+	ld      c,(hl)
+@471:   call    conout
+	pop     hl
+
+@472:   ld      a,(memdx)
+	dec     a
+	add     a,h
+	ld      h,a
+@473:   call    gotoxy
+@474:   ld      hl,(pushhl)
+	ld      c,(hl)
+@475:   call    conout
+
+	pop     bc
+	pop     hl
+	inc     l
+	djnz    rama0
+;рисование нижней балки рамы   вход: хл - лев. верхний угол
+@476:   call    gotoxy
+@477:   ld      hl,(pushhl)
+	inc     hl
+	ld      a,(hl)
+	push    hl
+@478:   call    conouta
+	dec     hl
+	dec     hl
+	dec     hl
+@479:   call    updnline0
+	pop     hl
+	inc     hl
+	ld      c,(hl)
+@480:   jp      conout
+;
+updnline:
+	inc     hl
+updnline0:
+@481:   ld      a,(memdx)
+	dec     a
+	dec     a
+	ld      b,a
+upline1:ld      a,(hl)
+@482:   call    conouta
+	djnz    upline1
+	ret
+;
+offset: ld      d,(hl)          ;вход: hl - начало элемента
+	inc     d
+	inc     hl
+	ld      e,(hl)
+	inc     e
+	push    hl
+	ex      de,hl
+@483:   call    gotoxy          ;offset текста в окне
+	pop     hl
+	inc     hl
+	ret
+;
+;
+; "Кнопочный драйвер". Вход: HL - ук-ль на строку формата
+;             POINTER,X,Y,TEXT',ADDR,X,Y,TEXT',ADDR,...,0
+; Выход - при активизации любой процедуры или нажатии ТАБ
+;
+buttdrv:push    hl
+@484:   call    buttdr1         ; нарисовать кнопки
+	pop     hl
+@485:   jp      buttdr2         ; меню по кнопкам
+;
+@486:
+buttons:call    menuarea
+@487:   ld      hl,(butptr)
+buttdr1:ld      a,(hl)
+@488:   ld      (actbut),a
+	inc     hl
+	ld      a,(hl)
+	or      a
+	ret     z
+	push    hl
+@489:   ld      a,(ltc)
+@490:   ld      (menutc),a
+@491:   ld      a,(lbc)
+@492:   ld      (menubc),a
+	ld      a,0ffh
+@493:   ld      (currbut),a
+	pop     hl
+butt1:  push    hl
+@494:   ld      a,(actbut)
+@495:   ld      hl,currbut
+	inc     (hl)
+	cp      (hl)
+	ld      a,0             ; кнопка не выделена
+	jr      nz,noactiv
+	inc     a               ; кнопка выделена
+noactiv:pop     hl
+@496:   call    button          ; возвр. HL и флаги
+	jr      nz,butt1
+	ret
+;
+@497:
+button: ld      (butstat),a     ; вид кнопки - биты D7 и D0
+	ld      a,(hl)          ; 8-kl  24-kr  25-ku  26-kd
+	or      a
+	ret     z
+	ld      d,(hl)
+	inc     hl
+	ld      e,(hl)
+	inc     hl
+	push    hl
+	ex      de,hl
+@498:   call    gotoxy
+@499:   ld      a,(butstat)
+	rla
+	jr      nc,nextbut
+@500:   call    writest                         ; тень
+	db      ' ',26,' ',25,8,0
+@501:
+nextbut:call    inv
+@502:   ld      a,(butstat)
+	rra
+	ld      a,' '
+	jr      nc,wrogr
+	ld      a,161
+@503:
+wrogr:  call    chback
+	pop     hl
+button1:ld      a,(hl)
+	inc     hl
+	cp      39              ;'
+	jr      z,skipadr
+	cp      '~'
+	jr      nz,notsel
+	push    hl
+@504:   ld      hl,butstat
+	set     2,(hl)          ; бит D2 - выделенная буква
+	pop     hl
+	ld      a,(hl)
+	inc     hl
+@505:
+notsel: call    chback          ; вывод символа с тенью
+	jr      button1
+skipadr:inc     hl              ; адрес процедуры
+	inc     hl
+	push    hl
+@506:   call    selcol
+@507:   ld      a,(butstat)
+	rra
+	ld      c,' '
+	jr      nc,wrogr1
+	ld      c,160
+wrogr1: rla
+	rla
+	push    af
+@508:   call    c,conout
+	pop     af
+	jr      c,exbut
+	ld      a,c
+@509:   call    chback
+@510:   ld      a,(menubc)      ; bc1
+	ld      e,a
+	ld      d,0
+@511:   call    setcl
+	ld      c,159
+@512:   call    conout
+@513:
+exbut:  ld      a,(menutc)      ; gettextpar
+	ld      d,a
+@514:   ld      a,(menubc)
+	ld      e,a
+@515:   call    setcl
+@516:   call    norm
+	pop     hl
+	xor     a
+	dec     a
+	ret
+;
+@517:
+selcol: ld      hl,butstat
+	ld      a,(hl)
+	bit     2,a
+	jr      nz,slchar
+	rra
+	ret     nc
+@518:   ld      a,(menutc)      ;getmenupar
+	ld      d,a
+@519:   ld      a,(menubc)
+	inc     a
+	inc     a
+selcol2:and     0fh
+	ld      e,a
+@520:   jp      setcl
+slchar: and     81h
+	ld      (hl),a
+@521:   ld      a,(menutc)      ;getmenupar
+	ld      d,a
+@522:   ld      a,(cselect)
+	jr      selcol2
+;
+chback: push    hl
+	push    af
+@523:   call    selcol
+	pop     af
+@524:   call    conouta
+@525:   ld      a,(butstat)
+	rla
+	jr      nc,nxtbtt
+@526:   ld      a,(menutc)      ;getmenupar
+	ld      d,a
+@527:   ld      a,(menubc)
+@528:   call    selcol2
+@529:   call    writest                         ; тень
+	db      26,155,25,8,0
+	pop     hl
+	ret
+@530:
+nxtbtt: ld      a,(menubc)      ; bc1
+	ld      e,a
+	ld      d,0
+@531:   call    setcl
+@532:   call    writest                         ; тень
+	db      26,156,25,8,0
+@533:   ld      a,(menutc)      ;getmenupar
+	ld      d,a
+@534:   ld      a,(menubc)
+@535:   call    selcol2
+	pop     hl
+	ret
+;
+upkey:  ld      a,(hl)
+	or      a
+	jr      z,tobutts
+	dec     (hl)
+	jr      tobutts
+@536:
+downkey:ld      a,(currbut)
+	or      a
+	jr      z,tobutts
+	dec     a
+	cp      (hl)
+	jr      z,tobutts
+	inc     (hl)
+tobutts:ld      a,(hl)          ;(actbut)
+@537:   call    findbut
+	ld      a,1
+@538:   call    button
+	jr      menupr
+;
+menuproc:
+@539:   call    menuarea
+@540:
+tobut2: ld      hl,(butptr)
+@541:   call    buttdr2
+	cp      9
+	jr      nz,tobut2
+@542:
+tabkey: call    reccur
+@543:   call    norm            ; tab
+@544:   jp      replwin
+;
+buttdr2:ld      a,(hl)
+@545:   ld      (actbut),a
+	inc     hl
+@546:   ld      (buttpt),hl
+	ld      a,(hl)
+	or      a
+	ret     z
+@547:   call    hidcur
+;
+@548:
+menupr: call    inkey
+	push    af
+@549:   ld      a,(actbut)
+@550:   call    findbut
+	xor     a
+@551:   call    button
+	pop     af
+@552:   ld      hl,actbut
+	cp      5
+	jr      z,upkey         ; up
+	cp      24
+	jr      z,downkey       ; down
+	cp      8
+	jr      z,upkey         ; left
+	cp      4
+	jr      z,downkey       ; right
+	cp      13
+	jr      z,crkey         ; cr
+	cp      9
+	ret     z               ; jr  z,tabkey
+;
+@553:   ld      hl,(buttpt)     ; выбор по букве
+	cp      '@'
+	jr      c,noupper
+	and     5fh
+noupper:ld      b,a             ; код клавиши
+	ld      c,0             ; текущая кнопка
+symb1:  ld      a,(hl)
+	inc     hl
+	cp      '~'
+	jr      z,ifselec
+	cp      39              ;'
+	jr      z,ifeokey
+	or      a
+	jr      nz,symb1
+@554:   ld      hl,actbut
+	jr      tobutts
+ifselec:ld      a,(hl)
+	cp      '@'
+	jr      c,nouppr
+	and     5fh
+nouppr: cp      b
+	jr      nz,symb1
+@555:   ld      hl,actbut
+	push    hl
+	ld      (hl),c
+	ld      a,c
+@556:   call    findbut
+	ld      a,1
+@557:   call    button
+	pop     hl
+	jr      crkey
+ifeokey:inc     c
+	jr      symb1
+;
+crkey:  ld      a,(hl)          ;(actbut)
+@558:   ld      hl,(buttpt)
+	dec     hl
+	ld      (hl),a
+@559:   call    findbut
+	ld      a,81h
+	push    hl
+@560:   call    button
+@561:
+pressed:call    constat         ; пока нажата клавиша
+	or      a
+	jr      nz,pressed
+	pop     hl
+	push    hl
+	ld      a,1
+@562:   call    button
+	pop     hl
+	ld      b,0ffh
+	ld      a,39            ;'
+	cpir
+	ld      e,(hl)          ; адрес п/п
+	inc     hl
+	ld      d,(hl)
+@563:   ld      hl,(addrsft)
+	add     hl,de           ; коррекция адреса
+	jp      (hl)
+;
+@564:
+findbut:ld      hl,(buttpt)     ; вход A-номер кнопки (0..)
+	ld      b,0ffh
+findbt: or      a
+	ret     z
+	push    af
+	ld      a,39            ;'
+	cpir
+	pop     af
+	inc     hl
+	inc     hl
+	dec     a
+	jr      findbt
+;
+; "Кнопочный драйвер". Вход: HL - ук-ль на строку формата
+;             POINTER,X,Y,TEXT',ADDR,X,Y,TEXT',ADDR,...,0
+;
+noready:db      0
+	db      2,3,'~Continue',39
+	dw      nordprc
+	db      15,3,'~Abort',39
+	dw      nordprc
+	db      0
+;
+iffound:db      0
+	db      3,3,'~Stop',39
+	dw      nordprc
+	db      11,3,'~Continue',39
+	dw      nordprc
+	db      0
+;
+msearch:db      0
+	db      2,4,'All ~text',39
+	dw      nordprc
+	db      14,4,'~Current',39
+	dw      nordprc
+	db      25,4,'~Abort',39
+	dw      nordprc
+	db      0
+;
+dosort: db      0
+	db      3,2,' ~Sorted ',39
+	dw      listsorted
+	db      3,4,'~Unsorted',39
+	dw      listunsort
+	db      3,6,' ~Abort  ',39
+	dw      nordprc
+	db      0
+
+
+ ,39
+;
