@@ -1,0 +1,4 @@
+cpm m80n SYSINFO,=SYSINFO
+cpm l80m /p:100,SYSINFO,SYSINFO/n/e
+del SYSINFO.rel
+
