@@ -1,0 +1,232 @@
+	.Z80
+;
+; Altair-DOS depacker for games compressed with 
+;   MS-DOS packer BitBuster pack.exe  :
+;         bombaman@generation-msx.nl
+;  http://www.bombaman.generation-msx.nl
+;
+;macro to get a bit from the bitstream
+;carry if bit is set, nocarry if bit is clear
+;must be entered with second registerset switched in!
+GET_BIT	MACRO
+LOCAL	getbit
+	add	a,a		;shift out new bit
+	jp	nz,getbit	;if remaining value isn't zere, we're done
+	ld	a,(hl)		;get 8 bits from bitstream
+	inc	hl		;increase source data address
+	rla                     ;(bit 0 will be set!!!!)
+getbit:
+	ENDM
+;
+;
+;macro to LDI one byte from (0F3F9h):(hl) to (DSTPAGE):(de)
+;
+LDI_TO_DEST	MACRO
+	ex	af, af'
+	ld	a, (hl)
+	exx
+	ld	d, a
+	ld	a, e		; destination bank
+	out	(0F9h), a
+	ld	a, d
+	exx
+	ld	(de), a
+	ld	a, (0F3F9h)	; TPA bank
+	out	(0F9h), a
+	inc	hl
+	inc	de
+	ex	af, af'
+	dec	bc	
+	ENDM
+;
+;macro to LDIR at destination page 
+;
+LDIR_AT_DEST	MACRO
+	ex	af, af'
+	exx
+	ld	a, e		; destination bank
+	exx
+	out	(0F9h), a
+	ldir
+	ld	a, (0F3F9h)	; TPA bank
+	out	(0F9h), a
+	ex	af, af'
+	ENDM
+;
+BDOS	EQU     5
+PFB	EQU	0FBh
+;
+	ASEG
+	ORG	100H
+;
+	JP	BEGIN
+;	
+;In: HL: source      (in source bank)
+;    DE: destination (in destination bank)
+;     a=128
+;   e' = destination bank
+;
+DSTPAGE:DB	1
+DSTADDR:DW	100h
+RUNADDR:DW	100h
+;
+NOZ80:  defb    'ONLY Z80 CPU',10,13,'$'
+BADSYS: defb    'ONLY ALTAIR DOS',13,10,'$'
+;
+BEGIN:  XOR     A
+	DEC     A
+	ld      de,NOZ80
+	ld      c,9
+	jp      pe, BDOS
+
+	ld      c,12
+	call    BDOS
+	exx
+	ld      a,h
+	cp      0ABh
+	ld      de,BADSYS
+	ld      c,9
+	jp      nz, BDOS
+	di			; disable int
+        LD      SP,0F3C0H
+        LD      HL,0F3CFH
+        LD      (HL),0C0H	; screen started at 0C000h
+        INC     HL
+        LD      (HL),30H	; screen width
+        INC     HL
+	xor	a
+        LD      (HL),a		; B=0.  Font at F000
+        INC     HL
+        LD      (HL),0F0H
+        inc     hl
+        ld      (hl),a		; B=0.  inverse off
+        CALL    0F82DH		; unpack font
+	ld	a,80h
+	out	(PFB), a	; disable int, disable RAM dispatcher
+	ld	hl, depack_beg
+	ld	de, depack_loop
+	ld	bc, depack_end-depack_beg+1
+	ldir
+	ld	hl, PACKED+4	; +4 -> skip unpacked size DWORD
+	ld	de, (DSTADDR)
+	exx
+	ld	de, (DSTPAGE)	; e = destination bank
+	exx
+	jp	depack_loop
+;
+depack_beg:
+;
+	.phase	0F280h
+;
+depack_loop:
+	GET_BIT				;get compression type bit
+	jp	c,output_compressed	;if set, we got lz77 compression
+	LDI_TO_DEST			;copy byte from compressed data to destination (literal byte)
+;unrolled for extra speed
+	GET_BIT				;get compression type bit
+	jp	c,output_compressed	;if set, we got lz77 compression
+	LDI_TO_DEST			;copy byte from compressed data to destination (literal byte)
+	GET_BIT				;get compression type bit
+	jp	c,output_compressed	;if set, we got lz77 compression
+	LDI_TO_DEST			;copy byte from compressed data to destination (literal byte)
+	jp	depack_loop
+	
+
+;handle compressed data
+output_compressed:
+	ld	c,(hl)		;get lowest 7 bits of offset, plus offset extension bit
+	inc	hl		;to next byte in compressed data
+
+output_match:
+	ld	b,0
+	bit	7,c
+	jp	z,output_match1	;no need to get extra bits if carry not set
+
+	GET_BIT			;get offset bit 10 
+	rl	b
+	GET_BIT			;get offset bit 9
+	rl	b
+	GET_BIT			;get offset bit 8
+	rl	b
+	GET_BIT			;get offset bit 7
+
+	jp	c,output_match1	;since extension mark already makes bit 7 set 
+	res	7,c		;only clear it if the bit should be cleared
+output_match1:
+	inc	bc
+	
+	
+;return a gamma-encoded value
+;length returned in HL
+	exx			;to second register set!
+;	ld	h,d
+;	ld	l,e             ;initial length to 1
+;	ld	b,e		;bitcount to 1
+	ld	hl,1
+	ld	b,l
+
+;determine number of bits used to encode value
+get_value_size:
+	exx
+	GET_BIT				;get more bits
+	exx
+	jp	nc,get_value_size_end	;if bit not set, bitlength of remaining is known
+	inc	b			;increase bitcount
+	jp	get_value_size		;repeat...
+
+get_value_bits:
+	exx
+	GET_BIT					;get next bit of value from bitstream
+	exx
+	
+	adc	hl,hl				;insert new bit in HL
+get_value_size_end:
+	djnz	get_value_bits		;repeat if more bits to go
+
+get_value_end:
+	inc	hl		;length was stored as length-2 so correct this
+	exx			;back to normal register set
+	
+;	ret	c		; exit loop
+;HL' = length
+	
+	jp	nc, depack1
+	ld	hl, (RUNADDR)
+	ld	a, (DSTPAGE)	; destination bank
+	out	(0F9h), a
+	jp	(hl)		; unpack completed. run unpacked code
+depack1:
+	push	hl		;address compressed data on stack
+
+	exx
+	push	hl		;match length on stack
+	exx
+
+	ld	h,d
+	ld	l,e		;destination address in HL...
+	sbc	hl,bc		;calculate source address
+
+	pop	bc		;match length from stack
+
+	LDIR_AT_DEST		; transfer data (P=1=PE if BC<>0 and P=0=PO if BC=0)
+
+	pop	hl		;address compressed data back from stack
+
+	GET_BIT				;get compression type bit
+	jp	c,output_compressed	;if set, we got lz77 compression
+	LDI_TO_DEST			;copy byte from compressed data to destination (literal byte)
+	GET_BIT				;get compression type bit
+	jp	c,output_compressed	;if set, we got lz77 compression
+	LDI_TO_DEST			;copy byte from compressed data to destination (literal byte)
+
+	jp	depack_loop
+;	
+	.dephase
+;
+depack_end:				; here compressed data begin
+PACKED: defb	'DATA  '		; marker - will be overwritten by packed data
+;
+	end BEGIN
+
+
+	
