@@ -1,0 +1,454 @@
+	.Z80
+	ORDOS	equ	0	; 0=compile for CPM, 1=compile for ORDOS
+	ZX	equ	0	; 0=compile for CPM, 1=compile for ZX
+;
+	ASEG
+	ORG	100h
+;
+BDOS	equ	5
+FCB1	equ	05Ch
+FCB2	equ	06Ch
+mon_out	equ	0f809h
+mon_in	equ	0f803h
+;
+UART_DATA equ	0F764h
+UART_CTL  equ	0F765h
+UART_STAT equ	0F3FFh
+;
+; Отправка байта - запись в порт F764. 
+; Прием байта - чтение порта F764.
+; Контроль состояния передачи - порт F765 на чтение: 
+;   D7     - TX_Ready (0 = идет отправка байта, порт не готов. 1 = можно записывать следующий байт для отправки)
+;   D6     - RX_Status (0 = нет нового принятого байта. 1 = принят новый байт. После считывания байта из F764 этот бит сбрасывается в 0).
+; Управление режимами - порт F765 на запись: 
+;   D0, D1 - Скорости UART (4800 (умолчание), 9600, 19200, 38400)
+;   D6     - "1" = разрешает прерывание по приему байта. На ШД ставится 0FDh.
+;
+;------------------------------------------------------------------
+soh	equ	01h	; ASCII <soh> char
+eot	equ	04h	; ASCII <eot> char
+ack	equ	06h	; ASCII <ack> char
+nak	equ	15h	; ASCII <nak> char
+can     equ	18h	; CTRL-X = Cancel
+crc	equ	'C'	; CRC mode
+;
+; Main Program
+;
+codesize equ	1792
+;
+IF ORDOS
+	.phase	0100h-16
+;
+	db	'XPUT$   '
+	dw	0100h			; start address at page0
+	dw	codesize		; code length
+	db	0, 0FFh, 0FFh, 0FFh	; reserved	
+ENDIF
+;
+codebeg:
+	jp	BEGIN
+;
+INCLUDE CRC.INC
+INCLUDE TXFILE.INC
+INCLUDE RS232.INC
+;
+readsector:
+	ld	a, (iobyte)
+	ld	c, '*'
+	and	3
+	call	nz, conout	; do not print if CON:=TTY:(=0)
+	LD      DE,FCB1
+	LD      C,14H
+	CALL    BDOS            ; READ 128B SECTOR
+	ld	hl, (reccnt)
+	inc	hl
+	ld	(reccnt), hl
+	OR	A
+	ret
+;
+begin:	
+IF ORDOS
+;
+ELSE
+;
+;	CP/M	specific
+;
+        LD      HL,(1)
+        LD      DE,6
+        ADD     HL,DE
+        LD      (CON1),HL       ; DOS-BIOS - CONIN
+	inc	hl
+	inc	hl
+	inc	hl
+        LD      (CON0),HL       ; DOS-BIOS - CONOUT
+        LD      HL,(6)
+        LD      (STACK),HL
+        LD      DE,256          ; reserve 256b for stack
+        AND     A
+	SBC     HL,DE
+        LD      (TOPBDOS),HL
+        DB      31H             ; ld sp,xxxx
+STACK:  DS      2
+	ld	a, (FCB1+1)
+	cp	' '+1
+	ld	hl, usage
+	jp	c, toexit1
+	ld	c, 7
+	call	bdos		; get IO assignment byte
+	ld	(iobyte), a
+;
+ENDIF
+        ld      hl, msg1	;print a welcome message
+        call    pstr
+	ld	b,8
+        ld      hl, FCB1+1	;print a file name
+        call    p0str
+	ld	a,'.'
+	call	cout
+	ld	b,3
+        ld      hl, FCB1+9	;print a file ext
+        call    p0str
+        ld      hl, msg2	;print 'start receiver'
+        call    pstr
+        call    cin
+	cp	27
+	push	af
+	ld	hl, MSGCRLF
+	call	pstr		;
+	pop	af
+	jp	z, toexit
+	ld	a, (iobyte)
+	and	3
+	jr	nz, next1
+iftty:	ld	a, (IOBYTE)
+	or	1
+	and	0FDh
+	ld	c, 8
+	ld	e, a		; set IOBYTE to CRT
+	call	bdos
+;
+; Init UART
+;
+next1:	ld	a, (UART_STAT)
+	and	0BCh
+	ld	a, (UART_STAT)
+	jr	z, statok	; all bits exept D6,D1,D0 must be zero
+	ld	a, 0FFh
+statok:	ld	(RSRV_STAT), a
+	ld	a, (FCB2+1)
+	ld	e, 0            ; 00
+	cp	'4'
+	jr	z, setcom
+	inc	e		; 01
+	cp	'9'
+	jr	z, setcom
+	inc	e		; 10
+	cp	'1'
+	jr	z, setcom
+	inc	e		; 11
+	cp	'3'
+	jr	z, setcom
+	ld	a, (iobyte)
+	and	3
+	ld	a, (RSRV_STAT)
+	jr	z, fortty	; for con=TTY default allready setted
+	inc	a
+	jr	z, setcom
+	dec	a
+	and	0BFh		; reset bit D6 - disable UART int
+	ld	e, a
+setcom:	ld	a, e
+	ld	(UART_CTL), a	; set speed, disable UART int
+;
+fortty:	and	3		; a=speed (0,1,2,3)
+	ld	hl, sp4800
+	jr	z, prspeed
+	dec	a
+	ld	hl, sp9600
+	jr	z, prspeed
+	dec	a
+	ld	hl, sp19200
+	jr	z, prspeed
+	ld	hl, sp38400
+prspeed:push	hl
+	ld	hl, MSGSPD
+	call	pstr		;
+	pop	hl
+	call	pstr
+	ld	hl, MSGCRLF
+	call	pstr		;
+	ld	hl, FCB1+12
+	ld	(hl), 0
+	ld	d, h
+	ld	e, l
+	inc	de
+	ld	bc,24
+	ldir			; clear FCB
+	LD      DE, def_dma
+	LD      C,1AH
+	CALL    BDOS            ; SET PDP
+	LD      DE,FCB1
+	LD      C, 15
+	CALL    BDOS 		; open file
+	INC	A
+	ld	hl, msgfop
+	jr	z, toexit1	
+
+	call	tx_file		; transmit file over XMODEM protocol
+
+	push	af
+	ld	a, (IOBYTE)
+	ld	c, 8
+	ld	e, a		; set IOBYTE to SOURCE VALUE
+	call	bdos
+	pop	af
+	ld	hl, msgfail
+	jr	c, pres
+	ld	hl, msgok
+pres:	call	pstr	
+
+	ld	hl, msgcnt
+	call	pstr
+	ld	hl, (reccnt)
+	xor	a
+	rr	h
+	rr	l
+	rra
+	ld	c,a
+	ld	b,l
+	ld	a,h		; abc=hl*128
+	call	wrdata
+;
+toexit:	ld	hl, MSGCRLF
+toexit1:call	pstr		;
+;
+IF ORDOS
+	jp	0F800h
+ELSE
+	ld	a, (RSRV_STAT)
+	inc	a
+	jr	z, toex2
+	dec	a
+	ld	(UART_STAT), a
+toex2:	jp	0
+ENDIF
+;
+; print null-terminated or space-terminated string on (hl), max B characters
+;
+p0str:  ld	a, (hl)
+        or	a
+        ret	z
+	cp	' '
+        ret	z
+        inc	hl
+        call	cout
+        djnz	p0str
+	ret
+;
+; print null-terminated string on (hl)
+;
+prn_tx:
+pstr:   ld    a, (hl)
+        or    a
+        ret   z
+        inc   hl
+        call  cout
+        jr    pstr
+
+space:  ld      a, ' '
+cout:   push    bc
+        ld      c,a
+        call    conout
+        pop     bc
+        ret
+
+conout: push    hl
+        push    de
+        push    af
+	push	ix
+        DB      0CDH	; call 
+CON0:   DW      mon_out	; BIOS CONOUT
+	pop	ix
+        pop     af
+        pop     de
+        pop     hl
+        ret
+
+cin_filter:
+        push    bc
+        push    de
+        push    hl
+        call    conin
+        pop     hl
+        pop     de
+        pop     bc
+        ret 
+cin:
+conin:  push	ix
+	db      0CDh	; call
+CON1:   dw      mon_in	; BIOS CONIN
+	pop	ix
+	ret
+;
+; п/п десятичной коррекции - вход : A,BC - 24-битное шестнадцатиричное число :
+;                                               ( D23=A7 .. D0=C0 )
+;                           выход : DE,HL - 8-значное десятичное число :
+;         (D7..D4; D3..D0; E7..E4; E3..E0; H7..H4; H3..H0; L7..L4; L3..L0)
+; не портит никакие регистры кроме выходных  ! портит IX
+;
+correction:
+        push    ix
+	push    af
+	push    bc
+	push    bc
+	pop     ix
+	ld      c,a
+	xor     a
+	ld      d,a
+	ld      e,a
+	ld      h,a
+	ld      l,a
+	ld      b,24
+cycl:   ld      a,c
+	add     ix,ix
+	adc     a,c
+	ld      c,a
+
+	ld      a,l
+	adc     a,l
+	daa
+	ld      l,a
+
+	ld      a,h
+	adc     a,h
+	daa
+	ld      h,a
+
+	ld      a,e
+	adc     a,e
+	daa
+	ld      e,a
+
+	ld      a,d
+	adc     a,d
+	daa
+	ld      d,a
+	djnz    cycl
+
+	pop     bc
+	pop     af
+        pop     ix
+	ret
+;
+; вывод числа без изменений: вход: a,b,c
+wrdata: call    correction
+	call    dellead
+scbcd:  ld      a,d
+	call    wrbcd
+scbcd1:	ld      a,e
+	call    wrbcd
+scbcd0: ld      a,h
+	call    wrbcd
+	ld      a,l
+
+wrbcd:  push    af          ;ПЕЧАТЬ BCD-ЧИСЛА 00H - 99H
+	rrca
+	rrca
+	rrca
+	rrca
+	call    xprbcd
+	pop     af
+xprbcd: and     0fh
+;
+prbcd:  add     a,30h       ;ПЕЧАТЬ BCD-ЧИСЛА (0-9). Если >9 ,то печатать ' '
+	cp      3ah
+	jr      c,prbcd0
+	ld      a,20h
+prbcd0: jp      cout
+;
+dellead:
+; п/п замены ведущих нулей на код fh(1111b) в 8-значном десятичном числе
+;                     вход - выход : DE,HL - 8-значное десятичное число :
+;         (D7..D4; D3..D0; E7..E4; E3..E0; H7..H4; H3..H0; L7..L4; L3..L0)
+;
+	push    af
+	push    bc
+	ld      b,d
+	call    delb
+	ld      d,b
+	jr      nz,exitdel
+	ld      b,e
+	call    delb
+	ld      e,b
+	jr      nz,exitdel
+	ld      b,h
+	call    delb
+	ld      h,b
+	jr      nz,exitdel
+	ld      b,l
+	call    delb
+	ld      l,b
+	cp      0ffh
+	jr      nz,exitdel
+	ld      l,0f0h
+exitdel:pop     bc
+	pop     af
+	ret
+;
+delb:
+;
+; вспомогательная п/п для dellead . Вход - выход : рег. B
+;
+	ld      a,b
+	and     0f0h
+	ret     nz
+	ld      a,0f0h
+	or      b
+	ld      b,a
+	and     0fh
+	ret     nz
+	ld      a,0fh
+	or      b
+	ld      b,a
+	xor     a
+	ld      a,b
+	ret
+;
+msg1:  
+IF ORDOS
+	db	1Fh
+ENDIF 
+	db	"TRANSMIT FILE OVER RS-232 (PORT F764,F765) XMODEM PROGRAM.",13,10
+	db	"FILE TO TRANSMIT: ",0
+msg2:	db	13,10,13,10,"PRESS ANY KEY TO BEGIN (ESC=ABORT), THEN START RECEIVER PROGRAM",0
+msgcrlf:db	13,10,0
+msgok:	db	13,10,"STATUS: OK.",13,10,0
+msgfail:db	13,10,"STATUS: FAIL.",13,10,0
+msgcnt:	db	13,10,"TRANSFER COMPLETED, BYTES SENT: ",0
+msgfop:	db	13,10,"FILE OPEN ERROR",13,10,0
+usage:	db	13,10,"USAGE: XPUT FILENAME.EXT [4800|9600|19200|38400]",13,10,0
+timeout:db	13,10,"WAIT TIMEOUT",13,10,0
+msgspd: db	"SPEED: ",0
+sp4800: db	"4800",0
+sp9600: db	"9600",0
+sp19200:db	"19200",0
+sp38400:db	"38400",0
+;
+reccnt:    dw	0
+TOPBDOS	   equ	reccnt+2
+RSRV_STAT  equ	TOPBDOS+2
+flg_xm	   equ	RSRV_STAT+2
+iobyte	   equ	flg_xm+2 
+def_dma	   equ  iobyte+2
+;
+IF ORDOS
+codend:
+	.dephase
+;
+	ds	codesize+codebeg-codend, 0	; round to 16
+ENDIF
+;
+        END     begin
+
+
+

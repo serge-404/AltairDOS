@@ -1,0 +1,363 @@
+	.Z80
+	ORDOS	equ	0	; 0=compile for CPM, 1=compile for ORDOS
+;
+	ASEG
+	ORG	100h
+;
+BDOS	equ	5
+FCB1	equ	05Ch
+FCB2	equ	06Ch
+mon_out	equ	0f809h
+mon_in	equ	0f803h
+;
+USART_DATA equ	0F764h
+USART_CTL  equ	0F765h
+;
+; Îòïðàâêà áàéòà - çàïèñü â ïîðò F764. 
+; Ïðèåì áàéòà - ÷òåíèå ïîðòà F764.
+; Êîíòðîëü ñîñòîÿíèÿ ïåðåäà÷è - ïîðò F765 íà ÷òåíèå: 
+;   D7     - TX_Ready (0 = èäåò îòïðàâêà áàéòà, ïîðò íå ãîòîâ. 1 = ìîæíî çàïèñûâàòü ñëåäóþùèé áàéò äëÿ îòïðàâêè)
+;   D6     - RX_Status (0 = íåò íîâîãî ïðèíÿòîãî áàéòà. 1 = ïðèíÿò íîâûé áàéò. Ïîñëå ñ÷èòûâàíèÿ áàéòà èç F764 ýòîò áèò ñáðàñûâàåòñÿ â 0).
+; Óïðàâëåíèå ðåæèìàìè - ïîðò F765 íà çàïèñü: 
+;   D0, D1 - Ñêîðîñòè UART (4800 (óìîë÷àíèå), 9600, 19200, 38400)
+;   D6     - "1" = ðàçðåøàåò ïðåðûâàíèå ïî ïðèåìó áàéòà. Íà ØÄ ñòàâèòñÿ 0FDh.
+;
+;------------------------------------------------------------------
+; Main Program, a simple menu driven interface.
+;
+codesize equ	1792
+;
+IF ORDOS
+	.phase	0100h-16
+;
+	db	'PUT$'
+	dw	0100h			; start address at page0
+	dw	codesize		; code length
+	db	0, 0FFh, 0FFh, 0FFh	; reserved	
+ENDIF
+;
+codebeg:
+	jp	BEGIN
+;
+;
+begin:	
+IF ORDOS
+;
+ELSE
+;
+;	CP/M	specific
+;
+        LD      HL,(1)
+        LD      DE,6
+        ADD     HL,DE
+        LD      (CON1),HL       ; DOS-BIOS - CONIN
+	inc	hl
+	inc	hl
+	inc	hl
+        LD      (CON0),HL       ; DOS-BIOS - CONOUT
+        LD      HL,(6)
+        LD      (STACK),HL
+        LD      DE,256          ; reserve 256b for stack
+        AND     A
+	SBC     HL,DE
+        LD      (TOPBDOS),HL
+        DB      31H             ; ld sp,xxxx
+STACK:  DS      2
+;
+ENDIF
+;
+; Init UART
+;
+	ld	a, FCB2+1
+	ld	e, 1		; 01
+	cp	'9'
+	jr	z, setcom
+	inc	e		; 10
+	cp	'1'
+	jr	z, setcom
+	inc	e		; 11
+	cp	'3'
+	jr	z, setcom
+	ld	e, 0		; 00
+setcom:	ld	a, e
+	ld	(USART_CTL), a	; set speed, disable UART int
+;
+        ld      hl, msg1	;print a welcome message
+        call    pstr
+	ld	b,8
+        ld      hl, FCB1+1	;print a file name
+        call    p0str
+	ld	a,'.'
+	call	cout
+	ld	b,3
+        ld      hl, FCB1+9	;print a file ext
+        call    p0str
+        ld      hl, msg2	;print 'press any kay'
+        call    pstr
+        call    cin
+	cp	27
+	jr	z, toexit
+OPEN:   LD      DE,FCB1
+FOPEN:  LD      C,0FH
+	CALL    BDOS
+	INC	A
+	ld	hl, msgfo
+	jr	z, toexit1	
+	LD      DE,buffer
+	LD      C,1AH
+	CALL    BDOS            ; SET PDP
+FREAD:	LD      DE,FCB1
+	LD      C,14H
+	CALL    BDOS            ; READ 128B SECTOR
+	OR	A
+	jr	nz, fileend
+	ld	hl, (reccnt)
+	inc	hl
+	ld	(reccnt), hl
+	ld	hl, buffer
+	ld	bc, 0		; timeout const
+	ld	e, 128
+send:	ld	a, (USART_CTL)
+	and	80h		; test D7 bit
+	jr	nz, dosend
+	dec	bc
+	ld	a,b
+	or	c
+	jr	nz, send	; timeout 0.5 sec
+	ld	hl, msgtm
+	jr	toexit1
+dosend: ld	a, (hl)
+	ld	(USART_DATA), a
+	inc	hl
+	dec	e
+	jr	nz, send
+	JR      FREAD
+fileend:ld	hl, msg3
+	call	pstr
+	ld	hl, (reccnt)
+	xor	a
+	rr	h
+	rr	l
+	rra
+	ld	c,a
+	ld	b,l
+	ld	a,h		; abc=hl*128
+	call	wrdata
+;
+toexit:	ld	hl, MSGCRLF
+toexit1:call	pstr		; if no sd-card (init failed)
+;
+IF ORDOS
+	jp	0F800h
+ELSE
+	jp	0
+ENDIF
+;
+; print null-terminated or space-terminated string on (hl), max B characters
+;
+p0str:  ld	a, (hl)
+        or	a
+        ret	z
+	cp	' '
+        ret	z
+        inc	hl
+        call	cout
+        djnz	p0str
+	ret
+;
+; print null-terminated string on (hl)
+;
+pstr:   ld    a, (hl)
+        or    a
+        ret   z
+        inc   hl
+        call  cout
+        jr    pstr
+
+space:  ld      a, ' '
+cout:   push    bc
+        ld      c,a
+        call    conout
+        pop     bc
+        ret
+
+conout: push    hl
+        push    de
+        push    af
+	push	ix
+        DB      0CDH	; call 
+CON0:   DW      mon_out	; BIOS CONOUT
+	pop	ix
+        pop     af
+        pop     de
+        pop     hl
+        ret
+
+cin_filter:
+        push    bc
+        push    de
+        push    hl
+        call    conin
+        pop     hl
+        pop     de
+        pop     bc
+        ret 
+cin:
+conin:  push	ix
+	db      0CDh	; call
+CON1:   dw      mon_in	; BIOS CONIN
+	pop	ix
+	ret
+
+
+; ¯/¯ ¤¥áïâ¨ç­®© ª®àà¥ªæ¨¨ - ¢å®¤ : A,BC - 24-¡¨â­®¥ è¥áâ­ ¤æ â¨à¨ç­®¥ ç¨á«® :
+;                                               ( D23=A7 .. D0=C0 )
+;                           ¢ëå®¤ : DE,HL - 8-§­ ç­®¥ ¤¥áïâ¨ç­®¥ ç¨á«® :
+;         (D7..D4; D3..D0; E7..E4; E3..E0; H7..H4; H3..H0; L7..L4; L3..L0)
+; ­¥ ¯®àâ¨â ­¨ª ª¨¥ à¥£¨áâàë ªà®¬¥ ¢ëå®¤­ëå  ! ¯®àâ¨â IX
+;
+correction:
+        push    ix
+	push    af
+	push    bc
+	push    bc
+	pop     ix
+	ld      c,a
+	xor     a
+	ld      d,a
+	ld      e,a
+	ld      h,a
+	ld      l,a
+	ld      b,24
+cycl:   ld      a,c
+	add     ix,ix
+	adc     a,c
+	ld      c,a
+
+	ld      a,l
+	adc     a,l
+	daa
+	ld      l,a
+
+	ld      a,h
+	adc     a,h
+	daa
+	ld      h,a
+
+	ld      a,e
+	adc     a,e
+	daa
+	ld      e,a
+
+	ld      a,d
+	adc     a,d
+	daa
+	ld      d,a
+	djnz    cycl
+
+	pop     bc
+	pop     af
+        pop     ix
+	ret
+;
+; ¢ë¢®¤ ç¨á«  ¡¥§ ¨§¬¥­¥­¨©: ¢å®¤: a,b,c
+wrdata: call    correction
+	call    dellead
+scbcd:  ld      a,d
+	call    wrbcd
+scbcd1:	ld      a,e
+	call    wrbcd
+scbcd0: ld      a,h
+	call    wrbcd
+	ld      a,l
+
+wrbcd:  push    af          ;…—€’œ BCD-—ˆ‘‹€ 00H - 99H
+	rrca
+	rrca
+	rrca
+	rrca
+	call    xprbcd
+	pop     af
+xprbcd: and     0fh
+;
+prbcd:  add     a,30h       ;…—€’œ BCD-—ˆ‘‹€ (0-9). …á«¨ >9 ,â® ¯¥ç â âì ' '
+	cp      3ah
+	jr      c,prbcd0
+	ld      a,20h
+prbcd0: jp      cout
+;
+dellead:
+; ¯/¯ § ¬¥­ë ¢¥¤ãé¨å ­ã«¥© ­  ª®¤ fh(1111b) ¢ 8-§­ ç­®¬ ¤¥áïâ¨ç­®¬ ç¨á«¥
+;                     ¢å®¤ - ¢ëå®¤ : DE,HL - 8-§­ ç­®¥ ¤¥áïâ¨ç­®¥ ç¨á«® :
+;         (D7..D4; D3..D0; E7..E4; E3..E0; H7..H4; H3..H0; L7..L4; L3..L0)
+;
+	push    af
+	push    bc
+	ld      b,d
+	call    delb
+	ld      d,b
+	jr      nz,exitdel
+	ld      b,e
+	call    delb
+	ld      e,b
+	jr      nz,exitdel
+	ld      b,h
+	call    delb
+	ld      h,b
+	jr      nz,exitdel
+	ld      b,l
+	call    delb
+	ld      l,b
+	cp      0ffh
+	jr      nz,exitdel
+	ld      l,0f0h
+exitdel:pop     bc
+	pop     af
+	ret
+;
+delb:
+;
+; ¢á¯®¬®£ â¥«ì­ ï ¯/¯ ¤«ï dellead . ‚å®¤ - ¢ëå®¤ : à¥£. B
+;
+	ld      a,b
+	and     0f0h
+	ret     nz
+	ld      a,0f0h
+	or      b
+	ld      b,a
+	and     0fh
+	ret     nz
+	ld      a,0fh
+	or      b
+	ld      b,a
+	xor     a
+	ld      a,b
+	ret
+;
+msg1:  
+IF ORDOS
+	db	1Fh
+ENDIF 
+	db	"SEND FILE OVER RS-232 (PORT F764,F765) PROGRAM.",13,10
+	db	"FILE TO SEND: ",0
+msg2:	db	13,10,13,10,"START RECEIVING PROGRAMM AND PRESS ANY KEY TO BEGIN (ESC=ABORT)"
+msgcrlf:db	13,10,0
+msg3:	db	13,10,"TRANSFER COMPLETED, BYTES SENDED: ",0
+msgfo:	db	13,10,"FILE OPEN ERROR",13,10,0
+msgtm:	db	13,10,"ERROR: COM-PORT WRITE TIMEOUT",13,10,0
+;
+TOPBDOS: ds	2
+reccnt: db	0
+buffer:
+;
+IF ORDOS
+codend:
+	.dephase
+;
+	ds	codesize+codebeg-codend, 0	; round to 16
+ENDIF
+;
+        END     begin
+
+
+

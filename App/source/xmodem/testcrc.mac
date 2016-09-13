@@ -1,0 +1,223 @@
+	.Z80
+;
+	ASEG
+	ORG	100h
+;
+BDOS	equ	5
+FCB1	equ	05Ch
+FCB2	equ	06Ch
+mon_out	equ	0f809h
+mon_in	equ	0f803h
+;
+codebeg:
+	jp	BEGIN
+;
+INCLUDE CRC.INC
+;
+begin:	
+        LD      HL,(1)
+        LD      DE,6
+        ADD     HL,DE
+        LD      (CON1),HL       ; DOS-BIOS - CONIN
+	inc	hl
+	inc	hl
+	inc	hl
+        LD      (CON0),HL       ; DOS-BIOS - CONOUT
+        LD      HL,(6)
+        LD      (STACK),HL
+        LD      DE,256          ; reserve 256b for stack
+        AND     A
+	SBC     HL,DE
+;        LD      (TOPBDOS),HL
+        DB      31H             ; ld sp,xxxx
+STACK:  DS      2
+
+;
+; Calculate block CRC
+;
+calc_crc:
+	LD      HL,0            ; for XMODEM, KERMIT and ARC
+	LD      DE, tststr	; set pointer to buffer
+	LD      B, 28		; set counter to string length
+tloop:	LD      A,(DE)          ; get character of string
+	INC     DE              ; increment pointer
+	CALL    crc16_xmodem	; do CRC on character
+	DJNZ    tloop           ; and loop until string done
+
+	xor	a
+	ld	b, h
+	ld	c, l
+	jp	wrdata
+
+
+;
+; print null-terminated string on (hl)
+;
+prn_tx:
+pstr:   ld    a, (hl)
+        or    a
+        ret   z
+        inc   hl
+        call  cout
+        jr    pstr
+
+space:  ld      a, ' '
+cout:   push    bc
+        ld      c,a
+        call    conout
+        pop     bc
+        ret
+
+conout: push    hl
+        push    de
+        push    af
+	push	ix
+        DB      0CDH	; call 
+CON0:   DW      mon_out	; BIOS CONOUT
+	pop	ix
+        pop     af
+        pop     de
+        pop     hl
+        ret
+
+cin_filter:
+        push    bc
+        push    de
+        push    hl
+        call    conin
+        pop     hl
+        pop     de
+        pop     bc
+        ret 
+cin:
+conin:  push	ix
+	db      0CDh	; call
+CON1:   dw      mon_in	; BIOS CONIN
+	pop	ix
+	ret
+;
+; п/п десятичной коррекции - вход : A,BC - 24-битное шестнадцатиричное число :
+;                                               ( D23=A7 .. D0=C0 )
+;                           выход : DE,HL - 8-значное десятичное число :
+;         (D7..D4; D3..D0; E7..E4; E3..E0; H7..H4; H3..H0; L7..L4; L3..L0)
+; не портит никакие регистры кроме выходных  ! портит IX
+;
+correction:
+        push    ix
+	push    af
+	push    bc
+	push    bc
+	pop     ix
+	ld      c,a
+	xor     a
+	ld      d,a
+	ld      e,a
+	ld      h,a
+	ld      l,a
+	ld      b,24
+cycl:   ld      a,c
+	add     ix,ix
+	adc     a,c
+	ld      c,a
+
+	ld      a,l
+	adc     a,l
+	daa
+	ld      l,a
+
+	ld      a,h
+	adc     a,h
+	daa
+	ld      h,a
+
+	ld      a,e
+	adc     a,e
+	daa
+	ld      e,a
+
+	ld      a,d
+	adc     a,d
+	daa
+	ld      d,a
+	djnz    cycl
+
+	pop     bc
+	pop     af
+        pop     ix
+	ret
+;
+; вывод числа без изменений: вход: a,b,c
+wrdata: call    correction
+	call    dellead
+scbcd:  ld      a,d
+	call    wrbcd
+scbcd1:	ld      a,e
+	call    wrbcd
+scbcd0: ld      a,h
+	call    wrbcd
+	ld      a,l
+
+wrbcd:  push    af          ;ПЕЧАТЬ BCD-ЧИСЛА 00H - 99H
+	rrca
+	rrca
+	rrca
+	rrca
+	call    xprbcd
+	pop     af
+xprbcd: and     0fh
+;
+prbcd:  add     a,30h       ;ПЕЧАТЬ BCD-ЧИСЛА (0-9). Если >9 ,то печатать ' '
+	cp      3ah
+	jr      c,prbcd0
+	ld      a,20h
+prbcd0: jp      cout
+;
+dellead:
+; п/п замены ведущих нулей на код fh(1111b) в 8-значном десятичном числе
+;                     вход - выход : DE,HL - 8-значное десятичное число :
+;         (D7..D4; D3..D0; E7..E4; E3..E0; H7..H4; H3..H0; L7..L4; L3..L0)
+;
+	push    af
+	push    bc
+	ld      b,d
+	call    delb
+	ld      d,b
+	jr      nz,exitdel
+	ld      b,e
+	call    delb
+	ld      e,b
+	jr      nz,exitdel
+	ld      b,h
+	call    delb
+	ld      h,b
+	jr      nz,exitdel
+	ld      b,l
+	call    delb
+	ld      l,b
+	cp      0ffh
+	jr      nz,exitdel
+	ld      l,0f0h
+exitdel:pop     bc
+	pop     af
+	ret
+;
+delb:
+;
+; вспомогательная п/п для dellead . Вход - выход : рег. B
+;
+	ld      a,b
+	and     0f0h
+	ret     nz
+	ld      a,0f0h
+	or      b
+	ld      b,a
+	and     0fh
+	ret     nz
+	ld      a,0fh
+	or      b
+	ld      b,a
+	xor     a
+	ld      a,b
+	ret
+;
+tststr:	defb	'123456789qwertyuiopASDFGHJKL'   ;28
