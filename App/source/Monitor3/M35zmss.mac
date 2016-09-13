@@ -1,0 +1,1920 @@
+	.Z80
+;
+	N8VEM	equ	0	; 0=MSX SDcard scheme, 1=N8VEM SDcard scheme
+;
+;         системные ячейки монитора-3 (иниц-ся по сбросу)
+;         -----------------------------------------------
+;     адрес      нач.зн.      назначение
+;     f3c3      - c3 (jmp)
+;     f3c4/c5   - --        - адрес п/п beep
+;     f3c6      - c3 (jmp)
+;     f3c7/c8   - --        - адрес п/п ввода символа с клавиатуры
+;     f3c9      - c3 (jmp)
+;     f3ca/cb   - --        - адрес п/п ввода строки символов
+;     f3cc      - c3 (jmp)
+;     f3cd/ce   - --        - адрес п/п вывода символа на экран
+;     f3cf      - c0        - старший байт адреса начала экрана
+;     f3d0      - 30        - ширина экрана, байт
+;     f3d1/d2   - f000      - адрес знакогенератора
+;     f3d3      - 00        - признак инверсии печатаемых символов
+;     f3d4      - 00        - номер первой строки экрана
+;     f3d5      - 19        - кол-во строк в окне экрана
+;     f3d6      - 00        - вертикальная координата курсора
+;     f3d7      - 00        - горизонтальная координата курсора
+;     f3d8/d9   - --        - адрес перехода при выпадении сигнала мг
+;     f3da      - 40        - константа записи на мг
+;     f3db      - 60        - константа чтения с мг
+;     f3dc      - 00        - признак инверсного сигнала с мг
+;     f3dd      - 00        - раб.ячейка п/п-мы вывода символа
+;     f3de      - 00        - раб.ячейка для обр-ки esc-кодов
+;     f3df/e0   - --        - адрес п/п доп. обработки сист. прер-й
+;     f3e1/e2   - --        - адрес внутр. п/п-мы вывода символа
+;     f3e3/e4   - --        - адрес п/п-мы обр-ки директив монитора
+;     f3e5      - 00        - признак рус (0ffh)/лат (00)
+;     f3e6      - 00        - раб.ячейка для автоповтора
+;     f3e7      - 48        - константа п/п-мы beep
+;     f3e8/e9   - --        - адрес п/п-мы чтения байта с мг
+;     f3ea/eb   - --        - адрес п/п-мы записи байта на мг
+;
+;         рабочие ячейки монитора-3 (не иниц-ся по сбросу)
+;         ------------------------------------------------
+;     f300...f31f  - буфер ввода директив
+;     f320/21      - 1-й параметр директивы
+;     f322/23      - 2-й параметр директивы
+;     f324/25      - 3-й параметр директивы
+;     f326/27      - 4-й параметр директивы
+;     f3c1/c2      - врем.хранение sp при работе п/п scroll
+;     f3ec/ed      - ramtop, знач-е макс.доступной памяти
+;
+;             стандартные подпрограммы монитора-3
+;             -----------------------------------
+;монитор-3 содержит подпрограммы, которые пользователь может вызывать, соблюдая определенные
+;соглашения.  эти п/п-мы являются стандартными и совместимыми с монитором-1 и монитором-2.
+;f803 - rd-key, ввод символа с клав-ры.  выход:  a - введенный символ.  все регистры (кроме
+;     a) сохраняются.  проверяется нажатие клавиш <ус>/<сс> и вып-ся обработка прогр.преры-
+;     вания.  выполняется переход по адресу в ячейках f3c7/c8.  в п/п реализован автоповтор.
+;     в мониторе-2 используется простейший и крайне неудобный алгоритм автоповтора.  этот
+;     недостаток был устранен в мониторе-3.  в отличие от аналогичной п/п м-2, звуковой
+;     сигнал подается и код символа возвращается при нажатии, а не при отпускании клавиши, что
+;     очень существенно, например при быстром наборе текста.
+;f806 - ldbyte, ввод байта с мг.  вход:  a=0ffh - с поиском синхро-байта 0e6h; a=08 - без
+;     поиска.  выход:  a - введенный байт.  все регистры (кроме a) сохраняются.
+;     осуществляется переход по адресу, содержащемуся в яч.  f3e8/e9.  п/п должна вызываться
+;     только при наличии сигнала на магн.  входе.  при "выпадении" сигнала осуществляется
+;     переход по адресу, содержащемуся в яч.  f3d8/d9, причем стек остается "засоренным" на 6
+;     байт !
+;f809 - cout, вывод символа на экран.  вход:  c - код символа.  все регистры сохраняются.
+;     проверяется нажатие <ус>/<сс>.  осуществляется переход по адресу содержащемуся в яч.
+;     f3cd/ce.  обрабатываются все управл.коды и esc-последовательности м-2 описанные в
+;     "радио" (01.1991).  может быть определено окно, внутри которого действуют операции
+;     очистки и роллинга.  в отличие от м-2 матрица символов 6*8, а не 6*7,что позволяет
+;     использовать более красивый шрифт и главное буквы кои-8; а также очищается (цветом фона)
+;     пространство между строками.
+;f80c - svbyte, запись байта на мг.  вход:  c - записываемый байт.  все регистры
+;     сохраняются.  переход по адресу в яч.  f3ea/eb.
+;f80f - вывод символа на экран.  вход:  a - код символа.  все регистры сохраняются.
+;     переход на стандартную п/п вывода символа (т.е вектора перехода на имеет).
+;     проверяется наличие вызова прогр.прерывания с клав-ры - <ус> или <сс>.
+;f812 - status, опрос состояния клавиатуры.  все регистры (кроме a) сохраняются.  выход:
+;     a=00 - никакая клавиша не нажата, a=0ffh - нажата какая-то клавиша.  к сожалению не
+;     имеет вектора, что "блокирует" применение аппар.  клав-ры.
+;f815 - pr_hex, печать на экране байта в шестнадцатеричном виде.  вход:  a - байт.  все
+;     регистры, кроме регистра a !  сохраняются.
+;
+;f818 - pr_msg, вывод на экран сообщения.  вход:  hl - адрес первого байта сообщения,
+;     последний байт - 00h.  все регистры, кроме hl, сохраняются.  hl указывает по выходе на
+;     следующий за сообщением байт.
+;f81b - inkey, ввод кода нажатой клавиши (чтение на лету).  проверяется нажатие
+;     <ус>/<сс>.  выход:  a=0ffh - клавиша не нажата, a=0feh - нажата рус/лат; иначе код
+;     клавиши, сформированный с учетом состояния клавиатуры (рус/лат), нажатия <сс>/<ус>
+;f81e - запрос положения курсора.  выход:  рег.h - номер строки, рег.l - номер позиции
+;     (столбца).  остальные регистры сохр-ся
+;f821 - п/п пользователя.  по сбросу (мон-3) п/п ввода строки символов.  вход:
+;     hl-начало буфера, de - конец.  возврат по <вк> или концу буфера.  строку можно
+;     редактировать с пом.  клавиши "<-"; при загрузке cp/m подменяется п/п print
+;     (эхо-печать в cp/m вкл-ся ctrl/p).
+;f824 - ld_mas, чтение массива с мг. адреса считываются с ленты
+;f827 - стандартная п/п sv_mas, запись массива на мг. заглушена.
+;f82a - ch_sum, подсчет контр.суммы блока.  вход:  hl - нач.адрес, de -кон.адрес.
+;     выход: de -кон.адрес, hl=de, bc=контр.сумма
+;f82d - распаковка внутреннего знакогенератора.  распаковка осуществляется по более
+;     быстрому и короткому алгоритму.
+;f830 - запрос верхней границы озу пользователя. выход hl=ramtop
+;f833 - установка верхней границы озу пользователя.  вход:  hl=адрес верхней границы озу.
+;f836 - чтение байта из доп.  страниц озу.  вход:  hl - адрес, a - номер доп.  страницы
+;     (1-3).  выход:  c - считанный байт
+;f839 - запись байта в доп.страницу озу.  вход:  hl - адрес, a - номер доп.  страницы
+;     (1-3).  c - записываемый байт.
+;f83c - установка курсора.  вход:  h - номер строки (y), l - номер позиции (x).
+;f83f - beep, вывод звука с частотой опред.  константой (f3e7).  имеет вектор перехода f3с4/c5.
+;f842 - четыре ячейки содержат номер версии монитора-3 (v3.1).
+;
+;
+SD_ADDR	equ	0F762h
+SD_ADR2	equ	0F763h
+SD_PWR	equ	08h	; POWER OFF/ON=0/1 (positive logic)
+SD_CS	equ 	04h 	; NPN inverter, positive logic.
+SD_CLK	equ 	02h
+SD_DOUT	equ 	01h
+SD_DIN	equ	80h 
+FTimeout equ	20000
+masterboot_check equ 1FEh
+;
+CMD0   equ 040h +  0 ; resets the card
+CMD9   equ 040h +  9 ; read CSD
+CMD10  equ 040h + 10 ; read CID
+CMD16  equ 040h + 16 ; set R/W block
+CMD17  equ 040h + 17 ; read block
+CMD24  equ 040h + 24 ; write block
+CMD55  equ 040h + 55 ; next command is ACMDxx
+CMD58  equ 040h + 58 ; READ_OCR
+ACMD41 equ 040h + 41 ; send host capacity support, init card
+;
+	.phase	0F800H
+XBFFD	EQU	0BFFDH
+YF300	EQU	0F300H
+YF3C1	EQU	0F3C1H
+XF3C3	EQU	0F3C3H
+XF3C6	EQU	0F3C6H
+XF3C9	EQU	0F3C9H
+XF3CC	EQU	0F3CCH
+YF3CF	EQU	0F3CFH
+YF3D1	EQU	0F3D1H
+YF3D3	EQU	0F3D3H
+YF3D4	EQU	0F3D4H
+YF3D6	EQU	0F3D6H
+YF3D7	EQU	0F3D7H
+YF3D8	EQU	0F3D8H
+YF3DF	EQU	0F3DFH
+YF3E3	EQU	0F3E3H
+YF3E5	EQU	0F3E5H
+YF3E7	EQU	0F3E7H
+YF3E8	EQU	0F3E8H
+YF3EA	EQU	0F3EAH
+YF3EC	EQU	0F3ECH
+YF3EE	EQU	0F3EEH
+YF3F0	EQU	0F3F0H
+YF3F2	EQU	0F3F2H
+YF400	EQU	0F400H
+YF401	EQU	0F401H
+YF402	EQU	0F402H
+YF403	EQU	0F403H
+YF500	EQU	0F500H
+YF501	EQU	0F501H
+YF700	EQU	0F700H
+YF702	EQU	0F702H
+YF720	EQU	0F720H
+;
+AF800:	JP	AF84E
+AF803:	JP	XF3C6
+AF806:	JP	AF848
+cout:	JP	AFA79
+AF80C:	JP	AF975
+aout:	JP	AFA82
+AF812:	JP	AFC6C
+pr_hex:	JP	AF92F
+pr_msg:	JP	MSG		; PR_MSG
+AF81B:	JP	AFD2A
+AF81E:	JP	AF95B
+AF821:	JP	XF3C9
+AF824:	JP	AF8FE
+AF827:	JP	AF8FE
+AF82A:	JP	AF97B
+AF82D:	JP	AF8FF
+AF830:	LD	HL,0BFFFH	; get ramtop
+	RET			; set ramtop (not used)
+IDEREAD:jr	read_sector
+AF836:	JP	AF968		; get byte
+AF839:	JP	AF963		; put byte
+AF83C:	JP	AF954		; set cursor position
+AF83F:	JP	XF3C3		; beep
+;
+	db	56h		; Monitor version (4 byte: 'V3.5')
+	db	33h
+	db	2Eh
+	db	35h
+;
+	LD	A,008H
+AF848:	PUSH	HL
+	LD	HL,(YF3E8)
+	EX	(SP),HL
+	RET
+;
+AF84E:	LD	HL,(YF3C1)
+	LD	SP,0F3BFH
+	POP	BC
+	PUSH	HL
+	SCF
+	ADC	HL,BC
+	RET	Z
+	XOR	A
+	OUT	(0F8H),A
+	OUT	(0F9H),A
+	OUT	(0FAH),A
+	LD	HL,F3C3TAB
+	LD	DE,0F3C3H
+	LD	BC,00030H
+	JP	AF86E
+;
+; read a HDD sector, specified by the 4 bytes in "lba" 
+; Input: HL=DriveInfo_array+8, 
+;	 d=( 1=SDC ALLWAYS ! )
+; Return: acc=zero (Z) on success, non-zero (NZ) for an error
+;         b=0;  c=1 (SDC); DE=SD_ADDR;  HL=buffer+512
+;
+read_sector:
+	call	sd_select   ; saves HL
+;
+sd_wait_busy:
+	ld bc, FTimeout	; XXX timeout XTAL dependent
+L6:
+	call	sd_get	; 8 clocks. data output activates after 1 clock;   trashing DE !
+	inc	a	; FF is not busy
+	jr	z, LL6	; z, ok. a=0
+
+	dec	bc	; else busy or something
+	bit	7, b	; until HL wraps negative
+	jr	z, L6
+;
+; nz if timed out, z a=0 if ok
+;
+LL6:
+	jr	nz, sd_done
+	ld	bc, 0FFFBh      ; -5
+	add	hl, bc
+	ld	c, (hl)
+	inc	hl
+	ld	b, (hl)		; bc=buffer adress
+;	ld	a, d
+;	and	2		; check D1 bit for SDHC flag
+	inc	hl		; saves Z
+	ld	e, (hl)			; lba+0
+	inc	hl
+        ld      d, (hl)			; lba+1
+	inc     hl
+        ld      a, (hl)			; lba+2
+	inc	hl
+        ld      h, (hl)			; lba+3
+        ld      l, a
+;	push	de			; d=drive_sign (1/3)
+	ex	de, hl
+;	jr	nz, sd_read_block	; SDHC - skip LBA*512
+;
+; DEHL (D31..D00) * 512 = DEHL*2*256 
+;
+	add	hl,hl
+	ex	de,hl
+	adc	hl,hl
+	ex	de,hl	; DEHL=DEHL*2
+	ld	d,e
+	ld	e,h
+	ld	h,l
+	ld	l,0	; DEHL=DEHL*256
+sd_read_block:
+	ld	a, CMD17	; READ_SINGLE_BLOCK
+	call	sd_command	; dehl byteaddress, saves BC
+	jr	nz, sd_done1	; not "ok"
+	call	sd_wait_token	; packet start or FF if timed out, saves BC
+	cp	0FEh
+	jr	nz, sd_done1	;  or error
+	ld	h, b	
+	ld	l, c	; buffer address
+	ld	b, 0	; loop counter
+RDLOOP:
+	call	sd_get	; data		trashing DE
+	ld	(hl), a
+	inc	hl
+	call	sd_get	; data
+	ld	(hl), a
+	inc	hl
+	djnz	RDLOOP	; do the sector (512 bytes)
+	call	sd_get  ; crc16
+	call	sd_get  ; crcs are not used
+	xor	a	; zero, no carry
+sd_done1:
+;	pop	de
+sd_done:			
+;	ld	c, d	; c=drive_sign (1=SDC, 3=SDHC)
+	push	af
+	call	sd_fini
+	ld	a, SD_PWR
+	ld	(DE), a	; de=SD_ADDR. Unselect: /CS=high, NVEM:clock,dout=low
+	pop	af
+	ld	c, 1	; only SDC allways
+	ret	nz	; fail
+	xor	a
+	ret 
+;
+sd_init_1:			
+	ld	a, CMD0		; GO_IDLE_STATE
+	call	sd_command_no_arg
+	cp	001h
+	ret	nz		; not "idle"
+
+sd_notready:
+	ld	a, CMD55	; APP_CMD
+	call	sd_command_no_arg
+	and	11111110b	; ~001h
+	ret	nz		; not "idle" nor "ok"
+
+	ld	a, ACMD41	; SD_SEND_OP_COND. arg 0x40000000 is HCS
+	call	sd_command_no_arg	;F8DF
+	cp	001h
+	jr	z, sd_notready	; wait, while idle
+	or	a
+	ret	nz		; not ok
+
+	ld	a, CMD9		; SEND_CSD
+	call	sd_command_no_arg
+	ret	nz		; not ok
+
+	call	sd_wait_token	; packet start or FF if timed out
+	cp	0FEh
+	ret	nz		;  or error
+
+;	ld	hl, csdbuf	; XXX
+	ld	b, 16+2         ; including crc16
+L7:
+	call	sd_get
+;	ld	(hl), a		; temporary read CSD to /dev/null :)
+;	inc	hl
+	djnz	L7		; do 16+2 bytes
+;
+; CSD in csdbuf. calculate something
+;
+	ld	a, CMD58	; READ_OCR
+	call	sd_command_no_arg
+	ret	nz		; not ok   F900
+	call	sd_get
+	push	af
+	call	sd_get
+	call	sd_get
+	call	sd_get
+	pop	af
+	and	040h    	; NZ if SDHC  NZ=error : SDHC not supported
+	jr	sd_done		
+;
+; -------
+;
+AFA45:	LD	A,0DFH
+	LD	(YF400),A
+	LD	A,(YF402)
+	AND	060H
+	RET	NZ
+	CALL	AFD33
+	INC	A
+	JR	Z,AFA45
+	DEC	A
+	Jp	Z,AF8C8
+	DEC	A
+	Jp	Z,AFA6C
+	DEC	A
+	CALL	Z,AFA73
+	Jr	Z,AF879
+	ADD	A,002H
+	PUSH	HL
+	LD	HL,(YF3DF)
+	EX	(SP),HL
+	RET
+;
+AF86E:	LDIR
+	CALL	AF8FF
+	LD	HL,VER_TXT
+	CALL	MSG
+AF879:	LD	SP,0F3C0H
+	LD	HL,0F743H	; init 580vi53
+	LD	(HL),030H
+	LD	(HL),070H
+	LD	H,0F4H
+	LD	(HL),08AH	; set keyboard PPA mode
+;	INC	H
+	LD	A,090H
+;	LD	(HL),A		; set ROM-DiSK PPA mode
+	OUT	(0FBH),A	; 16k dispatcher off, int off
+	CALL	AFC72		; something with keyboard -> 
+	Jr	NZ,AF8C8	;   -> goto command mode
+	LD	HL,0B800H	; ADDRESS WHERE ORDOS or MON_EXT live
+	XOR	A
+AF896:	XOR	(HL)
+	INC	HL
+	BIT	6,H
+	JR	Z,AF896
+	CP	0E6H		; CRC for MON_EXT
+	JP	Z,XBFFD		; GOTO MON_EXT
+;
+BOOTSD:
+;
+; Hard reset the drive, by pulsing power pin.
+;
+	xor	a
+	ld	(SD_ADDR), a	; power off
+	ld	b, a
+	ld	c, a
+del2:	dec	bc		
+	ld	a, b
+	or	c
+	jr	nz, del2	; delay (6+4+4+5+12=31)*256*256 tstates	  (~0.4s at 5MHz)
+;	ld	a, SD_PWR
+;	ld	(SD_ADDR), a	; power on
+;
+; initialize the drive. Return Z if NOT_READY, NZ if OK
+;
+	call	sd_wiggle	; power on, wiggle
+	call	sd_select	; ignore busy condition
+	call	sd_init_1
+;
+	jr	nz, prnerr	; initialization error
+	ld	a,1
+	out	(0F9h),a 
+	ld	hl, MasterInfo	; +8
+;        ld      d, a			; d=1=SDC
+        call	read_sector		; LBA=0, carry=0
+	jr	nz, prnerr		; if read_sector failed
+	ld	a, 0C3H			; first MASTERBOOT command is JMP
+	ld	de, 55ABh
+	ld	hl, (masterboot_check)	; AA55
+	adc	hl, de			; hl=0
+	JR	NZ, prnerr		; wrong MBR
+	cp	(hl)			
+	JR	NZ, prnerr		; not a CPM bootloader
+	RST	000			; CALL HDD MASTERBOOT
+;
+prnerr:	ld	c, a
+	xor	a
+	out	(0F9h),a 
+	call	pr_hex
+	ld	a, c
+	call	pr_hex
+;
+;================================================================================
+;
+SUB_ERR:LD	HL,ERR_TXT
+	CALL	MSG
+AF8C8:	LD	SP,0F3C0H
+	LD	HL,SUB_ERR
+	LD	(YF3D8),HL		; broken tape subroutine
+	LD	HL,AF8C8
+	PUSH	HL
+	CALL	AF9C6
+	LD	BC,0F301H
+	INC	DE
+	CALL	AFA09
+	CALL	AFA09
+	CALL	AFA09
+	CALL	AFA09
+	POP	HL
+	POP	BC
+	POP	DE
+	POP	HL
+	LD	A,(YF300)
+;	CP	'L'		; 04CH
+;	JP	Z,BOOTFDD
+	CP	'G'		; 047H
+	Jr	Z,AF96F
+	PUSH	HL
+	LD	HL,(YF3E3)
+	EX	(SP),HL
+AF8FE:	RET
+;
+AFA6C:	CALL	AFD33
+	CP	00DH
+	JR	NZ,AFA6C
+AFA73:	CALL	AFC72
+	JR	NZ,AFA73
+	RET
+;
+AF968:	OUT	(0F9H),A
+	LD	C,(HL)
+RET0_F9:XOR	A
+	OUT	(0F9H),A
+	RET
+;
+AF8FF:	LD	HL,TFE60
+	LD	BC,(YF3D1)
+	XOR	A
+AF907:	BIT	7,H
+	RET	Z
+	LD	E,(HL)
+	INC	HL
+	LD	D,(HL)
+	OR	A
+	PUSH	AF
+	JR	Z,AF918
+AF911:	RR	D
+	RR	E
+	DEC	A
+	JR	NZ,AF911
+AF918:	LD	A,E
+	AND	01FH
+AF91B:	LD	(BC),A
+	INC	BC
+	LD	A,C
+	OR	0F8H
+	INC	A
+	JR	Z,AF91B
+	POP	AF
+	ADD	A,005H
+	SUB	008H
+	JR	NC,AF907
+	DEC	HL
+	ADD	A,008H
+	JR	AF907
+;
+AF96F:	INC	H
+	Jr	Z,SUB_ERR
+	DEC	H
+	JP	(HL)
+;
+AF92F:	PUSH	AF
+	RRCA
+	RRCA
+	RRCA
+	RRCA
+	CALL	AF938
+	POP	AF
+AF938:	AND	00FH
+	CP	00AH
+	JR	C,AF940
+	ADD	A,007H
+AF940:	ADD	A,030H
+AF942:	PUSH	BC
+	LD	C,A
+	CALL	cout
+	POP	BC
+	RET
+;
+AF94E:	LD	A,H
+	CP	D
+	RET	NZ
+	LD	A,L
+	CP	E
+	RET
+;
+AF954:	RLC	L
+	RLC	L
+	LD	(YF3D6),HL
+AF95B:	LD	HL,(YF3D6)
+	RRC	L
+	RRC	L
+	RET
+;
+AF963:	OUT	(0F9H),A
+	LD	(HL),C
+	JR	RET0_F9
+;
+AF975:	PUSH	HL
+	LD	HL,(YF3EA)
+	EX	(SP),HL
+	RET
+;
+AF97B:	LD	BC,00000H
+AF97E:	LD	A,C
+	ADD	A,(HL)
+	LD	C,A
+	EX	AF,AF'
+	CALL	AF94E
+	RET	Z
+	EX	AF,AF'
+	LD	A,B
+	ADC	A,(HL)
+	LD	B,A
+	INC	HL
+	JR	AF97E
+;
+AF9C6:	LD	HL,GT_TXT
+	CALL	MSG
+	LD	HL,0F300H
+	LD	DE,0F31FH
+ERR_TXT:DEFB	00DH		; TF9D2 = cr,lf,beep,'.ERROR',beep,06h,0
+	DEFB	00AH
+;	DEFB	007H
+;	DEFB	02EH
+	DEFB	045H
+	DEFB	052H
+	DEFB	052H
+	DEFB	04FH
+	DEFB	052H
+	DEFB	007H
+AF9DC:	DEFB	006H
+	DEFB	000H
+AF9DE:	INC	B
+AF9DF:	CALL	AF803
+	CP	008H
+	JR	Z,AF9F7
+	LD	(HL),A
+	LD	C,A
+	CP	00DH
+	RET	Z
+	CALL	AF94E
+	JR	Z,AF9DF
+	CALL	cout
+	INC	HL
+	INC	B
+	JR	NZ,AF9DF
+AF9F7:	DEC	B
+	JR	Z,AF9DE
+	PUSH	HL
+	LD	HL,DELLEFT	; backspace - delete left symbol
+	CALL	MSG
+	POP	HL
+	DEC	HL
+	JR	AF9DF
+;
+DELLEFT:db	08h		
+	db	' '
+	db	08h
+	db	0
+;
+AFA17:	LD	H,0FFH
+AFA19:	LD	A,(BC)
+	CP	00DH
+	RET	Z
+	INC	BC
+	CP	02CH
+	RET	Z
+	CP	020H
+	RET	Z
+	INC	H
+	JR	Z,AFA17
+	DEC	H
+	CALL	AFA35
+	JR	C,AFA17
+	ADD	HL,HL
+	ADD	HL,HL
+	ADD	HL,HL
+	ADD	HL,HL
+	ADD	A,L
+	LD	L,A
+	JR	AFA19
+;
+AFA79:	CALL	XF3CC
+AFA7C:	PUSH	AF
+	CALL	AFA45
+	POP	AF
+	RET
+;
+AFA82:	PUSH	HL
+	LD	HL,(YF3EE)
+	EX	(SP),HL
+	RET
+;
+AFA88:	PUSH	BC
+	LD	C,A
+	CALL	AFA90
+	POP	BC
+	JR	AFA7C
+;
+;---AFA90
+;
+AFAB2:	LD	H,020H
+	SUB	H
+	JR	C,AFAF4
+	LD	L,A
+	ADD	HL,HL
+	ADD	HL,HL
+	ADD	HL,HL
+	LD	DE,(YF3D1)
+	ADD	HL,DE
+	EX	DE,HL
+	CALL	AFB93
+	EX	DE,HL
+	LD	A,009H
+AFAC7:	DEC	A
+	JR	NZ,AFACD
+	LD	HL,TFB57
+AFACD:	EX	AF,AF'
+	PUSH	HL
+	LD	A,(YF3D3)
+	XOR	(HL)
+	AND	03FH
+	LD	L,A
+	DEFB	0DDH
+	LD	A,L
+	DEC	A
+	LD	H,000H
+AFADB:	ADD	HL,HL
+	ADD	HL,HL
+	INC	A
+	JR	NZ,AFADB
+	EX	DE,HL
+	LD	A,B
+	XOR	(HL)
+	AND	(HL)
+	OR	D
+	LD	(HL),A
+	INC	H
+	LD	A,C
+	XOR	(HL)
+	AND	(HL)
+	OR	E
+	LD	(HL),A
+	DEC	H
+	INC	L
+	EX	DE,HL
+	POP	HL
+	INC	HL
+	EX	AF,AF'
+	JR	NZ,AFAC7
+AFAF4:	LD	HL,(YF3D6)
+	CALL	AFB56
+	ADD	HL,BC
+	LD	A,H
+	CP	019H
+	JR	C,AFB2F
+	JR	NZ,AFB2D
+	INC	D
+	LD	H,D
+	JR	Z,AFB2F
+	PUSH	HL
+	LD	A,(YF3D4)
+	CALL	AFB37
+AFB0D:	LD	A,00AH
+	ADD	A,C
+	LD	L,A
+	LD	D,H
+	LD	E,C
+	LD	A,0EFH
+	PUSH	BC
+AFB16:	LDI
+	LDI
+	LDI
+	LDI
+	CP	E
+	JR	NC,AFB16
+	POP	BC
+	LD	A,(YF3D3)
+AFB25:	LD	(DE),A
+	INC	E
+	JR	NZ,AFB25
+	INC	H
+	DJNZ	AFB0D
+	POP	HL
+AFB2D:	LD	H,018H
+AFB2F:	LD	(YF3D6),HL
+	Jr	AFB32
+;
+AFB37:	LD	L,A
+	CALL	AFBB6
+	LD	C,A
+	LD	HL,(YF3CF)
+	LD	B,H
+	LD	H,L
+	RET
+;
+VER_TXT:DEFB 	01Fh		; cls
+IF N8VEM
+	DEFB	'MON3.5/MS/SD'
+ELSE
+	DEFB	'MON3.5/SD/MS'
+ENDIF
+AFB56:	DEFB	001H
+TFB57:	DEFB	000H
+	LD	BC,03C51H
+	CALL	Z,AFC27
+	JR	Z,AFB8E
+	CP	0EBH
+	RET	Z
+	DEC	D
+	ADD	A,005H
+	RET	Z
+	INC	D
+	LD	B,0FFH
+	INC	A
+	RET	Z
+	LD	C,0FCH
+	CP	0EFH
+	RET	Z
+	LD	BC,00000H
+	CP	0F0H
+	JR	NZ,AFB7F
+	LD	A,L
+	AND	0E0H
+	ADD	A,020H
+	LD	L,A
+	RET
+;
+AFA90:	PUSH	BC
+	PUSH	DE
+	PUSH	HL
+	PUSH	AF
+	LD	HL,0F3DEH
+	LD	A,C
+	CP	01BH
+	LD	A,0F0H
+	Jr	Z,AFBD8
+	LD	A,(HL)
+	AND	A
+	Jr	NZ,AFBDC
+TFAA4:	LD	A,C
+	CP	07FH
+	Jp	NZ,AFAB2
+	LD	HL,0F3D3H
+	LD	A,(HL)
+	CPL
+	LD	(HL),A
+AFB32:	POP	AF
+TFB33:	POP	HL
+	POP	DE
+	POP	BC
+	RET
+;
+AFB7F:	CP	0EEH
+	JP	Z,AF83F
+	LD	C,004H
+	INC	A
+	RET	Z
+	ADD	A,00BH
+	JR	Z,AFB8F
+	INC	A
+	RET	NZ
+AFB8E:	LD	H,D
+AFB8F:	LD	L,D
+	LD	B,D
+	LD	C,D
+	RET
+;
+AFB93:	LD	HL,(YF3D6)
+	LD	A,L
+	RRCA
+	LD	L,A
+	RRCA
+	ADD	A,L
+	LD	B,A
+	LD	L,H
+	LD	A,(YF3CF)
+	LD	H,A
+	LD	A,B
+	DEC	H
+AFBA3:	INC	H
+	SUB	004H
+	JR	NC,AFBA3
+	DEFB	0DDH
+	LD	L,A
+	PUSH	HL
+	LD	HL,000FCH
+AFBAE:	ADD	HL,HL
+	ADD	HL,HL
+	INC	A
+	JR	NZ,AFBAE
+	LD	B,H
+	LD	C,L
+	POP	HL
+AFBB6:	LD	A,L
+	ADD	A,A
+	ADD	A,A
+	ADD	A,A
+	ADD	A,L
+	ADD	A,L
+	LD	L,A
+	RET
+;
+AFBBE:	PUSH	BC
+	PUSH	HL
+	CALL	AFB93
+	ADD	A,008H
+	LD	L,A
+	LD	A,B
+	XOR	(HL)
+	LD	(HL),A
+	INC	H
+	LD	A,C
+	XOR	(HL)
+	LD	(HL),A
+	POP	HL
+	POP	BC
+	RET
+;
+AFBD0:	LD	A,C
+	CP	059H
+	JR	NZ,AFBE7
+	LD	A,002H
+	OR	B
+AFBD8:	LD	(HL),A
+xFB32:	Jr	AFB32	;---
+;
+AFBDC:	LD	B,A
+	AND	003H
+	JR	Z,AFBD0
+	DEC	A
+	JR	Z,AFC12
+	DEC	A
+	JR	Z,AFC1D
+AFBE7:	LD	(HL),000H
+	LD	A,C
+	SUB	04AH
+	JR	Z,AFC30
+	DEC	A
+	JR	Z,AFC49
+	LD	HL,TFAA4
+	PUSH	HL
+	LD	C,01FH
+	ADD	A,006H
+	RET	Z
+	LD	C,008H
+	INC	A
+	RET	Z
+	LD	C,018H
+	INC	A
+	RET	Z
+	INC	C
+	ADD	A,002H
+	RET	Z
+	INC	C
+	DEC	A
+	RET	Z
+	LD	C,00CH
+	SUB	006H
+	RET	Z
+	POP	HL
+	Jr	xFB32
+;
+AFC12:	LD	A,0E0H
+	ADD	A,C
+	ADD	A,A
+	ADD	A,A
+	LD	(YF3D6),A
+	XOR	A
+	JR	AFBD8
+;
+AFC1D:	LD	A,0E0H
+	ADD	A,C
+	LD	(YF3D7),A
+	LD	A,0F1H
+	JR	AFBD8
+;
+AFC27:	PUSH	BC
+	PUSH	DE
+	PUSH	HL
+	PUSH	AF
+	LD	A,(YF3D4)
+	JR	AFC33
+;
+AFC30:	LD	A,(YF3D7)
+AFC33:	CP	019H
+	Jr	NC,xFB32
+	CALL	AFB37
+AFC3B:	LD	L,C
+	LD	A,(YF3D3)
+AFC3F:	LD	(HL),A
+	INC	L
+	JR	NZ,AFC3F
+	INC	H
+	DJNZ	AFC3B
+	Jr	xFB32
+;
+AFC49:	LD	HL,(YF3D6)
+	PUSH	HL
+	LD	B,L
+	LD	C,020H
+AFC50:	CALL	cout
+	LD	A,004H
+	ADD	A,B
+	LD	B,A
+	JR	NZ,AFC50
+	POP	HL
+	JP	AFB2F
+;
+AFC5D:	PUSH	BC
+	LD	B,020H
+AFC60:	LD	A,(YF3E7)
+	OUT	(0FFH),A
+AFC65:	DEC	A
+	JR	NZ,AFC65
+	DJNZ	AFC60
+	POP	BC
+	RET
+;
+AFC6C:	PUSH	HL
+	LD	HL,(YF3EC)
+	EX	(SP),HL
+	RET
+;
+AFC72:	CALL	AFD33
+	SUB	0FFH
+	SBC	A,A
+	RET
+;
+; Таблица клавиш
+;
+KEYTAB:	DEFB	031H		; 0FD62h,  original - fc79  
+	DEFB	01BH
+	DEFB	0E8H
+	DEFB	090H
+	DEFB	014H
+	DEFB	040H
+	DEFB	024H
+	DEFB	041H
+	DEFB	0F8H
+	DEFB	07CH
+	DEFB	0F4H
+	DEFB	009H
+	DEFB	098H
+	DEFB	01CH
+	DEFB	03CH
+	DEFB	060H
+	DEFB	035H
+	DEFB	033H
+	DEFB	0BCH
+	DEFB	007H
+	DEFB	094H
+	DEFB	038H
+	DEFB	048H
+	DEFB	050H
+	DEFB	0FFH
+	DEFB	019H
+	DEFB	015H
+	DEFB	005H
+	DEFB	08CH
+	DEFB	02CH
+	DEFB	004H
+	DEFB	034H
+	DEFB	0AEH
+	DEFB	017H
+	DEFB	03FH
+	DEFB	003H
+	DEFB	088H
+	DEFB	054H
+	DEFB	05CH
+	DEFB	04CH
+	DEFB	069H
+	DEFB	06BH
+	DEFB	06DH
+	DEFB	001H
+	DEFB	084H
+	DEFB	00CH
+	DEFB	064H
+	DEFB	078H
+	DEFB	058H
+	DEFB	068H
+	DEFB	0A4H
+	DEFB	0A0H
+	DEFB	074H
+	DEFB	010H
+	DEFB	000H
+	DEFB	0F0H
+	DEFB	070H
+	DEFB	020H
+	DEFB	080H
+	DEFB	09CH
+	DEFB	06CH
+	DEFB	030H
+	DEFB	008H
+	DEFB	011H
+	DEFB	063H
+	DEFB	065H
+	DEFB	067H
+	DEFB	0ECH
+	DEFB	028H
+	DEFB	018H
+	DEFB	044H
+	DEFB	000H
+	DEFB	061H
+	DEFB	05DH
+	DEFB	01BH
+	DEFB	037H
+	DEFB	013H
+	DEFB	01DH
+	DEFB	01FH
+	DEFB	000H
+	DEFB	06FH
+	DEFB	071H
+	DEFB	073H
+	DEFB	059H
+	DEFB	0B6H
+AFCCE:	PUSH	BC
+	PUSH	DE
+	PUSH	HL
+	LD	HL,TFB33
+	PUSH	HL
+AFCD5:	LD	DE,000FFH
+AFCD8:	CALL	AFD24
+	LD	B,A
+	LD	HL,0F3E6H
+	INC	A
+	JR	NZ,AFCE6
+AFCE2:	LD	(HL),001H
+	JR	AFCD8
+;
+AFCE6:	LD	C,(HL)
+AFCE7:	XOR	A
+AFCE8:	DEC	A
+	JR	NZ,AFCE8
+	CALL	AFD24
+	CP	B
+	JR	NZ,AFCE2
+	DEC	C
+	JR	NZ,AFCE7
+	DEC	(HL)
+	LD	A,(YF3F2)
+	LD	(HL),A
+	JR	Z,AFCFD
+	LD	(HL),002H
+AFCFD:	BIT	0,D
+	CALL	NZ,AFBBE
+	CALL	AF83F
+	LD	A,B
+	CP	0FEH
+	RET	NZ
+	LD	HL,0F3E7H
+	LD	A,(HL)
+	XOR	020H
+	LD	(HL),A
+	LD	HL,0F3E5H
+	LD	A,(HL)
+	CPL
+	LD	(HL),A
+	LD	HL,0F402H
+	LD	(HL),A
+AFD1A:	LD	A,(HL)
+	BIT	7,(HL)
+	JR	Z,AFD1A
+	CALL	AF83F
+	JR	AFCD5
+;
+AFD24:	INC	DE
+	INC	E
+	DEC	E
+	CALL	Z,AFBBE
+AFD2A:	PUSH	HL
+	LD	HL,(YF3F0)
+	EX	(SP),HL
+	RET
+;
+AFD30:	CALL	AFA7C
+AFD33:	EXX
+	LD	HL,0F400H
+	CALL	AFD3C
+	EXX
+	RET
+;
+; INKEY
+;
+AFD3C:	LD	E,0DFH	
+	LD	(HL),E		; hl = 0F400h
+	LD	A,(YF402)
+	RLCA
+	LD	D,A
+	LD	A,0FEH
+	RET	NC
+	LD	A,(YF3E5)	; признак рус (0ffh)/лат (00) 
+	AND	001H
+	OR	006H
+	LD	(YF403),A
+	LD	BC,0FF07h
+AFD54:	LD	A,(YF401)
+	CP	B
+	JR	NZ,AFD6A
+	RRC	E
+	LD	(HL),E
+	LD	A,B
+	DEC	C
+	RET	M
+	LD	A,(YF402)
+	OR	01FH
+	CP	B
+	JR	Z,AFD54
+	LD	B,007H
+AFD6A:	LD	E,017H
+AFD6C:	LD	A,(YF402)
+	OR	01FH
+	BIT	7,B
+	JR	Z,AFD78
+	LD	A,(YF401)
+AFD78:	CP	0FFH
+	RET	Z
+	DEC	E
+	JR	NZ,AFD6C
+AFD7E:	INC	B
+	RLCA
+	JR	C,AFD7E
+	LD	A,D
+	RLCA
+	LD	E,A
+	LD	A,B
+	RLCA
+	RLCA
+	RLCA
+	ADD	A, C
+	ADD	A, LOW KEYTAB	; lo(keytab)
+	LD	C, A
+	LD	B, HIGH KEYTAB	; hi(keytab)
+	LD	A, (BC)
+	RRA
+	RET	C
+	RRA
+	JR	NC,AFD9E
+	DEC	E
+	RET	M
+	DEC	A
+	CP	02AH
+	RET	Z
+	LD	A,02FH
+	RET
+;
+AFD9E:	CP	020H
+	JP	M,AFDA8
+	DEC	E
+	RET	M
+	XOR	010H
+	RET
+;
+AFDA8:	DEC	D
+	RET	P
+	LD	D,A
+	LD	A,(YF3E5)
+	OR	A
+	JR	Z,AFDB3
+	LD	A,020H
+AFDB3:	ADD	A,040H
+	ADD	A,D
+	DEC	E
+	RET	M
+	XOR	020H
+	RET
+;
+F3C3TAB:JP	AFC5D	; beep
+	JP	AFCCE	; getch
+	JP	AF9DC	; prmsg
+	JP	AFA90	; putch (from reg.c)
+	DEFB	0C0H
+	DEFB	030H
+	DEFB	000H
+	DEFB	0F0H
+	DEFB	000H
+	DEFB	000H
+	DEFB	019H
+	DEFB	000H
+	DEFB	000H
+	DEFW	AF879	; broken tape subroutine address
+	DEFB	040H
+	DEFB	060H
+	DEFB	000H
+	DEFB	000H
+	DEFB	000H
+	DEFW	AF8FE	; additional software interrupt subroutine address
+	DEFW	AFA90	; internal putchar subroutine address
+	DEFW	SUB_ERR	; monitor dirrectives procession subroutine address
+	DEFB	000H
+	DEFB	000H
+	DEFB	03FH
+	DEFW	AF8FE	; read tape subroutine address
+	DEFW	AF8FE	; write tape subroutine address
+	DEFW	AFC72	; keyboard status subroutine address
+	DEFW	AFA88	; putch (from reg.a)
+	DEFW	AFD30	; getch ?
+	DEFB	0CFH
+MSG:	LD	A,(HL)
+	OR	A
+	RET	Z
+	CALL	AF942
+	INC	HL
+	JR	MSG
+;
+AFA09:	LD	HL,00000H	;-----
+	CALL	AFA19
+	EX	DE,HL
+AFA10:	LD	(HL),E
+	INC	HL
+	LD	(HL),D
+	INC	HL
+	EX	DE,HL
+	EX	(SP),HL
+	JP	(HL)
+;
+AFA35:	SUB	030H
+	RET	C
+	CP	00AH
+	CCF
+	RET	NC
+	CP	011H
+	RET	C
+	SUB	007H
+	CP	010H
+	CCF
+	RET			;-----
+;
+;============================= SDcard routines =============================
+;
+; z return if ok
+; idle, ready, size, set block size
+;
+sd_select:
+	call	sd_fini		;
+	or 	SD_PWR + SD_CS	; select, still idle data
+	ld	(DE), a		; DE=SD_ADDR
+	ret			; af bc' hl' trashed
+;
+IF N8VEM
+;
+sd_wiggle:
+	ld	bc, 255*256 + SD_CLK
+	jr	sd_wig
+;
+; sd_fini return: DE=SD_ADDR
+;
+sd_fini:
+	ld 	bc, 17*256 + SD_CLK	; clock low high low high ... low, 8 pulses
+sd_wig:	ld	de, SD_ADDR 
+	ld 	a, SD_DOUT + SD_PWR	; unselected, idle data
+L1:	ld	(de), a
+	xor	c		; c=SD_CLK
+	djnz	L1
+	ret			; af bc' hl' trashed
+;
+sd_put:	push	hl                	; byte from a
+	ld	c, a
+	ld 	b, 8
+	ld	hl, SD_ADDR 
+L3:	ld 	a, 6		; (SD_PWR+SD_CS)/2  	
+	rl 	c
+	rla			; SD_DOUT is RTC.0
+	ld	(hl), a		; clock is low
+	or 	SD_CLK
+	ld	(hl), a		; rising clock edge
+	djnz	L3
+	xor	SD_CLK		; and	NOT SD_CLK
+	ld	(hl), a		; leave with clock low
+	pop	hl
+	ret			; af bc' hl' trashed
+;
+sd_get:	push	hl             	; byte to a
+	ld	d, 8
+	ld	hl, SD_ADDR 
+L2:	ld	a, (hl)
+	rla			; SD_DIN is RTC.7
+	rl	e
+	ld	a, SD_PWR + SD_CS + SD_DOUT + SD_CLK
+	ld	(hl), a
+	and	NOT SD_CLK
+	ld	(hl), a
+	dec	d
+	jr	nz, L2
+	ld	a, e
+	pop	hl
+	ret			; af bc' hl' trashed
+;
+ELSE
+;
+sd_wiggle:
+	ld	b, 70h
+	jr	sd_wig
+;
+; sd_fini return: DE=SD_ADDR
+;
+sd_fini:
+	ld	b, 8
+sd_wig:	ld	a, SD_PWR
+	ld	de, SD_ADDR
+	ld	(de), a
+	ld	a, 0FFh
+	inc	de		; DE=SD_ADR2
+LL0:	ld	(de), a		; out & /CLK		 
+	djnz	LL0
+	dec	de		; DE=SD_ADDR
+	xor	a		; for MSX<=>NVEM compability!
+	ret			; af b de trashed
+;
+sd_put:	ld	bc, SD_ADR2
+	ld	(bc), a		 
+	rlca	
+	ld	(bc), a
+	rlca	
+	ld	(bc), a
+	rlca	
+	ld	(bc), a
+	rlca	
+	ld	(bc), a
+	rlca	
+	ld	(bc), a
+	rlca	
+	ld	(bc), a
+	rlca	
+	ld	(bc), a		; 84 tstates
+	ret			; a bc trashed
+;
+sd_get:	ld	de, SD_ADR2
+	ld	a, d		; A.D7=1
+	ld	(de), a
+	ld	(de), a
+	ld	(de), a
+	ld	(de), a
+	ld	(de), a
+	ld	(de), a
+	ld	(de), a
+	ld	(de), a		; 7*9=63 tstates
+	ld	a, (de)
+	ret			; a=result,  de trashed  
+;
+ENDIF
+;
+; command in a, includes fixed msbits
+; arg32 in dehl
+; z return, if R1 (in a) is 0
+; saves BC
+;
+sd_command_no_arg:
+	ld	hl, 0
+;
+sd_command_word_arg:  ; fits in HL
+	ld	de, 0
+;
+sd_command:		; command in a, dword arg in dehl
+	push	bc
+	call	sd_put	; command includes fixed 01 startbits
+	ld	a, d	; arg highest (D31..D24) - Xhi
+	call	sd_put
+	ld	a, e	;             (D23..D16) - Xlo
+	call	sd_put
+	ld	a, h	;             (D15..D08) - Yhi 
+	call	sd_put
+	ld	a, l	; arg lowest  (D07..D00) - Ylo
+	call	sd_put
+
+	ld	a, 095h	; crc7 only valid for initial CMD0
+	call	sd_put	; DOUT ends up idle because of the stopbit
+	ld hl,FTimeout	; XXX timeout XTAL dependent
+	pop	bc
+L4:
+	call	sd_get	; R1 response, when msbit is clear
+	or	a	; zero and sign valid
+	ret	p	; R1 in a. z if ok
+	dec	hl
+	bit	7, h	; until HL wraps negative
+	jr	z, L4
+	ret		; 0x80 | ? in a, nz
+;
+; command response R1
+; 0x00 ok
+; or bitfield
+; 0x01 idle state
+; 0x02 erase reset
+; 0x04 illegal command
+; 0x08 command crc error
+; 0x10 erase sequence error
+; 0x20 address error
+; 0x40 parameter error
+; 0x80 timeout (other bits meaningless)
+;
+; packet token
+; 0xFF none yet
+; 0xFE ok
+; or bitfield
+; 0x01 error
+; 0x02 controller error
+; 0x04 media ecc failed
+; 0x08 out of range
+; 0x10 card is locked
+;
+sd_wait_token:
+	ld hl, FTimeout	; XXX timeout XTAL dependent
+L5:
+	call	sd_get	; token is first non-FF
+	cp	0FFh
+	ret	nz	; token in a
+
+	dec	hl
+	bit	7, h	; until HL wraps negative
+	jr	z, L5
+	ret		; FF in a
+;
+;=================================================================
+;
+; Do no move (because MasterInfo)
+;
+GT_TXT:	DEFB	00DH		; TF949 = cr,lf,beep,'>',0h
+	DEFB	00AH
+	DEFB	007H
+	DEFB	03EH
+	DEFB	000H
+;	DEFB	000H
+;================================================================================
+;
+; Знакогенератор        
+;
+TFE60:	DEFB	000H
+	DEFB	000H
+	DEFB	000H
+	DEFB	000H
+	DEFB	020H
+	DEFB	084H
+	DEFB	010H
+	DEFB	002H
+	DEFB	088H
+	DEFB	052H
+	DEFB	00AH
+	DEFB	000H
+	DEFB	000H
+	DEFB	094H
+	DEFB	0FAH
+	DEFB	0EAH
+	DEFB	02BH
+	DEFB	015H
+	DEFB	05DH
+	DEFB	08CH
+	DEFB	0D1H
+	DEFB	045H
+	DEFB	09CH
+	DEFB	005H
+	DEFB	041H
+	DEFB	073H
+	DEFB	010H
+	DEFB	0A5H
+	DEFB	058H
+	DEFB	095H
+	DEFB	0CDH
+	DEFB	018H
+	DEFB	041H
+	DEFB	000H
+	DEFB	000H
+	DEFB	082H
+	DEFB	020H
+	DEFB	084H
+	DEFB	088H
+	DEFB	040H
+	DEFB	044H
+	DEFB	008H
+	DEFB	041H
+	DEFB	010H
+	DEFB	020H
+	DEFB	0D5H
+	DEFB	055H
+	DEFB	002H
+	DEFB	000H
+	DEFB	021H
+	DEFB	09FH
+	DEFB	010H
+	DEFB	000H
+	DEFB	000H
+	DEFB	060H
+	DEFB	08CH
+	DEFB	020H
+	DEFB	000H
+	DEFB	0C0H
+	DEFB	007H
+	DEFB	000H
+	DEFB	000H
+	DEFB	000H
+	DEFB	000H
+	DEFB	060H
+	DEFB	00CH
+	DEFB	004H
+	DEFB	041H
+	DEFB	010H
+	DEFB	004H
+	DEFB	02EH
+	DEFB	0CEH
+	DEFB	09AH
+	DEFB	0A3H
+	DEFB	023H
+	DEFB	08CH
+	DEFB	010H
+	DEFB	042H
+	DEFB	09CH
+	DEFB	08BH
+	DEFB	0C1H
+	DEFB	020H
+	DEFB	0F8H
+	DEFB	07FH
+	DEFB	010H
+	DEFB	026H
+	DEFB	044H
+	DEFB	027H
+	DEFB	08CH
+	DEFB	092H
+	DEFB	05FH
+	DEFB	088H
+	DEFB	00FH
+	DEFB	07DH
+	DEFB	008H
+	DEFB	0D1H
+	DEFB	01DH
+	DEFB	004H
+	DEFB	07DH
+	DEFB	08CH
+	DEFB	0EEH
+	DEFB	007H
+	DEFB	041H
+	DEFB	010H
+	DEFB	042H
+	DEFB	02EH
+	DEFB	046H
+	DEFB	017H
+	DEFB	0A3H
+	DEFB	073H
+	DEFB	031H
+	DEFB	0BEH
+	DEFB	020H
+	DEFB	038H
+	DEFB	060H
+	DEFB	00CH
+	DEFB	000H
+	DEFB	0C6H
+	DEFB	018H
+	DEFB	003H
+	DEFB	08CH
+	DEFB	011H
+	DEFB	024H
+	DEFB	008H
+	DEFB	082H
+	DEFB	088H
+	DEFB	008H
+	DEFB	000H
+	DEFB	03EH
+	DEFB	0F8H
+	DEFB	000H
+	DEFB	020H
+	DEFB	022H
+	DEFB	082H
+	DEFB	020H
+	DEFB	0C8H
+	DEFB	0C5H
+	DEFB	020H
+	DEFB	008H
+	DEFB	020H
+	DEFB	02EH
+	DEFB	0CEH
+	DEFB	07AH
+	DEFB	0A1H
+	DEFB	023H
+	DEFB	02AH
+	DEFB	0C6H
+	DEFB	01FH
+	DEFB	0A3H
+	DEFB	08FH
+	DEFB	0D1H
+	DEFB	0C7H
+	DEFB	0E8H
+	DEFB	05DH
+	DEFB	084H
+	DEFB	010H
+	DEFB	046H
+	DEFB	0E7H
+	DEFB	053H
+	DEFB	04AH
+	DEFB	029H
+	DEFB	0F9H
+	DEFB	00FH
+	DEFB	0A1H
+	DEFB	087H
+	DEFB	0F0H
+	DEFB	07FH
+	DEFB	008H
+	DEFB	03DH
+	DEFB	084H
+	DEFB	0D0H
+	DEFB	045H
+	DEFB	008H
+	DEFB	067H
+	DEFB	07CH
+	DEFB	031H
+	DEFB	0C6H
+	DEFB	01FH
+	DEFB	063H
+	DEFB	074H
+	DEFB	084H
+	DEFB	010H
+	DEFB	042H
+	DEFB	05CH
+	DEFB	008H
+	DEFB	021H
+	DEFB	0C4H
+	DEFB	0E8H
+	DEFB	0A2H
+	DEFB	0A4H
+	DEFB	098H
+	DEFB	0CAH
+	DEFB	008H
+	DEFB	021H
+	DEFB	084H
+	DEFB	030H
+	DEFB	0FEH
+	DEFB	0B8H
+	DEFB	06BH
+	DEFB	08DH
+	DEFB	031H
+	DEFB	0C6H
+	DEFB	098H
+	DEFB	0EBH
+	DEFB	08CH
+	DEFB	0D1H
+	DEFB	0C5H
+	DEFB	018H
+	DEFB	063H
+	DEFB	074H
+	DEFB	03EH
+	DEFB	046H
+	DEFB	00FH
+	DEFB	021H
+	DEFB	074H
+	DEFB	031H
+	DEFB	0C6H
+	DEFB	02AH
+	DEFB	09BH
+	DEFB	08FH
+	DEFB	0D1H
+	DEFB	053H
+	DEFB	019H
+	DEFB	05DH
+	DEFB	084H
+	DEFB	02EH
+	DEFB	044H
+	DEFB	0F7H
+	DEFB	009H
+	DEFB	021H
+	DEFB	084H
+	DEFB	090H
+	DEFB	018H
+	DEFB	063H
+	DEFB	08CH
+	DEFB	0D1H
+	DEFB	0C5H
+	DEFB	018H
+	DEFB	095H
+	DEFB	022H
+	DEFB	024H
+	DEFB	0C6H
+	DEFB	058H
+	DEFB	06BH
+	DEFB	055H
+	DEFB	031H
+	DEFB	02AH
+	DEFB	0A2H
+	DEFB	062H
+	DEFB	08CH
+	DEFB	051H
+	DEFB	011H
+	DEFB	042H
+	DEFB	0C8H
+	DEFB	00FH
+	DEFB	0C2H
+	DEFB	021H
+	DEFB	0F8H
+	DEFB	01DH
+	DEFB	042H
+	DEFB	008H
+	DEFB	021H
+	DEFB	007H
+	DEFB	020H
+	DEFB	022H
+	DEFB	022H
+	DEFB	000H
+	DEFB	027H
+	DEFB	084H
+	DEFB	010H
+	DEFB	0C2H	; 0=master; 10h=slave
+	DEFB	0B9H    ; 0=chs;    2=lba
+	DEFB	008H	; buffer_page
+	DEFB	000H	; buffer_low
+	DEFB	000H    ; buffer_high
+	DEFB	000H	; LBA0 or sec
+	DEFB	000H	; LBA1 or cyl_low
+	DEFB	000H	; LBA2 or cyl_high
+MasterInfo:
+	DEFB	000H	; LBA3 or head
+	DEFB	0F8H
+	DEFB	0B2H
+	DEFB	0D6H
+	DEFB	05EH
+	DEFB	0ABH
+	DEFB	024H
+	DEFB	02AH
+	DEFB	0C6H
+	DEFB	01FH
+	DEFB	0E3H
+	DEFB	087H
+	DEFB	0D0H
+	DEFB	0C7H
+	DEFB	0E8H
+	DEFB	0A5H
+	DEFB	094H
+	DEFB	052H
+	DEFB	0FEH
+	DEFB	060H
+	DEFB	094H
+	DEFB	052H
+	DEFB	0EAH
+	DEFB	0C7H
+	DEFB	00FH
+	DEFB	0A1H
+	DEFB	087H
+	DEFB	0F0H
+	DEFB	093H
+	DEFB	05FH
+	DEFB	0EBH
+	DEFB	027H
+	DEFB	0E4H
+	DEFB	047H
+	DEFB	008H
+	DEFB	021H
+	DEFB	084H
+	DEFB	031H
+	DEFB	02AH
+	DEFB	0A2H
+	DEFB	062H
+	DEFB	08CH
+	DEFB	071H
+	DEFB	0D6H
+	DEFB	01CH
+	DEFB	063H
+	DEFB	08DH
+	DEFB	0B3H
+	DEFB	0E6H
+	DEFB	018H
+	DEFB	0A3H
+	DEFB	0A4H
+	DEFB	098H
+	DEFB	0CAH
+	DEFB	078H
+	DEFB	052H
+	DEFB	04AH
+	DEFB	029H
+	DEFB	0E5H
+	DEFB	0B8H
+	DEFB	06BH
+	DEFB	08DH
+	DEFB	031H
+	DEFB	0C6H
+	DEFB	018H
+	DEFB	07FH
+	DEFB	08CH
+	DEFB	0D1H
+	DEFB	0C5H
+	DEFB	018H
+	DEFB	063H
+	DEFB	074H
+	DEFB	03FH
+	DEFB	0C6H
+	DEFB	018H
+	DEFB	063H
+	DEFB	07CH
+	DEFB	031H
+	DEFB	0BEH
+	DEFB	092H
+	DEFB	0A2H
+	DEFB	08FH
+	DEFB	0D1H
+	DEFB	043H
+	DEFB	008H
+	DEFB	05DH
+	DEFB	084H
+	DEFB	010H
+	DEFB	046H
+	DEFB	0F7H
+	DEFB	009H
+	DEFB	021H
+	DEFB	084H
+	DEFB	090H
+	DEFB	018H
+	DEFB	0A3H
+	DEFB	022H
+	DEFB	008H
+	DEFB	0C6H
+	DEFB	05AH
+	DEFB	05DH
+	DEFB	0ADH
+	DEFB	0D1H
+	DEFB	0C7H
+	DEFB	0E8H
+	DEFB	063H
+	DEFB	0F4H
+	DEFB	010H
+	DEFB	042H
+	DEFB	01FH
+	DEFB	0A3H
+	DEFB	08FH
+	DEFB	031H
+	DEFB	0E6H
+	DEFB	05AH
+	DEFB	0B3H
+	DEFB	08BH
+	DEFB	0C1H
+	DEFB	084H
+	DEFB	0E8H
+	DEFB	062H
+	DEFB	0ADH
+	DEFB	0B5H
+	DEFB	0D6H
+	DEFB	0EFH
+	DEFB	062H
+	DEFB	038H
+	DEFB	021H
+	DEFB	0BAH
+	DEFB	05AH
+	DEFB	06BH
+	DEFB	0ADH
+	DEFB	03FH
+	DEFB	0C4H
+	DEFB	018H
+	DEFB	07FH
+	DEFB	008H
+	DEFB	001H
+	.dephase
+;
+;DEBUG
+;
+	dw	BOOTSD
+	ds	14, 0
+;
+	END
+D:	EX	AF,AF'
+	PUSH
