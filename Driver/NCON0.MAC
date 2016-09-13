@@ -13,8 +13,48 @@ L_CNT:  call	MDI
 	ld      hl,(ZCONOUT+1)
 	call	MEI
 	jp      BJMP
+;
+TESTKBINT:
+	ret
+	push	af
+	ld	c,a
+	ld	a,(0F402h)	; shft=D5=0, ctrl=D6=0, r/l=D7=0
+	and	60h
+	jr	nz,CPRO2
+	or	b
+	ld	a,c
+	jr	nz,CPRO0
+	push	bc
+	call	0F81Bh		; inkey
+	pop	bc
+	cp	0FFh
+	jr	z,CPRO2
+CPRO0:	sub	40h
+	jr	nc,CPRO1
+	ld	a,c
+CPRO1:  ld	b,a		; here pressed ctrl+shift+key
+	pop	af
+XKEYBINT:
+	push	af
+	ld      a,(YKEYINT)
+	ld      hl,(YKEYINT+1)
+	call    Bcall
 
-CONOUT: PUSH    BC
+	LD      A,B
+	CP	0FFH
+	JR      NZ,M32
+	LD      (VAR_9),A
+M32:    LD      A,80H
+	LD      (VAR_10),A
+CPRO2:	pop	af
+	ret
+;
+CONOUT: 			; INP: C=char
+	push	bc
+	ld	b,0
+	call	TESTKBINT
+	pop	bc
+	push	bc
 	ld      a,(NPAR)
 	or      a
 	jp      nz,SERVP        ; переход на раздачу
@@ -1145,7 +1185,7 @@ LASTSCR:db      0       ; активный экран
 VIDEOSCR:db     0       ; видимый экран
 SCRCOLM:ds      6,0     ; акт. экран - код цвет. режима
 ;
-SCRSHIFT:db     0       ; 0-00h, 1-40h, 2-80h  
+SCRSHIFT:		; db     0       ; 0-00h, 1-40h, 2-80h  
 SCROFFS:db	2	; сдвинуть изображение в памяти на 0..3 столбцов вправо
 
 ; установить/получить активный экран (0..2/FF)
@@ -1160,19 +1200,21 @@ ISCR_P: ld      (LASTSCR),a
 ;
 	ld      b,a
 	inc     b
-	ld      c,84h
-	ld	a,(SCROFFS)
+;	ld      c,84h		; 20160912
+	ld	a,(SCRSHIFT)	; (SCROFFS)
+	ld	c,a
 	and	3
 	sub	40h
 ISCR0:  add     a,40h
-	dec     c
+;	dec     c
 	djnz    ISCR0
 	ld      (0F3CFh),a
 	ld      (SCRSHIFT),a        ; 0-00h, 1-40h, 2-80h
+	and 	0C0h
 	ld      b,a
 	ld      a,(FCOL)
-	and     3Fh
-	or      b
+	and     3Fh		; TODO 20160912
+	or      b		; TODO 20160912
 	ld      (FCOL),a
 	ld      a,(LCOL)
 	and     3Fh

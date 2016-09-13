@@ -1382,8 +1382,12 @@ DEFWN1: ld      a,(ix+3)    ; dX
 	ld      c,a
 	ld      a,(SCRSHIFT)
 	add     a,c
-;        ADD     A,80H
 	ld	c,a
+;
+;	ld	a,(SCROFFS)	; screen shift in PRO mode  20160912
+;	add	a,c
+;	ld	c,a		; C=A=FCOL+SCROFFS
+;
 	ld      (FCOL),a
 	ld      a,(ix+3)
 	add	a,c
@@ -1435,9 +1439,13 @@ DEFWIN_P:ld     a,(IS8)
 	ld      c,a
 	ld      a,(SCRSHIFT)
 	add     a,c
-;        ADD     A,80H
-	ld	(FCOL),a
 	ld      c,a
+;
+;	ld	a,(SCROFFS)	; screen shift in PRO mode  20160912
+;	add	a,c
+;	ld	c,a		; C=A=FCOL+SCROFFS
+;
+	ld	(FCOL),a
 	ld      a,(ix+3)
 	srl	a
 	srl	a

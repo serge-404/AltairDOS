@@ -103,6 +103,8 @@ SERV:   db      0
 ; за счет YPROC в BIOS'e уст. стек в F-область
 CONIN:  call	MDI		; 2015
 	CALL    CNN
+	ld	b,1
+	call	TESTKBINT
 	LD      C,A
 	ld      a,(ZCONIN)      ; ДАЛЕЕ ПО ЦЕПОЧКЕ
 	ld      hl,(ZCONIN+1)
@@ -116,6 +118,9 @@ CONSTAT:call	MDI		; 2015
 	ld	a,0FFh		; 2015	ld      c,0FFh
 ;	jr      nz,CNS0         ; ??? БЫЛО  JR  NZ,CNS
 CNS:    CALL    z,SUBR_0
+	ld	b,0
+	or	a
+	call	nz,TESTKBINT
 	LD      C,A
 CNS0:   ld      a,(ZCONST)      ; ДАЛЕЕ ПО ЦЕПОЧКЕ
 	ld      hl,(ZCONST+1)
@@ -383,18 +388,7 @@ M31:    LD      A,C
 KEYB_INT:
 	ld      hl,(0F3DFh)
 	ld      (hl),0C9h
-
-	ld      a,(YKEYINT)
-	ld      hl,(YKEYINT+1)
-	call    Bcall
-
-	LD      A,B
-	CP	0FFH
-	JR      NZ,M32
-	LD      (VAR_9),A
-M32:    LD      A,80H
-	LD      (VAR_10),A
-
+	call	XKEYBINT
 	ld      hl,(0F3DFh)
 	DEFB    36h             ; ld (hl), ...
 	ld      b,a             ; в т.ч. программного

@@ -203,6 +203,8 @@ SKPALR: ld      (hl),VERS	; hl=DRVvers
 	LD      I,A
         jr      O128
 OPRO:
+	xor	a
+	ld	(TESTKBINT-BDRV+DRVR),a
 	ld	hl,GETVIPRO	; set 512Vi1 subroutines to Orion-PRO mode
 	ld	de,GETVI
 	ld	bc,ENDVIPRO-GETVIPRO
@@ -255,6 +257,20 @@ O128:	call    TESTVI
 	xor	a
 XXL:    ld      (VI1EXISTS),a
 ;
+        LD      A,(SCROFFS-BDRV+DRVR)	; screen offset
+	ld      (0F3CFh),a		; monitor F800 screen beg
+	ld	c,a
+	ld	hl, FCOL-BDRV+DRVR	; 20160912
+	add	a,(hl)
+	ld	(hl),a
+	ld	a,c
+	ld	hl, LCOL-BDRV+DRVR	; 20160912
+	add	a,(hl)
+	ld	(hl),a
+	ld      a,3Ch			; monitor F800 screen end
+	add	a,c			; 20160912
+	ld      (0F3D0h),a
+;
 	ld      hl,ADR       ; ותנ פגקנאךכ גהפוץ
 	xor     a            ; ך קגןל
 	ex      af,af'
@@ -264,6 +280,8 @@ XXL:    ld      (VI1EXISTS),a
 	ld      bc,EDRV-BDRV ; פגÿמופ
 	call    BLDIR        ; עופוץ‎םלג הפגכ‏ופג ןג מוץזנ
 	xor     a
+	ld      (0F3E5h),a	; RUS(0ffh)/LAT(00)
+
 	ld      (YCONST),a
 	ld      (YCONOUT),a
 	ld      (YCONIN),a
@@ -281,18 +299,12 @@ XXL:    ld      (VI1EXISTS),a
 	ld      hl,PR_STAT
 	ld      (YPRSTAT+1),hl
 
-	ld      (0F3E5h),a
-        LD      A,(SCROFFS-BDRV+DRVR)	; screen offset
-	ld      (0F3CFh),a
-	ld      a,3Ch
-	ld      (0F3D0h),a
-
 	ld      hl,BEGMOVES
 	ld      de,STAR
 	ld      bc,EFP-STAR	; MOVES
 	ldir			; bc:=0
 
-	ld	a,b		; bank=0
+;	ld	a,b		; bank=0
 	ld	h, a
 	ld      l, a		; screen[3][addr=0]
 ;	ld	b, a		; value to put
