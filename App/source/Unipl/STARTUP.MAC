@@ -1,0 +1,321 @@
+		.Z80
+
+BDOS5   equ     5
+MARKER  equ     0EFFFh
+;
+Bldir   equ     0F201H
+Bjump   equ     Bldir+3
+Bcall   equ     Bjump+3
+Bret    equ     Bcall+3
+BLDB    equ     Bret+3
+BSTB    equ     BLDB+3
+BBDOS   equ     0F301h          ; вектор BDOS
+SELDISK equ     0F31Ch          ; вектор выбор диска
+RDSEC   equ     0F328h          ; вектор чтение сектора
+WRSEC   equ     0F32Bh          ; вектор запись сектора
+INT50   equ     0F331h          ; вектор вторичный обработчик INT50
+INTKEY  equ     0F334h          ; вектор программного прерывания
+BCONST  equ     0F307h          ; ВЕКТОР СТАТУС КЛАВИАТУРЫ
+BCONIN  equ     0F30Ah          ; ВЕКТОР ВВОД СИМВОЛА С КЛАВИАТУРЫ
+VALUE   equ     0F3F6h          ; исп. бит D5 (разрешено/запрещено обращение
+				; к драйверу консоли)
+monink  equ     0F81Bh          ; monitor - inkey
+;
+FCB1    equ     5ch             ; FCB1 CCP
+FCB2    equ     6ch             ; FCB2 CCP
+;
+MAINERR:db      10,13,'UNIVERSAL MUSIC FILES PLAYER V2.'
+	db      Version
+CRLF:   db      10,13,'$'
+NOZ80:  db      'SORRY, YOU NEED Z80 CPU.$'
+BADSYS: db      'SORRY, THIS PROGRAMM ONLY FOR ALTAIR-DOS V3.0 OR HIGHER.$'
+NOINT:  db      'В Вашем компьютере нет прерываний INT 50 Гц.$'
+NOMEMORY:db     'Player не инсталлирован - мало памяти в XTPA.$'
+NOTPA:  db      'Player не может работать - мало памяти в TPA.$'
+BADKEY: db      'Ошибка в командной строке. Используйте ключ /NR, если Вы хотите запретить'
+	db      10,13,'инсталляцию Player в XTPA.$'
+;
+MINFO:  db      10,13
+db      ' └└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└©',10,13
+db      'Ё    Универсальный проигрыватель музыкальных файлов     Ё',10,13
+db      'Ё   для сопроцессора 8910/8912 (адреса 0BFFDH, 0FFFDH). Ё',10,13
+db      'Ё                                                       Ё',10,13
+db      '┐└└└└└└└└└└└└└└└└└ Нерезидентный режим └└└└└└└└└└└└└└└└└╢',10,13
+db      'Ё                                                       Ё',10,13
+db      'Ё Запуск проигрывателя: UNIPL2'
+db      Version
+db      ' имя_файла<.расширение>. Ё',10,13
+db      'Ё Если расширение sound-файла не указано, то произво-   Ё',10,13
+db      'Ё водится поиск файла с расширением ASM, SND, STM, ST.  Ё',10,13
+db      'Ё                                                       Ё',10,13
+db      '┐└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└╢',10,13
+db      'Ё   Produced & copyright (c) 1996-97 by Black Cat inc.  Ё',10,13
+db      '─└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└≥',10,13
+db      '$'
+;
+INFO:   db      10,13
+db      ' └└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└©',10,13
+db      'Ё    Универсальный проигрыватель музыкальных файлов     Ё',10,13
+db      'Ё   для сопроцессора 8910/8912 (адреса 0BFFDH, 0FFFDH). Ё',10,13
+db      'Ё Запуск проигрывателя: UNIPL2'
+db      Version
+db      ' имя_файла<.расширение>. Ё',10,13
+db      'Ё Если расширение sound-файла не указано, то произво-   Ё',10,13
+db      'Ё водится поиск файла с расширением ASM, SND, STM, ST.  Ё',10,13
+db      'Ё Для выхода в меню проигрывателя используйте одновре-  Ё',10,13
+db      'Ё временное нажатие клавиш SHIFT+CTRL+'
+db      intcode+40h
+db      '. Для удаления   Ё',10,13
+db      'Ё проигрывателя используйте пункт ABORT в меню проигры- Ё',10,13
+db      'Ё теля или команду CCP - KILL PLAYER2'
+db      Version
+db      '.                 Ё',10,13
+db      'Ё Для использования в нерезидентном режиме используйте  Ё',10,13
+db      'Ё в командной строке ключ /NR.                          Ё',10,13
+db      '┐└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└╢',10,13
+db      'Ё   Produced & copyright (c) 1996-97 by Black Cat inc.  Ё',10,13
+db      '─└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└≥',10,13
+db      '$'
+;
+;
+BEGIN:  ld      hl,PRERR                ; выход при ошибке
+	push    hl
+;
+	XOR     A
+	DEC     A
+	ld      de,NOZ80
+	ret     pe                      ; выход - CPU не Z80
+;
+	ld      c,12
+	call    BDOS5
+	exx
+	ld      a,h
+	cp      0ABh
+	ld      de,BADSYS               ; проверка BEST DOS
+	ret     nz
+;
+	ld      a,(VALUE)
+	bit     6,a
+	ld      de,NOINT                ; проверка прерываний
+	ret     z
+;
+	ld      c,19h
+	call    BDOS5
+	ld      (LOADDISK-OFFSET+BEGPL),a
+	ld      c,20h
+	ld      e,0FFh
+	call    BDOS5
+	ld      (LOADUSER-OFFSET+BEGPL),a
+;
+	ld      de,BADKEY
+	ld      b,0
+	ld      ix,FCB1                 ; поиск ключей в FCB1
+	call    TESTKEY
+	ret     nz                      ; nz - ошибка в ключе
+	ld      ix,FCB2                 ; поиск ключей в FCB2
+	call    TESTKEY
+	ret     nz
+	ld      a,b                     ; если ключ /NR был найден, то B = 1
+	or      a
+	push    af
+;
+	ld      a,(MARKER)
+	ld      (DOS-OFFSET+BEGPL),a    ; определение страницы ТРА ДОС
+	ld      hl,(1)
+	ld      (BIOS-OFFSET+BEGPL),hl  ; НАЧАЛО BIOS
+	ld      de,9
+	add     hl,de
+	ld      (BCNT),hl               ; адрес CONOUT в BIOS'e
+;
+	ld      ix,FCB1
+	call    TESTFILE                ; поиск файла по FCB1
+	ld      ix,FCB2
+	ld      a,(FLF-OFFSET+BEGPL)
+	or      a                       ; если не найдено по FCB1, то тогда
+	call    z,TESTFILE              ; поиск файла по FCB2
+;
+;
+	pop     af
+	jr      z,MXTPA                 ; переход, если инсталляция в XTPA
+;
+; инсталляция как ТРА-программа
+;
+	ld      hl,TPAFLAG-OFFSET+BEGPL  ; установить флаг - работа в TPA
+	ld      (hl),1
+	ld      hl,bufwind-OFFSET+BEGPL+2fffh ; начало буфера окон +
+					      ; + размер буфера окон - 1
+	ld      de,(6)
+	and     a
+	sbc     hl,de
+	ld      de,NOTPA
+	ret     nc                      ; ошибка - мало TPA
+;
+	pop     hl
+	ld      hl,MINFO
+	call    PRINFO
+	ld      hl,HLATTAB-OFFSET+BEGPL ; HL - начало HLATTAB в TPA
+	ld      bc,BEGPL                ; BC - начало перемещаемого кода в TPA
+TPAINS: ld      e,(hl)
+	inc     hl
+	ld      d,(hl)
+	inc     hl
+	ld      a,e
+	or      d
+	jp      z,PLAYER-OFFSET+BEGPL   ; запуск PLAYER
+	ex      de,hl
+	add     hl,bc
+	ex      de,hl
+	ld      a,(de)
+	add     a,c
+	ld      (de),a
+	inc     de
+	ld      a,(de)
+	adc     a,b
+	ld      (de),a
+	jr      TPAINS
+
+; инсталляция как драйвера
+MXTPA:  ld      de,DELNAME
+	ld      c,106
+	call    BDOS5                   ; выгрузить старый PLAYER
+;
+	ld      de,DRVSTR               ; ИНСТАЛЛЯЦИЯ PLAYERa КАК ДРАЙВЕРА
+	ld      c,105
+	call    BDOS5
+	inc     a
+	ld      de,NOMEMORY
+	ret     z
+
+	pop     hl                      ; убрать адрес выхода при ошибке
+	ld      hl,INFO
+	call    PRINFO
+;
+; переход в оболочку player'a
+GOSHELL:ld      a,(INTKEY)      ; точка входа в оболочку
+	ld      hl,(INTKEY+1)
+	ld      b,intcode       ; эмуляция нажатия CTRL+SHIFT+hotkey
+	jp      Bcall
+;
+DRVSTR: db      0ffh          ; номер банка, где будет располагаться драйвер
+DELNAME:db      'PLAYER2'
+	db      Version       ; имя драйвера
+	dw      BEGPL         ; начальный адрес драйвера в ОЗУ ТРА СРМ(16 бит)
+	dw      ENDPL-BEGPL+128+2816+12288   ; длина драйвера (16 бит)
+	dw      INSTALL-OFFSET; адрес п/п захвата векторов (в ОЗУ доп. стр.)
+	dw      FORKILL-OFFSET; адрес п/п УВЕДОМЛЕНИЯ драйвера о удалении
+	dw      0ffffh        ; начальный адрес драйвера (в ОЗУ доп. страницы)
+	db      7fh           ; код, указывающий, что далее идет информация для
+			      ; диспетчера программ .
+	db      intcode       ; код программного прерывания по которому
+			      ; активизируется данная резидентная программа
+			      ; с клавиатуры.
+	db      'Player V2.'  ; имя резидентной программы
+	db      Version
+	db      0
+;
+srfile: push    ix
+	pop     de
+	push    de
+	ld      c,0fh
+	call    BDOS5
+	cp      4
+	pop     ix
+	ret
+;
+TESTKEY:ld      a,(ix+1)
+	cp      '/'
+	jr      z,markkey
+	xor     a
+	ret                             ; выход, нет опознавателя ключа
+markkey:ld      a,(ix+2)
+	cp      'N'
+	ret     nz                      ; выход, ошибка в ключе
+	ld      a,(ix+3)
+	cp      'R'
+	ret     nz                      ; выход, ошибка в ключе
+	ld      b,1                     ; ключ опознан
+	ret
+;
+PRERR:  push    de
+	ld      de,MAINERR
+	call    MSG
+	pop     de
+MSG:    ld      c,9
+	jp      BDOS5
+;
+TESTFILE: ld    a,(ix+1)
+	cp      ' '
+	ret     z
+	cp      '/'
+	ret     z                       ; нет файла в ком. строке - выход
+;
+	ld      a,(ix+9)
+	cp      ' '
+	jr      nz,l0                   ; есть имя и расширение -> переход
+;
+; расширение не указано, попытка найти файл формата ASM,SND,ST?
+;
+mkasm:  ld      (ix+9),'A'
+	ld      (ix+10),'S'
+	ld      (ix+11),'M'
+	call    srfile                  ; искать файл
+	ld      a,0                     ; тип ASM
+	jr      c,l1                    ; найдено
+mksnd:  ld      (ix+9),'S'
+	ld      (ix+10),'N'
+	ld      (ix+11),'D'
+	call    srfile                  ; искать файл
+	ld      a,1                     ; тип SND
+	jr      c,l1                    ; найдено
+mkstm:  ld      (ix+9),'S'
+	ld      (ix+10),'T'
+	ld      (ix+11),'?'
+	call    srfile                  ; искать файл
+	ret     nc                      ; nc - не найдено
+	ld      a,2                     ; тип ST?
+l1:     ld      (NUMMASK-OFFSET+BEGPL),a     ; записать тип маски
+	jr      l2
+; расширение указано, анализ расширения
+l0:     ld      a,(ix+10)               ; второй символ расширения
+	cp      'S'
+	jr      z,mkasm                 ; попытка найти файл с расш. ASM
+	cp      'N'
+	jr      z,mksnd                 ; попытка найти файл с расш. SND
+	cp      'T'
+	jr      z,mkstm                 ; попытка найти файл с расш. ST?
+	ret                             ; расширение не опознано
+;
+l2:     push    ix
+	pop     hl
+	ld      a,(hl)
+	or      a
+	jr      z,nomkd                 ; переход, диск по умолчанию
+	dec     a
+	ld      (LOADDISK-OFFSET+BEGPL),a
+nomkd:
+	inc     hl
+	ld      de,LOADNAME-OFFSET+BEGPL
+	ld      bc,8
+	ldir
+	ld      a,'.'
+	ld      (de),a
+	inc     de
+	ld      bc,3
+	ldir
+	ld      a,1
+	ld      (FLF-OFFSET+BEGPL),a         ; флаг - указано имя файла при запуске
+	ret                                  ; player'a
+;
+PRINFO:
+LP:     ld      a,(hl)
+	cp      '$'
+	ret     z
+	push    hl
+	ld      c,a
+	defb    0CDh
+BCNT:   defs    2
+	pop     hl
+	inc     hl
+	jr      LP
+;
+       

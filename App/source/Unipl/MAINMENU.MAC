@@ -1,0 +1,671 @@
+;
+; *****************************************************************************
+; перемещаемый код
+; *****************************************************************************
+;
+OFFSET:
+HLATTAB:
+; MAINMENU
+	dw      M0+1,M1+1,M2+1,M3+1,M4+1,M5+1,M6+1,M7+1,M8+1,M9+1,M10+1,M11+1
+	dw      M12+1,M13+1,M14+1,M15+1,M16+1,M17+1,M18+1,M19+1,M20+1,M21+1
+	dw      M22+1,M23+1,M24+1,M25+1,M26+2,M27+1,M28+1,M29+1,M30+1,M31+1
+	dw      M32+1,M33+1,M34+1,M35+1,M36+1,M37+1,M38+1,M39+1,M40+1,M41+1
+	dw      M42+1,M43+1,M44+1,M45+1,M46+1,M47+1,M48+1,M49+1,M50+1,M51+1
+	dw      M52+1,M53+1,M54+1,M55+1,M56+1,M57+1,M58+1,M59+1,M60+1,M61+1
+	dw      M62+1,M63+1,M64+1,M65+1,M66+1,M67+1,M68+1,M69+1,M70+1,M71+1
+	dw      M72+1,M73+1,M74+1,M75+1,M76+1,M77+1,M78+1,M79+1,M80+1,M81+1
+	dw      M82+1,M83+1,M84+1,M85+1,M86+1,M87+1,M88+1,M89+1,M90+1,M91+1
+	dw      M92+1,M93+1,M94+1,M95+1,M96+1,M97+1,M98+1,M99+1
+	dw      M100+1,M101+1,M102+1,M103+1,M104+1,M105+1,M106+1,M107+1,M108+1,M109+1,M110+1,M111+1
+	dw      M112+1,M113+1,M114+1,M115+1,M116+1,M117+1,M118+1,M119+1,M120+1,M121+1
+	dw      M122+1,M123+1,M124+1,M125+1,M126+1,M127+1,M128+1,M129+1,M130+1,M131+1
+	dw      M132+1,M133+1,M134+1,M135+1,M136+1,M137+1,M138+1,M139+1,M140+1,M141+1
+	dw      M142+1,M143+1,M144+1,M145+1,M146+1,M147+1,M148+1,M149+1,M150+1,M151+1
+	dw      M152+1,M153+1,M154+1,M155+1,M156+1,M157+1,M158+1,M159+1,M160+1,M161+1
+	dw      M162+1,M163+1,M164+1,M165+1,M166+1,M167+1,M168+1,M169+1,M170+1,M171+1
+	dw      M172+1,M173+1,M174+1,M175+1,M176+1,M177+1,M178+1,M179+1,M180+1,M181+1
+	dw      M182+1,M183+1,M184+1,M185+1,M186+1,M187+1,M188+1,M189+1,M190+1,M191+1
+	dw      M192+1,M193+1,M194+1,M195+1,M196+1,M197+1,M198+1,M199+1,M200+1,M201+1
+	dw      M202+1,M203+1,M204+1,M205+1,M206+1,M207+1,M208+1,M209+1,M210+1,M211+1
+	dw      M212+1,M213+1,M214+1,M215+1,M216+1,M217+1,M218+1,M219+1,M220+1,M221+1
+	dw      M222+1,M223+1,M224+1,M225+1,M226+1,M227+1,M228+1,M229+1,M230+1,M231+1
+	dw      M232+1,M233+1,M234+1,M235+1,M236+1,M237+1,M238+1,M239+1,M240+1,M241+1
+	dw      M242+1,M243+1,M244+1,M245+1,M246+1,M247+1,M248+1,M249+1,M250+1,M251+1
+	dw      M252+1,M253+1,M254+1,M255+1,M256+1,M257+1,M258+1,M259+1,M260+1,M261+1
+	dw      M262+1,M263+1,M264+1,M265+1,M266+1,M267+2,M268+1,M269+1,M270+1,M271+1
+	dw      M272+1,M273+1,M274+1,M275+1,M276+1,M277+1,M278+1,M279+1,M280+1,M281+1
+	dw      M282+1,M283+2,M284+1,M285+2,M286+1,M287+1,M288+1,M289+1,M290+1,M291+1
+	dw      M292+1,M293+1,M294+1,M295+1,M296+1,M297+1,M298+1,M299+1,M300+1,M301+1
+	dw      M302+1,M303+1,M304+1,M305+1,M306+1
+; B1N
+	dw      B0+1,B1+1,B2+1,B3+1,B4+1,B5+1,B6+1,B7+1,B8+1,B9+1,B10+1,B11+1
+	dw      B12+1,B13+1,B14+1,B15+1,B16+1,B17+1,B18+1,B19+1,B20+1,B21+1
+	dw      B22+1,B23+1,B24+1,B25+1,B26+1,B27+1,B28+1,B29+1,B30+1,B31+1
+	dw      B32+1,B33+1,B34+1,B35+1,B36+1,B37+1,B38+1,B39+1,B40+1,B41+1
+	dw      B42+1,B43+1,B44+1,B45+1,B46+1,B47+1,B48+1,B49+1,B50+1,B51+1
+	dw      B52+1,B53+1,B54+1,B55+1,B56+1,B57+1,B58+1,B59+1,B60+1,B61+1
+	dw      B62+1,B63+1,B64+1,B65+1,B66+1,B67+1,B68+1,B69+1,B70+1,B71+1
+	dw      B72+1,B73+1,B74+1,B75+1,B76+1,B77+1,B78+1,B79+1,B80+1,B81+1
+	dw      B82+1,B83+1,B84+1,B85+1,B86+1,B87+1,B88+1,B89+1,B90+1,B91+1
+	dw      B92+1,B93+1,B94+1,B95+1,B96+1,B97+1,B98+1,B99+1
+	dw      B100+1,B101+1,B102+1,B103+1,B104+1,B105+1,B106+1,B107+1,B108+1,B109+1,B110+1,B111+1
+	dw      B112+1,B113+1,B114+1,B115+1,B116+1,B117+1,B118+1,B119+1,B120+1,B121+1
+	dw      B122+1,B123+1,B124+1,B125+1,B126+1,B127+1,B128+1,B129+1,B130+1,B131+1
+	dw      B132+1,B133+1,B134+1,B135+1,B136+1,B137+1,B138+1,B139+1,B140+1,B141+1
+	dw      B142+1,B143+1,B144+1,B145+1,B146+1,B147+1,B148+1,B149+1,B150+1,B151+1
+	dw      B152+1,B153+1,B154+1,B155+1,B156+1,B157+1,B158+1,B159+1,B160+1,B161+1
+	dw      B162+1,B163+1,B164+1,B165+1,B166+1,B167+1,B168+1,B169+1,B170+1,B171+1
+	dw      B172+1,B173+1,B174+1,B175+1,B176+1,B177+1,B178+2,B179+1,B180+1,B181+1
+	dw      B182+1,B183+1,B184+1,B185+1,B186+1,B187+1,B188+1,B189+1,B190+1,B191+1
+	dw      B192+1,B193+1,B194+1,B195+1,B196+1,B197+1,B198+1,B199+1
+	dw      B200+1,B201+1,B202+1,B203+1
+; WINDOW
+	dw      W0,W1,W2+1,W3+1,W4+1,W5+1
+; STM
+	dw      STM1+1, STM2+1, STM3+1, STM4+1, STM5+1
+	dw      STM6+1, STM7+1, STM8+1, STM9+1, STM10+1,STM11+1
+	dw      STM12+1,STM13+1,STM14+1,STM15+1,STM16+1,STM17+1
+	dw      STM18+1,STM19+1,STM20+1,STM21+1,STM22+1,STM23+1
+	dw      STM24+1,STM25+1,STM26+1,STM27+1,STM28+1,STM29+1
+	dw      STM30+1,STM31+1,STM32+1,STM33+1,STM34+1,STM35+1
+	dw      STM36+1,STM37+1,STM38+1,STM39+1,STM40+1,STM41+1
+	dw      STM42+1,STM43+1,STM44+1,STM45+1,STM46+1,STM47+1
+	dw      STM48+1,STM49+1,STM50+1,STM51+1,STM52+1,STM53+1
+	dw      STM54+1,STM55+1,STM56+1,STM57+1,STM58+1,STM59+1
+	dw      STM60+1,STM61+1,STM62+1,STM63+1,STM64+1,STM65+1
+	dw      STM66+1,STM67+1,STM68+1,STM69+1,STM70+1,STM71+1
+	dw      STM72+1,STM73+1,STM74+1,STM75+1,STM76+1,STM77+1
+	dw      STM78+1,STM79+1,STM80+1
+; ASM
+	DEFW    ASM00+1,ASM01+1,ASM02+1,ASM03+1,ASM04+1,ASM05+1,ASM06+1
+	DEFW    ASM07+1,ASM08+1,ASM09+1
+	DEFW    ASM10+1,ASM11+1,ASM12+1,ASM13+1,ASM14+1,ASM15+1,ASM16+1
+	DEFW    ASM17+2,ASM18+1,ASM19+1
+	DEFW    ASM20+1,ASM21+1,ASM22+1,ASM23+1,ASM24+1,ASM25+1,ASM26+1
+	DEFW    ASM27+2,ASM28+1,ASM29+2
+	DEFW    ASM30+1,ASM31+2,ASM32+1,ASM33+2,ASM34+1,ASM35+2,ASM36+1
+	DEFW    ASM37+2,ASM38+1,ASM39+1
+	DEFW    ASM40+1,ASM41+1,ASM42+1,ASM43+1,ASM44+1,ASM45+1,ASM46+1
+	DEFW    ASM47+1,ASM48+1,ASM49+1
+	DEFW    ASM50+1,ASM51+1,ASM52+1,ASM53+1,ASM54+1,ASM55+1,ASM56+1
+	DEFW    ASM57+1,ASM58+1,ASM59+1
+	DEFW    ASM60+1,ASM61+1,ASM62+1,ASM63+1,ASM64+1,ASM65+1,ASM66+1
+	DEFW    ASM67+1,ASM68+1,ASM69+1
+	DEFW    ASM70+1,ASM71+1,ASM72+1,ASM73+1,ASM74+1,ASM75+1,ASM76+1
+	DEFW    ASM77+1,ASM78+1,ASM79+1
+	DEFW    ASM80+1,ASM81+2,ASM82+2
+; SND
+	DEFW    SND00+1,SND01+1,SND02+1,SND03+1,SND04+1,SND05+1,SND06+1
+	DEFW    SND07+1,SND08+1,SND09+1
+	DEFW    SND10+1,SND11+1,SND12+1,SND13+1,SND14+1,SND15+1,SND16+2
+	DEFW    SND17+1,SND18+1,SND19+1
+	DEFW    SND20+1,SND21+1,SND22+1,SND23+1,SND24+1,SND25+2,SND26+1
+	DEFW    SND27+2,SND28+1,SND29+2
+	DEFW    SND30+1,SND31+2,SND32+1,SND33+2,SND34+1,SND35+2,SND36+1
+	DEFW    SND37+1,SND38+1,SND39+1
+	DEFW    SND40+1,SND41+1,SND42+1,SND43+1,SND44+1,SND45+1,SND46+1
+	DEFW    SND47+1,SND48+1,SND49+1
+	DEFW    SND50+1,SND51+1,SND52+1,SND53+1,SND54+1,SND55+1,SND56+1
+	DEFW    SND57+1,SND58+1,SND59+1
+	DEFW    SND60+1,SND61+1,SND62+1,SND63+1,SND64+1,SND65+1,SND66+1
+	DEFW    SND67+1,SND68+1,SND69+1,SND70+1
+;
+	DW      0
+ENDHLATTAB:
+;
+NOXTPA: db      'Universal Player V2.'
+	db      Version
+	db      ' error: no XTPA memory.',10,13,'$'
+reclama:
+	db      27,'5'          ; выключить автоперевод
+	db      27,';'          ; выключить курсор
+	db      27,'7'          ; выключить инверсию
+	db      27,'X',0        ; выключить наложение для 6 бит
+	db      27,'X',1        ; выключить наложение для 8 бит
+	db      27,'R',1        ; установить размер курсора
+	db      27,'P',02h      ; установить код цвета
+	db      27,'Q',8        ; установить шрифт 8 бит
+	db      27,'C',83h      ; установить цветовой режим без очистки
+				; атрибутов цвета
+erecl:
+DRVKILL:db      'PLAYER2'
+	db      Version
+;
+lastBBDOS:   ds  3      ; не перемещать
+lastINTKEY:  ds  3      ;
+lastINT50:   ds  3      ;
+lastSELDISK: ds  3      ;
+lastRDSEC:   ds  3      ;
+lastWRSEC:   ds  3      ;
+lastCONST:   ds  3      ;
+lastCONIN:   ds  3      ; -"-
+BFUNC:  db      0
+oldlongv:ds     12      ; копия межбанковых векторов ошибок BDOS
+REQUEST:db      0
+ACTIVE: db      0
+TPAFLAG:db      0               ; 0 - работа в XTPA, 1 - работа в TPA
+SRF:    db      0
+exitfl: db      0
+reset:  ds      1
+Pwind:  ds      1               ; Банк буфера окон
+Bwind:  ds      2               ; адрес буфера окон
+Swind:  ds      1               ; начальный сегмент буфера окон
+DOS:    ds      1               ; страница TPA DOS
+BIOS:   ds      2               ; начало BIOS
+FLF:    db      0               ; флаг наличия имени файла в ком. строке
+STOP:   db      0               ; задержка включения после дисковых операций
+pause:  db      0               ; пауза
+;
+selvis: db      27,'V'          ; не перемещать
+actscr: ds      1               ; не перемещать
+getlogms:db     27,'U',0        ; получить состояние драйвера консоли
+setlog: db      27,'U',1        ; восстановить -"-      -"-     -"-
+drivlog:ds      13              ; состояние драйвера консоли
+onms:   db      'On ',0
+offms:  db      'Off',0
+nummask:db      0
+masks:  db      '????????.ASM','????????.SND','????????.ST?'
+loadname:ds     12,' '
+numplay:db      0ffh
+oldname:ds      12,' '
+	db      0ffh
+;
+pointer:ds      1
+yy:     ds      1
+buffpoint:ds    2
+quanty: ds      1
+;
+INSTALL:di
+	db      3Eh             ; перемещающий загрузчик
+INSFLAG:db      1               ; (пересчитывает абсолютно
+	or      a               ; заданные адреса)
+	jr      z,EXLINK        ; адреса пересчитываются
+	ld      h,b             ; только один раз
+	ld      l,0             ; рег.В=начальный сегмент
+	add     hl,hl
+	add     hl,hl
+	add     hl,hl
+	add     hl,hl           ; сегмент -> адрес
+	ld      b,h
+	ld      c,l             ; hl=bc=install
+	ld      de,HLATTAB-OFFSET
+	add     hl,de           ; hl=hlattab
+LINK:   ld      e,(hl)
+	inc     hl
+	ld      d,(hl)
+	inc     hl
+	ld      a,e
+	or      d
+	jr      z,EXLINK
+	ex      de,hl
+	add     hl,bc
+	ex      de,hl           ; de:=de+bc (de+offset)
+	ld      a,(de)
+	add     a,c
+	ld      (de),a
+	inc     de
+	ld      a,(de)
+	adc     a,b
+	ld      (de),a
+	jr      LINK
+;
+EXLINK: xor     a
+M0:     ld      (INSFLAG),a      ; запрет повтор. пересчета
+;
+INSTALLER:
+	di
+	ld      hl,BBDOS        ; копирование вектора BDOS
+M1:     ld      de,lastBBDOS
+	ld      bc,3
+	ldir
+	ld      hl,INTKEY        ; копир. вектора INTKEY
+	ld      c,3
+	ldir
+	ld      hl,INT50        ; копир. вектора INT50
+	ld      c,3
+	ldir
+	ld      hl,SELDISK       ; копир. вектора SELDISK
+	ld      c,3
+	ldir
+	ld      hl,RDSEC         ; копир. вектора RDSEC
+	ld      c,3
+	ldir
+	ld      hl,WRSEC         ; копир. вектора WRSEC
+	ld      c,3
+	ldir
+	ld      hl,BCONST
+	ld      c,3
+	ldir
+	ld      hl,BCONIN
+	ld      c,3
+	ldir
+;
+	ld      a,(MARKER)
+	ld      (BBDOS),a
+	ld      (INTKEY),a
+	ld      (INT50),a
+	ld      (SELDISK),a
+	ld      (RDSEC),a
+	ld      (WRSEC),a
+	ld      (BCONST),a
+	ld      (BCONIN),a
+;
+M13:    ld      hl,SUBRBBDOS
+	ld      (BBDOS+1),hl
+M14:    ld      hl,SUBRINTKEY
+	ld      (INTKEY+1),hl
+M15:    ld      hl,SUBRINT50
+	ld      (INT50+1),hl
+M16:    ld      hl,SUBRSELDISK
+	ld      (SELDISK+1),hl
+M17:    ld      hl,SUBRRDSEC
+	ld      (RDSEC+1),hl
+M18:    ld      hl,SUBRWRSEC
+	ld      (WRSEC+1),hl
+M291:   ld      hl,SUBRCONST
+	ld      (BCONST+1),hl
+M292:   ld      hl,SUBRCONIN
+	ld      (BCONIN+1),hl
+	ei
+	ret                     ; завершение инсталляции, возврат в EMM
+;
+DEINST: di
+M2:     ld      hl,lastBBDOS
+	ld      de,BBDOS        ; восстановление вектора BDOS
+	ld      bc,3
+	ldir
+	ld      de,INTKEY        ; восст. вектора INTKEY
+	ld      c,3
+	ldir
+	ld      de,INT50        ; восст. вектора INT50
+	ld      c,3
+	ldir
+	ld      de,SELDISK       ; восст. вектора SELDISK
+	ld      c,3
+	ldir
+	ld      de,RDSEC         ; восст. вектора RDSEC
+	ld      c,3
+	ldir
+	ld      de,WRSEC         ; восст. вектора WRSEC
+	ld      c,3
+	ldir
+	ld      de,BCONST
+	ld      c,3
+	ldir
+	ld      de,BCONIN
+	ld      c,3
+	ldir
+M3:     call   LOCKAY
+	ei
+	ret
+;
+LOCKAY0:ld      a,25
+M19:    ld      (STOP),a        ; задержка 0,5 сек.
+;
+FORKILL:
+LOCKAY: push    bc
+	push    af
+	ld      a,7
+	ld      bc,0FFFDh
+	out     (c),a
+	ld      a,0FFh
+	ld      bc,0BFFDh
+	out     (c),a
+	ld      a,8
+	ld      bc,0FFFDh
+	out     (c),a
+	xor     a
+	ld      bc,0BFFDh
+	out     (c),a
+	ld      a,9
+	ld      bc,0FFFDh
+	out     (c),a
+	xor     a
+	ld      bc,0BFFDh
+	out     (c),a
+	ld      a,10
+	ld      bc,0FFFDH
+	out     (c),a
+	xor     a
+	ld      bc,0BFFDh
+	out     (c),a
+	pop     af
+	pop     bc
+RETLAB: ret
+;
+SUBRINTKEY:
+	ld      a,b
+	cp      intcode         ; CTRL+SHIFT+hotkey
+	jr      nz,noactkey     ; not activate key
+	ld      a,1
+M20:    ld      (REQUEST),a     ; иначе зафиксировать запрос
+noactkey:
+M21:    ld      a,(lastINTKEY)
+M22:    ld      hl,(lastINTKEY+1)
+	jp      Bjump
+;
+SUBRCONIN:
+	ld      a,1
+	jr      SUBRCOMMON
+SUBRCONST:
+	ld      a,2
+	jr      SUBRCOMMON
+SUBRBBDOS:
+	xor     a
+SUBRCOMMON:
+M293:   ld      (BFUNC),a
+;
+M23:    ld      a,(REQUEST)     ; не зафиксирован запрос доступа к PLAYER
+	or      a
+	jr      z,skipcall
+; есть запрос доступа
+	ld      a,(VALUE)
+	bit     5,a
+	jr      nz,skipcall     ; драйвер консоли занят
+; драйвер консоли свободен
+	xor     a
+M24:    ld      (REQUEST),a     ; сбросить флаг запроса доступа к PLAYER
+M25:    ld      hl,ACTIVE
+	ld      a,(hl)
+	or      a
+	jr      nz,skipcall     ; player уже активизирован
+; плейер не активен
+	ld      (hl),1          ; уст. флаг - "плейер активизирован"
+M26:    ld      (DOSSP),sp      ; запомнить стек ДОС
+M27:    ld      sp,ENDHLATTAB   ; установить стек в теле PLAYER
+;
+	push    bc
+	push    de              ; запомнить de,bc - в них передаются параметры
+	push    hl              ; для ф-ций ДОС
+M4:     call    setlong         ; подменить вектора ошибок BDOS
+M28:    call    PLAYER          ; запуск основной части PLAYER
+M5:     call    reclong         ; отключиться от векторов ошибок BDOS
+M276:   ld      a,(TPAFLAG)
+	or      a
+	jr      nz,exittpa      ; переход, если работа в TPA
+M68:    ld      a,(exitfl)
+	or      a
+	ld      c,106
+M149:   ld      de,DRVKILL
+M150:   call    nz,BDOS         ; выгрузка player'a
+;
+exittpa:pop     hl
+	pop     de
+	pop     bc
+;
+	db      31h             ; ld    sp,(DOSSP)
+DOSSP:  ds      2               ; восстановить стек ДОС
+	ld      (hl),0          ; сбросить флаг "плейер активизирован"
+;
+skipcall:
+	push    de
+M29:    ld      a,(BFUNC)
+M30:    ld      hl,lastBBDOS
+	or      a
+	jr      z,skipcomm
+M294:   ld      hl,lastCONIN
+	dec     a
+	jr      z,skipcomm
+M295:   ld      hl,lastCONST
+skipcomm:
+	ld      a,(hl)
+	inc     hl
+	ld      e,(hl)
+	inc     hl
+	ld      d,(hl)
+	ex      de,hl
+	pop     de
+;
+	jp      Bjump
+;
+SUBRINT50:
+M32:    ld      a,(pause)
+	or      a
+M143:   call    nz,LOCKAY
+	jr      nz,SKIPPLAY     ; pause active
+M31:    ld      hl,STOP
+	ld      a,(hl)
+	or      a
+	jr      z,SINT50        ; delay = 0
+	dec     (hl)
+	jr      SKIPPLAY
+SINT50:
+M33:
+	db      0CDh            ; CALL NNNN
+INT50CALL:dw    RETLAB          ; указатель на процедуру обслуживания INT50
+;                               ; первоначально указывает на заглушку
+SKIPPLAY:
+M34:    ld      a,(lastINT50)
+M35:    ld      hl,(lastINT50+1)
+	jp      Bjump
+;
+SUBRSELDISK:
+M36:    call    LOCKAY0
+M37:    ld      a,(lastSELDISK)
+M38:    ld      hl,(lastSELDISK+1)
+	jp      Bjump
+;
+SUBRRDSEC:
+M39:    call    LOCKAY0
+M40:    ld      a,(lastRDSEC)
+M41:    ld      hl,(lastRDSEC+1)
+	jp      Bjump
+;
+SUBRWRSEC:
+M42:    call    LOCKAY0
+M43:    ld      a,(lastWRSEC)
+M44:    ld      hl,(lastWRSEC+1)
+	jp      Bjump
+;
+M45:
+ERRQUIT:ld      de,NOXTPA
+	ld      c,9
+M46:
+BDOS:   ld      a,(DOS)
+	ld      hl,5
+	jp      Bcall
+;
+PLAYER:
+; в случае работы из TPA экран ДОС не запоминается
+M270:   ld      a,(TPAFLAG)
+	rrca                    ; CY=1 - работа в TPA
+	push    af
+M63:    call    c,INSTALLER     ; зацепиться за вектора ДОС
+	pop     af
+	ld      a,(MARKER)      ; банк буфера окон в TPA
+M271:   ld      hl,bufwind      ; начало буфера окон в TPA
+	jr      c,WTPA          ; переход, если работа в TPA
+;
+	ld      de,3FFh
+	ld      c,103
+M47:    call    BDOS            ; запрос непрерывного участка XTPA размером
+	cp      0FFh            ; 12к под буфер окон
+	jr      z,ERRQUIT       ; выход - мало XTPA
+;
+	ld      e,a
+M48:    ld      (Swind),a
+	ld      c,112
+M49:    call    BDOS
+	xor     a               ; CY=0
+	ld      a,l
+	ld      l,0
+WTPA:   push    af              ; запомнить carry
+M50:    ld      (Pwind),a
+M51:    ld      (buffw),hl      ; ctw обнуляется при общей очистке переменных
+;
+M52:    ld      hl,getlogms     ; получить состояние драйвера
+	ld      a,3
+M53:    call    wstrng
+M54:    ld      hl,drivlog      ; записать состояние в буфер
+	push    hl
+	ld      b,13
+M55:
+getlog: call    conin
+	ld      (hl),a
+	inc     hl
+	djnz    getlog
+	pop     ix
+	pop     af
+	jr      c,WTPA0         ; переход, если работа в TPA
+;
+	ld      a,(ix+9)
+	and     3
+M56:    ld      (actscr),a      ; активный экран
+;
+	ld      a,3
+M57:    ld      hl,selvis
+M58:    call    wstrng  ; установить видимый экран совпадающим с активным
+WTPA0:
+;
+M59:    ld      hl,CLEAR
+	ld      (hl),0
+	ld      e,l
+	ld      d,h
+	inc     de
+	ld      bc,ENDCLEAR-CLEAR-1
+	ldir
+;
+	ld      c,19h
+M60:    call    BDOS            ; активный диск в регистре A
+M61:    ld      (sysdisk),a     ; запомнить
+;
+	ld      c,20h
+	ld      e,0ffh
+M66:    call    BDOS            ; получить текущий юзер
+M67:    ld      (sysuser),a     ; запомнить
+;
+	ld      c,3Ah
+M265:   call    BDOS            ; F3A - ПОЛУЧИТЬ АДРЕС DMA
+M266:   ld      (sysdma),hl
+;
+M69:    ld      hl,reclama
+	ld      a,erecl-reclama
+M70:    call    wstrng
+	xor     a
+M162:   ld      (reset),a       ; сбр. флаг - сброс системы при выходе из меню
+;
+M167:   ld      hl,FLF
+	ld      a,(hl)
+	or      a
+	push    af
+	push    hl
+M174:   call    nz,fload        ; загрузить файл и активизировать проигрыватель,
+				; если было имя файла в ком. строке
+	pop     hl
+	pop     af
+	jr      z,mainr         ; переход в меню, если нет файла в ком. строке
+	ld      (hl),0
+;
+M287:   ld      a,(SRF)
+	ld      b,a
+M288:   ld      a,(TPAFLAG)
+	or      b
+	jr      nz,mainr        ; переход в меню, если файл не найден или (и)
+				; нерезидентный режим.
+;
+; иначе, если резидентный режим и загружен файл, то выход в ДОС
+;
+M289:   jp      exit1
+;
+M71:
+mainr:  ld      hl,wmainmenu+2
+M72:    call    objectwin
+	jr      mainr
+;
+; --- Работа с межбанковыми векторами ошибок BDOS ---
+;
+; получить байт из TPA. Вход: hl, выход: a. Не портит другие регистры
+getb:   push    bc
+	push    de
+	push    hl
+M6:     ld      a,(DOS)
+	call    BLDB
+	ld      a,b
+	pop     hl
+	pop     de
+	pop     bc
+	ret
+;
+; записать байт в TPA. Вход: hl,a. Не портит другие регистры.
+setb:   push    af
+	push    bc
+	push    de
+	push    hl
+	ld      b,a
+M7:     ld      a,(DOS)
+	call    BSTB
+	pop     hl
+	pop     de
+	pop     bc
+	pop     af
+	ret
+;
+; подключиться на межбанковые вектора ошибок BDOS
+M8:
+setlong:call    getladdr        ; получить адрес длинных векторов ошибок BDOS
+	push    hl
+M9:     ld      de,oldlongv
+	ld      b,12
+M10:
+svlong: call    getb            ; запомнить старые вектора ошибок
+	ld      (de),a
+	inc     hl
+	inc     de
+	djnz    svlong
+	pop     hl
+	ld      a,(MARKER)
+	ld      c,a
+M11:    ld      de,BDOSERR      ; адрес п/п обработки ошибок BDOS
+	ld      b,4
+newlong:ld      a,c             ; переключить длинные вектора ошибок BDOS
+M12:    call    setb
+	inc     hl
+	ld      a,e
+M65:    call    setb
+	inc     hl
+	ld      a,d
+M277:   call    setb
+	inc     hl
+	djnz    newlong
+	ret
+;
+; отключиться от межбанковых векторов ошибок BDOS
+M278:
+reclong:call    getladdr        ; получить адрес длинных векторов ошибок BDOS
+M279:   ld      de,oldlongv
+	ld      b,12
+rclong: ld      a,(de)
+M280:   call    setb            ; восстановить старые вектора ошибок
+	inc     hl
+	inc     de
+	djnz    rclong
+	ret
+;
+getladdr:ld     hl,6            ; получить адрес длинных векторов ошибок BDOS
+M281:   call    getb
+	ld      e,a
+	inc     hl
+M282:   call    getb
+	ld      d,a
+	ld      hl,11
+	add     hl,de
+	ret
+
+; перехват ошибок BDOS
+M285:
+BDOSERR:ld      sp,(DOSSP)      ; восстановить межбанковый стек
+	ld      a,7
+M286:   call    conouta
+	ld      a,0ffh
+	jr      BDOSALL
+
+; защищенный вызов BDOS
+M283:
+BDOSPR: ld      (plstack),sp    ; восстановить стек плейера
+M284:   call    BDOS
+BDOSALL:db      31h             ; ld    sp,NN
+plstack:ds      2
+	ret
+ e:ld      hl,907h                 ; вывод индикатора паузы
+M89:    call    gotoxy
+M90:    ld      a,(p

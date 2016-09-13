@@ -1,0 +1,618 @@
+; stm - player
+
+STMINI:                                 ; Инициализация STM-player'a
+STM1:   LD      HL,buffile
+sA03FD: LD      A,(HL)
+STM2:   LD      (sA0477),HL
+	INC	HL
+STM3:   CALL    sA0471
+	PUSH    HL
+STM4:   LD      HL,STMTEMP
+	LD      (HL),A
+	INC     HL
+	LD      (HL),1
+	LD      A,(DE)
+	INC     DE
+	INC     HL
+	INC     A
+	LD      (HL),A
+STM5:   LD      BC,sT0745
+	INC     HL
+	LD	(HL),C
+	INC	HL
+	LD	(HL),B
+	XOR	A
+	DEC	A
+	LD      (BC),A
+	INC	BC
+	INC	A
+	LD      L,2DH
+sA0421: LD      (BC),A
+	INC	BC
+	DEC	L
+	JR      NZ,sA0421
+STM6:   LD      HL,sD0734
+	LD      (HL),E
+	INC	HL
+	LD	(HL),D
+	INC	HL
+	EX      (SP),HL
+STM7:   CALL    sA0471
+	EX      (SP),HL
+	LD	(HL),E
+	INC	HL
+	LD	(HL),D
+	INC	HL
+	PUSH	HL
+	EX	DE,HL
+	LD      BC,21H
+STM8:   CALL    sA046B
+	INC     HL
+	LD      C,8
+	EX      DE,HL
+STM9:   LD      HL,sT074D
+	LD      A,3
+sA0448: LD      (HL),E
+	INC     HL
+	LD      (HL),D
+	INC     HL
+	LD      (HL),0FFH
+	ADD	HL,BC
+	DEC	A
+	JR      NZ,sA0448
+	POP	HL
+	EX      (SP),HL
+STM10:  CALL    sA0471
+	POP	HL
+	LD	(HL),E
+	INC	HL
+	LD	(HL),D
+	INC	HL
+	LD      DE,1BH
+STM11:  CALL    sA0475
+	LD	(HL),E
+	INC	HL
+	LD	(HL),D
+STM12:  JP      sA06D4           ; EI
+;
+sA046B: CP      (HL)
+	RET	Z
+	ADD	HL,BC
+	JR      sA046B
+;
+sA0471: LD      E,(HL)
+	INC	HL
+	LD	D,(HL)
+	INC	HL
+sA0475: EX      DE,HL
+	defb    1               ; LD  BC,...
+sA0477: defw    657h
+	ADD	HL,BC
+	EX	DE,HL
+	RET
+;
+sA047C: LD      D,0
+	LD	E,A
+	ADD	A,A
+	ADD	A,E
+	LD	E,A
+	ADD	HL,DE
+	LD	A,(HL)
+	PUSH	AF
+	INC	HL
+	LD	A,(HL)
+	PUSH	AF
+	RLCA
+	LD      BC,210H
+	JR      C,sA0490
+	LD	C,D
+sA0490: RLCA
+	JR      C,sA0495
+	LD	B,D
+sA0495: RLCA
+	LD	A,D
+	RLA
+	LD	D,A
+	POP	AF
+	INC	HL
+	LD	E,(HL)
+	AND     1FH
+	LD	H,A
+	POP	AF
+	LD	L,A
+	AND	0F0H
+	OR	D
+	RLCA
+	RLCA
+	RLCA
+	RLCA
+	LD	D,A
+	LD	A,L
+	AND     0FH
+	LD	L,A
+	RET
+;
+sA04AE:
+STM13:  LD      BC,sT0764
+	LD      A,(BC)
+STM14:  LD      HL,sT073E
+	CP      (HL)
+	LD	L,A
+	JR      C,sA04BC
+	XOR	A
+	LD	L,A
+sA04BC: INC     A
+	LD	(BC),A
+	LD      H,0
+	ADD	HL,HL
+	EX	DE,HL
+STM15:  LD      HL,(sD0734)
+	ADD     HL,DE
+	LD      C,(HL)
+	INC     HL
+	LD      A,(HL)
+STM16:  LD      (sA0702+12H),A
+	LD      A,C
+STM17:  LD      HL,(sD0738)
+	LD      BC,7
+STM18:  CALL    sA046B
+	INC	HL
+	LD      A,3
+STM19:  LD      BC,sT073F
+	PUSH	BC
+sA04DD:
+STM20:  CALL    sA0471
+	EX      (SP),HL
+	LD      (HL),E
+	INC	HL
+	LD      (HL),D
+	INC	HL
+	EX	(SP),HL
+	DEC	A
+	JR      NZ,sA04DD
+	POP	BC
+	RET
+;
+sA04EC: INC     HL
+	INC	HL
+	DEC	(HL)
+	RET	P
+	PUSH	HL
+	DEC	HL
+	DEC	HL
+	DEC	HL
+	LD	A,(HL)
+	POP	HL
+	LD	(HL),A
+	RET
+;
+; точка входа INT50 для STM-player'a
+;
+STMINT50:
+STM21:  LD      HL,STMTWORK
+	DEC     (HL)
+STM22:  JP      NZ,sA063B
+	DEC     HL
+	LD      A,(HL)  ; в HL адрес STMTEMP
+	INC     HL
+	LD	(HL),A
+	INC	HL
+	LD	D,H
+	LD	E,L
+	INC	HL
+	XOR	A
+	DEC	A
+sA0509:
+STM23:  LD      (sA053C+1),A
+	PUSH    HL
+	LD      HL,10
+	ADD     HL,DE
+	LD      D,H
+	LD      E,L
+STM24:  CALL    sA04EC
+	POP     HL
+	LD      C,(HL)
+	INC     HL
+	LD      B,(HL)
+	INC     HL
+STM25:  JP      P,sA053C
+	PUSH    DE
+	PUSH	HL
+STM26:  LD      A,(sA053C+1)
+	INC     A
+	JR      NZ,sA052C
+	LD      A,(BC)
+	INC     A
+STM27:  CALL    Z,sA04AE
+sA052C: POP     HL
+	DEC     HL
+	LD      D,(HL)
+	DEC     HL
+	LD      E,(HL)
+	EX      (SP),HL
+	EX      DE,HL
+STM28:  CALL    sA0547
+	EX      (SP),HL
+	POP	BC
+	LD	(HL),C
+	INC	HL
+	LD	(HL),B
+	INC	HL
+sA053C: LD      A,0FFH
+	INC	A
+	CP      2
+	JR      NZ,sA0509
+STM29:  JP      sA063B
+;
+sA0547: LD      A,(HL)
+	CP      60H
+	JR      C,sA0577
+	CP      70H
+	JR      C,sA0587
+	CP      80H
+	JR      C,sA05AA
+	JR      Z,sA059C
+	CP      81H
+	JR      Z,sA0585
+	CP      82H
+	JR      Z,sA05A6
+	CP      8FH
+	JR      C,sA05B2
+	SUB	0A1H
+	INC	DE
+	INC	DE
+	LD	(DE),A
+	DEC	DE
+	DEC	DE
+	DEC	DE
+	LD	(DE),A
+	INC	DE
+	INC	HL
+	JR      sA0547
+;
+sA0577: PUSH    DE
+	EX	DE,HL
+	LD      (HL),0
+	INC	HL
+	LD	(HL),A
+	LD      BC,6
+	ADD	HL,BC
+	LD      (HL),20H
+	EX	DE,HL
+	POP	DE
+sA0585: INC     HL
+	RET
+;
+sA0587: SUB     60H
+	PUSH    HL
+	LD      BC,63H
+STM30:  LD      HL,(sD073A)
+STM31:  CALL    sA046B
+	INC	HL
+	PUSH	DE
+	INC	DE
+	INC	DE
+	INC	DE
+	EX	DE,HL
+	JR      sA05D5
+;
+sA059C: INC     HL
+sA059D: PUSH    HL
+	LD      HL,7
+	ADD	HL,DE
+	LD      (HL),0FFH
+	POP	HL
+	RET
+;
+sA05A6: XOR     A
+	JR      sA05AC
+;
+sA05AA: SUB     70H
+sA05AC: LD      B,A
+	LD      C,0
+	JR      sA05BF
+;
+sA05B2: SUB     80H
+STM32:  LD      (sD0772),A
+	INC	HL
+	LD	A,(HL)
+STM33:  LD      (sD0770),A
+	LD      BC,1
+sA05BF: PUSH    HL
+	PUSH	DE
+	DEC	DE
+	DEC	DE
+	LD	A,C
+	LD	(DE),A
+	LD	A,B
+	LD      BC,21H
+STM34:  LD      HL,(sD0736)
+STM35:  CALL    sA046B
+	INC	HL
+	EX	DE,HL
+	LD      BC,7
+	ADD	HL,BC
+sA05D5: LD      (HL),E
+	INC	HL
+	LD	(HL),D
+	POP	DE
+	POP	HL
+	INC	HL
+STM36:  JP      sA0547
+;
+sA05DE: LD      DE,7
+	EX	DE,HL
+	ADD	HL,DE
+	LD	A,(HL)
+	INC	A
+	RET	Z
+	DEC	A
+	DEC	A
+	LD	(HL),A
+	PUSH	AF
+	EX	DE,HL
+	LD	A,(HL)
+	LD	C,A
+	INC	A
+	AND     1FH
+	LD	(HL),A
+	POP	AF
+	RET	NZ
+	PUSH	HL
+	INC	HL
+	INC	HL
+	INC	HL
+	LD	E,(HL)
+	INC	HL
+	LD	D,(HL)
+	LD      HL,60H
+	ADD	HL,DE
+	LD	A,(HL)
+	DEC	A
+	POP	DE
+STM37:  JP      M,sA059D
+	LD	C,A
+	INC	A
+	AND     1FH
+	LD	(DE),A
+	INC	HL
+	LD	A,(HL)
+	INC	A
+	LD      HL,7
+	ADD	HL,DE
+	LD	(HL),A
+	RET
+;
+sA0612: LD      A,C
+	OR	A
+	RET	NZ
+	LD	A,H
+STM38:  LD      (sD076B),A
+	RET
+;
+sA061A: PUSH    HL
+	LD      HL,7
+	ADD	HL,DE
+	LD	A,(HL)
+	POP	HL
+	INC	A
+	RET	Z
+	DEC	DE
+	DEC	DE
+	LD	A,(DE)
+	OR	A
+	RET	Z
+	SUB     2
+	JR      Z,sA0633
+	LD      A,2
+	LD	(DE),A
+	JR      sA0636
+;
+sA0633:
+STM39:  LD      (sD0772),A
+sA0636: LD      A,16
+	OR	(HL)
+	LD	(HL),A
+	RET
+;
+sA063B:
+STM40:  LD      HL,sT0748
+	PUSH    HL
+STM41:  CALL    sA05DE
+	LD	A,C
+STM42:  LD      (sA0702+13),A
+STM43:  LD      HL,(sD074B)
+STM44:  CALL    sA047C
+	LD	A,C
+	OR	B
+	RRCA
+STM45:  LD      (sD076C),A
+STM46:  LD      A,(sD074F)
+	INC	A
+	JR      Z,sA0664
+STM47:  CALL    sA0612
+	POP	BC
+	PUSH	BC
+STM48:  CALL    sA0702
+STM49:  LD      (sD0765),HL
+sA0664:
+STM50:  LD      HL,sT076D
+	LD      (HL),A
+	POP	DE
+STM51:  CALL    sA061A
+STM52:  LD      HL,sT0752
+	PUSH	HL
+STM53:  CALL    sA05DE
+STM54:  LD      A,(sD0759)
+	INC	A
+	JR      Z,sA0697
+	LD	A,C
+STM55:  LD      (sA0702+13),A
+STM56:  LD      HL,(sD0755)
+STM57:  CALL    sA047C
+STM58:  LD      A,(sD076C)
+	OR	C
+	OR	B
+STM59:  LD      (sD076C),A
+STM60:  CALL    sA0612
+	POP	BC
+	PUSH	BC
+STM61:  CALL    sA0702
+STM62:  LD      (sD0767),HL
+sA0697:
+STM63:  LD      HL,sT076E
+	LD	(HL),A
+	POP	DE
+STM64:  CALL    sA061A
+STM65:  LD      HL,sT075C
+	PUSH	HL
+STM66:  CALL    sA05DE
+STM67:  LD      A,(sD0763)
+	INC	A
+	JR      Z,sA06CC
+	LD	A,C
+STM68:  LD      (sA0702+13),A
+STM69:  LD      HL,(sD075F)
+STM70:  CALL    sA047C
+STM71:  LD      A,(sD076C)
+	RRCA
+	OR	B
+	OR	C
+	RLCA
+STM72:  LD      (sD076C),A
+STM73:  CALL    sA0612
+	POP     BC
+	PUSH	BC
+STM74:  CALL    sA0702
+STM75:  LD      (sD0769),HL
+sA06CC:
+STM76:  LD      HL,sT076F
+	LD      (HL),A
+	POP	DE
+STM77:  CALL    sA061A
+sA06D4:
+STM78:  LD      HL,sD0772
+	XOR	A
+	OR	(HL)
+	LD	A,00DH
+	jr      nz,sA06E3        ;JP      NZ,A06E3
+	SUB     3
+	DEC	HL
+	DEC	HL
+	DEC	HL
+sA06E3: exx
+	ld      BC,0FFFDH
+	OUT     (C),A
+	exx
+	LD      B,A
+	LD      A,6
+	XOR	A
+	LD      A,(HL)
+	exx
+	ld      BC,0BFFDH
+	OUT     (C),A
+	exx
+	LD      A,4
+	XOR	A
+	DEC	HL
+	LD	A,B
+	DEC	A
+STM79:  JP      P,sA06E3
+	RET
+;
+sA0702: LD      A,L
+	PUSH	AF
+	PUSH	DE
+	INC	BC
+	LD	A,(BC)
+	LD      HL,4
+	ADD	HL,BC
+	LD	E,(HL)
+	INC	HL
+	LD	D,(HL)
+	LD      HL,6
+	ADD	HL,DE
+	ADD	A,(HL)
+	ADD     A,0
+	ADD	A,A
+	LD	E,A
+	LD      D,0
+STM80:  LD      HL,sT0773
+	ADD	HL,DE
+	LD	E,(HL)
+	INC	HL
+	LD	D,(HL)
+	EX	DE,HL
+	POP	DE
+	POP	BC
+	LD	A,0EFH
+	AND	D
+	CP	D
+	LD	D,A
+	JR      NZ,sA0731
+	CPL
+	LD	D,A
+	LD	A,E
+	CPL
+	LD	E,A
+	INC	HL
+sA0731: ADD     HL,DE
+	LD	A,B
+	RET
+;
+sD0734:  DEFW    0
+sD0736:  DEFW    0
+sD0738:  DEFW    0
+sD073A:  DEFW    0
+STMTEMP:  DEFB    0
+STMTWORK:  DEFB    0
+sT073E:  DEFB    0
+sT073F:  DEFS    6,0
+sT0745:  DEFS    3,0
+sT0748:  DEFS    3,0
+sD074B:  DEFS    2,0
+sT074D:  DEFS    2,0
+sD074F:  DEFS    3,0
+sT0752:  DEFS    3,0
+sD0755:  DEFS    4,0
+sD0759:  DEFS    3,0
+sT075C:  DEFS    3,0
+sD075F:  DEFS    4,0
+sD0763:  DEFB    0
+sT0764:  DEFB    0
+sD0765:  DEFS    2,0
+sD0767:  DEFS    2,0
+sD0769:  DEFS    2,0
+sD076B:  DEFB    0
+sD076C:  DEFB    0
+sT076D:  DEFB    0
+sT076E:  DEFB    0
+sT076F:  DEFB    0
+sD0770:  DEFS    2,0
+sD0772:  DEFS    2,0
+sT0773: DB      0F8H,00EH,010H,00EH,060H,00DH,080H,00CH
+	DB	0D8H,00BH,028H,00BH,088H,00AH,0F0H,009H
+	DB	060H,009H,0E0H,008H,058H,008H,0E0H,007H
+	DB	07CH,007H,008H,007H,0B0H,006H,040H,006H
+	DB	0ECH,005H,094H,005H,044H,005H,0F8H,004H
+	DB	0B0H,004H,070H,004H,02CH,004H,0F0H,003H
+	DB	0BEH,003H,084H,003H,058H,003H,020H,00EH
+	DB	0F6H,002H,0CAH,002H,0A2H,002H,07CH,002H
+	DB	058H,002H,038H,002H,016H,002H,0F8H,001H
+	DB	0DFH,001H,0C2H,001H,0ACH,001H,090H,001H
+	DB	07BH,001H,065H,001H,051H,001H,03EH,001H
+	DB	02CH,001H,01CH,001H,00BH,001H,0FCH,000H
+	DB	0EFH,000H,0E1H,000H,0D6H,000H,0C8H,000H
+	DB	0BDH,000H,0B2H,000H,0A8H,000H,09FH,000H
+	DB	096H,000H,08EH,000H,085H,000H,07EH,000H
+	DB	077H,000H,070H,000H,06BH,000H,064H,000H
+
+	DB	05EH,000H,059H,000H,054H,000H,04FH,000H
+	DB	04BH,000H,047H,000H,042H,000H,03FH,000H
+	DB	03BH,000H,038H,000H,035H,000H,032H,000H
+	DB	02FH,000H,02CH,000H,02AH,000H,027H,000H
+	DB	025H,000H,023H,000H,021H,000H,01FH,000H
+	DB	01DH,000H,01CH,000H,01AH,000H,019H,000H
+	DB	017H,000H,016H,000H,015H,000H,013H,000H
+	DB	012H,000H,011H,000H,010H,000H,00FH,000H
+	DB	053H,048H,стоит только поднять голову, как меня тут же срисуют стрелки. Подхватив подсумок с гранатами, я перекатился на пару метров ниже 

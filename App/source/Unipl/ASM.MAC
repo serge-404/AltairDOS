@@ -1,0 +1,614 @@
+; ASM-player
+
+; ִֻֿֿ׳ֱׁ Þֱ׃װ״ ֱֶÊּֿ׳ *.ASM - ׀ִֿׂױֻװֿ׳ ֻֽֿ׀ֳֹֹֹּׁ ֽױÚ.
+; ֱִֵֻׂװֱֿׂ ִּׁ קֵֻװֱֿׂ - 06 C
+;AC000:  DEFW    AC000
+;AC002:  DEFW    AC00B
+;AC004:  DEFW    AC00E
+;AC006:  DEFW    AC0FC
+;
+;        DEFB    0,0,30H
+;
+;AC00B:  JP      AC053
+;AC00E:  JP      AC10C
+;AC011:  JP      AC09A
+;
+;        DEFB    'ASM COMPILATION OF TAR AMIGA MEMORYS'
+;        DEFB    '    BY ANDREW SENDETSKI ASC'
+;
+; י־ֱֳֹֹֹּÚֱֳֹׁ ASM-player'a
+;
+ASMINI:
+aAC053: XOR     A
+ASM78:  LD      HL,(buffile+71H) ; PTR מב כןהש Mץתשכי + 0ACH
+ASM81:  LD      DE,(buffile)     ; ףפבעפןקשך בהעוף
+	SBC     HL,DE            ; ףםו‎ומיו ןפ מב‏בלב זבךלב
+ASM01:  LD      DE,buffile
+	ADD     HL,DE
+ASM79:  LD      (ASMLABEL0+1),HL
+	LD      DE,0ACH
+	OR      A
+	SBC     HL,DE
+ASM80:  LD      (ASMLABEL1+1),HL
+;
+ASM00:  LD      HL,aBUFFER       ; C0AE
+	push    hl
+	pop     de
+	inc     de
+	LD      BC,77
+	LD      (HL),A
+	LDIR
+ASM02:  LD      (aDC19D),A
+ASM03:  LD      (aBUFFER+11),A
+ASM04:  LD      (aBUFFER+37),A
+ASM05:  LD      (aBUFFER+63),A
+	INC     A
+ASM06:  LD      (ASMTWORK),A
+ASMLABEL0:
+ASM07:  LD      DE,buffile       ;+4CCH
+	LD      B,D
+	LD      C,E
+	LD      A,(DE)
+	INC	DE
+ASM08:  LD      (ASMTEMP),A       ; פוםנ
+	LD      A,(DE)
+	INC     DE
+ASM09:  LD      (aDC1A7),A
+; ףםוûומיו נן פבגלידו נבפפועמןק נעי נןקפןעמןם נעןטןהו םולן-
+; היי
+ASM10:  CALL    aAC191
+ASM11:  LD      (aDC1B2),HL      ; בהעוף פעוכב כבמבלב "ב"
+ASM12:  CALL    aAC191
+ASM13:  LD      (aDC202),HL      ;                    "B"
+ASM14:  CALL    aAC191
+ASM15:  LD      (aDC20F),HL      ;                    "C"
+	LD      A,(DE)
+	INC	DE
+ASM16:  LD      (aDC1A3),A       ; עבתםוע פבגלידש נבפפועמןק
+ASM17:  LD      (aDC19A),DE      ; בהעוף  -"-
+aAC09A: XOR     A
+ASM18:  LD      HL,aXBUFFER              ; 0C0FCH
+	push    hl
+	pop     de
+	inc     de
+	LD      BC,13
+	LD      (HL),A
+	LDIR
+	DEC	A
+ASM20:  LD      (aXBUFFER+7),A
+ASM21:  JP      aAC167
+;
+aBUFFER:
+aDC0AE: NOP
+aDC0AF: NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+aDC0B9: NOP
+aDC0BA: NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+aTC0C8: NOP
+aDC0C9: NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+aDC0D3: NOP
+aDC0D4: NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+aTC0E2: NOP
+aDC0E3: NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+aDC0ED: NOP
+aDC0EE: NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+
+aXBUFFER:
+aAC0FC: NOP
+aTC0FD: NOP
+	NOP
+	NOP
+	NOP
+	NOP
+aDC102: NOP
+aDC103: NOP
+	NOP
+	NOP
+	NOP
+aDC107: NOP
+	NOP
+aDC109: NOP
+aDC10A: NOP
+ASMTWORK: DEFB    1
+;
+ASMINT50:
+ASM22:
+aAC10C: LD      HL,ASMTWORK
+	DEC     (HL)
+	JR      NZ,aAC139
+	DEFB    36H
+ASMTEMP: DEFB    6               ; LD      (HL),6 - TEMP
+ASM23:  LD      A,(aBUFFER)
+ASM24:  LD      HL,aBUFFER+26
+	OR      (HL)
+ASM25:  LD      HL,aBUFFER+52
+	OR      (HL)
+	BIT     0,A
+ASM26:  CALL    Z,aAC199
+ASM27:  LD      IX,aBUFFER
+ASM28:  CALL    aAC1D7
+ASM29:  LD      IX,aBUFFER+26
+ASM30:  CALL    aAC1D7
+ASM31:  LD      IX,aBUFFER+52
+ASM32:  CALL    aAC1D7
+aAC139: XOR     A
+ASM33:  LD      IX,aBUFFER
+ASM34:  CALL    aAC2D0
+	LD      A,1
+ASM35:  LD      IX,aBUFFER+26
+ASM36:  CALL    aAC2D0
+	LD      A,2
+ASM37:  LD      IX,aBUFFER+52
+ASM38:  CALL    aAC2D0
+ASM39:  LD      A,(aBUFFER+53)
+	RLCA
+	LD      B,A
+ASM40:  LD      A,(aBUFFER+27)
+	OR      B
+	RLCA
+	LD      B,A
+ASM41:  LD      A,(aBUFFER+1)
+	OR      B
+	LD      E,7
+ASM42:  CALL    aAC185
+ASM43:
+aAC167: LD      HL,aDC109
+	LD      DE,0FFBFH       ; בהע. נןעפןק
+	LD      C,0FDH
+	LD      A,(HL)
+	INC	A
+	LD      A,00DH
+	JR      NZ,aAC177
+	DEC	A
+	DEC	HL
+aAC177: LD      B,D
+	OUT	(C),A
+	LD      B,E
+	OUTD
+	DEC	A
+ASM44:  JP      P,aAC177
+ASM45:  LD      (aDC109),A
+	RET
+;
+aAC185: PUSH    HL
+	PUSH	DE
+ASM46:  LD      HL,aXBUFFER
+	LD      D,0
+	ADD	HL,DE
+	LD      (HL),A
+	POP	DE
+	POP	HL
+	RET
+
+; נןלץ‏יפר בהעוף ק ןתץ הלס "פעוכב" כבמבלב
+aAC191: EX      DE,HL
+aAC192: LD      E,(HL)
+	INC	HL
+	LD      D,(HL)
+	INC	HL
+	EX	DE,HL
+	ADD	HL,BC
+	RET
+
+aAC199: DEFB    21H
+aDC19A: DEFW    0               ; LD      HL,00000H
+	DEFB    11H             ; ףםו‎. נן פבגל. נבפפ.
+aDC19D: DEFW    0               ; LD      DE,00000H
+	ADD     HL,DE
+	LD      A,E
+	INC	A
+	DEFB    0FEH            ; הלימב פבגלידש נבפפ.
+aDC1A3: DEFB    1               ; CP      001H
+	JR      C,aAC1A8
+	DEFB    3EH             ; ףםו‎. נן פבגל. נבפפ. נעי
+				; כןלרדו
+aDC1A7: DEFB    0               ; LD      A,000H
+
+; קש‏יףלומיו מןםועב יחעבוםןחן נבפפועמב
+ASM47:
+aAC1A8: LD      (aDC19D),A
+	LD      A,(HL)
+	ADD	A,A
+	ADD	A,(HL)
+	ADD	A,A
+	LD      H,D
+	LD      L,A
+	DEFB    1
+aDC1B2: DEFW    0               ; LD      BC,00000H
+	ADD	HL,BC
+ASM48:  CALL    aAC192
+ASM49:  LD      (aBUFFER+12),HL
+ASM50:  CALL    aAC191
+ASM51:  LD      (aBUFFER+38),HL
+ASM52:  CALL    aAC191
+ASM53:  LD      (aBUFFER+64),HL
+ASM54:  LD      HL,aBUFFER
+	SET     0,(HL)
+ASM55:  LD      HL,aBUFFER+26
+	SET     0,(HL)
+ASM56:  LD      HL,aBUFFER+52
+	SET     0,(HL)
+	RET
+;
+aAC1D7: DEC     (IX+11)
+	RET	P
+	LD      E,(IX+12)
+	LD      D,(IX+13)
+aTC1E1: LD      A,(DE)
+	INC	DE
+	CP      60H
+	JR      C,aAC264
+ASM57:  LD      HL,aTC1E1
+	PUSH    HL
+	SUB	0F0H
+	JR      NC,aAC237
+	ADD     A,10H
+	JR      C,aAC226
+	ADD     A,20H
+	JR      C,aAC20E
+	ADD     A,20H
+	JR      C,aAC201
+	ADD     A,40H
+	LD      (IX+10),A
+	RET
+;
+aAC201: DEFB    1
+aDC202: DEFW    0               ; LD      BC,00000H
+ASM58:  CALL    aAC21B
+	LD      (IX+14),L
+	LD      (IX+15),H
+	RET
+;
+aAC20E: DEFB    1
+aDC20F: DEFW    0               ; LD      BC,00000H
+ASM59:  CALL    aAC21B
+	LD      (IX+14H),L
+	LD      (IX+15H),H
+	RET
+;
+aAC21B: ADD     A,A
+	LD      H,0
+	LD      L,A
+	ADD	HL,BC
+	LD      A,(HL)
+	INC	HL
+	LD      H,(HL)
+	LD      L,A
+	ADD	HL,BC
+	RET
+;
+aAC226: RES     4,(IX+0)
+	LD      (IX+9),A
+	RET	NZ
+	SET     4,(IX+0)
+	LD      (IX+9),0FH
+	RET
+;
+ASM60:
+aAC237: LD      HL,aTC241
+	LD      B,0
+	LD      C,A
+	ADD	HL,BC
+	LD      C,(HL)
+	ADD	HL,BC
+	JP      (HL)
+;
+aTC241: DEFB    0FH
+	DEFB    14H
+	DEFB    12H
+	DEFB    11H
+	DEFB    1AH
+	DEFB    19H
+	DEFB    18H
+	DEFB    17H
+	DEFB    17H
+	DEFB    15H
+	DEFB    15H
+	DEFB    9
+	DEFB    13H
+	DEFB    7
+	DEFB    11H
+	DEFB    1AH
+	DEFB    13H
+;
+	LD      (IX+5),A
+	RET
+;
+	LD      A,(DE)
+	INC	DE
+ASM61:  LD      (ASMTWORK),A
+ASM62:  LD      (ASMTEMP),A
+	RET
+;
+	RET
+;
+ASM63:
+aAC260: LD      (aDC109),A
+	RET
+;
+aAC264: CP      56H
+	JR      C,aAC27A
+	CP      5EH
+	JR      C,aAC2BC
+	JR      Z,aAC274
+	RES     2,(IX+0)
+	JR      aAC2BC
+;
+aAC274: SET     3,(IX+0)
+	JR      aAC2BC
+;
+aAC27A: SET     2,(IX+0)
+	RES     3,(IX+0)
+	LD      (IX+2),A
+	LD      A,(IX+5)
+	LD      (IX+6),A
+	XOR	A
+	LD      (IX+8),A
+	LD      (IX+3),A
+	LD      (IX+4),A
+	LD      L,(IX+14)
+	LD      H,(IX+15)
+	LD      (IX+10H),L
+	LD      (IX+11H),H
+	RES     1,(IX+0)
+	LD      L,(IX+14H)
+	LD      H,(IX+15H)
+	LD      (IX+16H),L
+	LD      (IX+17H),H
+	BIT     4,(IX+0)
+	JR      Z,aAC2BC
+	LD      A,(DE)
+	INC     DE
+ASM76:  LD      (aDC107),A
+aAC2BC: LD      A,(IX+10)
+	LD      (IX+11),A
+	LD      (IX+12),E
+	LD      (IX+13),D
+	LD      A,(DE)
+	INC	A
+	RET	NZ
+	RES     0,(IX+0)
+	RET
+;
+ASM64:
+aAC2D0: LD      (aDC10A),A
+	XOR	A
+	BIT     1,(IX+0)
+	JR      NZ,aAC32D
+	BIT     2,(IX+0)
+	JR      Z,aAC32D
+ASM65:  CALL    aAC338
+ASM66:  CALL    aAC3DB
+	BIT     3,(IX+1)
+	JR      NZ,aAC2F2
+	LD      A,(IX+6)
+ASM67:  LD      (aDC102),A
+aAC2F2: LD      A,(IX+2)
+	CP      56H
+	JR      C,aAC2FE
+	RLA
+	SBC	A,A
+	CPL
+	AND     55H
+aAC2FE: ADD     A,A
+	LD      B,0
+	LD      C,A
+ASMLABEL1:
+ASM68:  LD      HL,buffile      ;+420H
+	ADD	HL,BC
+	LD      E,(HL)
+	INC	HL
+	LD      D,(HL)
+	LD      L,(IX+3)
+	LD      H,(IX+4)
+	ADD	HL,DE
+ASM69:  LD      A,(aDC10A)
+	ADD     A,A
+	LD      E,A
+	LD      A,L
+ASM70:  CALL    aAC185
+	INC     E
+	LD      A,H
+	AND     0FH
+ASM71:  CALL    aAC185
+	LD      A,(IX+0)
+	CPL
+	AND     30H
+	LD      A,(IX+7)
+	JR      NZ,aAC32D
+	OR      10H
+aAC32D: LD      D,A
+ASM72:  LD      A,(aDC10A)
+	ADD     A,8
+	LD      E,A
+	LD      A,D
+ASM73:  JP      aAC185
+;
+aAC338: LD      L,(IX+10H)
+	LD      H,(IX+11H)
+	LD      D,H
+	LD      E,L
+	LD      A,(HL)
+	INC	HL
+	LD      C,(HL)
+	INC	HL
+	LD      B,(HL)
+	INC	HL
+	CP      20H
+	JR      C,aAC370
+	BIT	7,A
+	JR      NZ,aAC35C
+aAC34E: BIT     6,A
+	JR      NZ,aAC364
+aAC352: BIT     5,A
+	JR      Z,aAC370
+	SET     1,(IX+0)
+	JR      aAC370
+;
+aAC35C: LD      (IX+12H),E
+	LD      (IX+13H),D
+	JR      aAC34E
+;
+aAC364: BIT     3,(IX+0)
+	JR      NZ,aAC352
+	LD      L,(IX+12H)
+	LD      H,(IX+13H)
+aAC370: LD      (IX+10H),L
+	LD      (IX+11H),H
+	LD      E,C
+	LD      C,A
+	LD      A,E
+	RLA
+	SBC	A,A
+	LD      D,A
+	LD      L,(IX+3)
+	LD      H,(IX+4)
+	ADD	HL,DE
+	LD      (IX+3),L
+	LD      (IX+4),H
+	LD      A,B
+	AND     9
+	LD      (IX+1),A
+	LD      A,B
+	AND     6
+	CP      2
+	SET     5,(IX+0)
+	JR      Z,aAC3B5
+	RES     5,(IX+0)
+	JR      C,aAC3B5
+	SUB     5
+	ADD     A,(IX+8)
+ASM74:  JP      P,aAC3AE
+	CP	0F1H
+	ADC     A,0
+	JR      aAC3B2
+;
+aAC3AE: CP      10H
+	ADC	A,0FFH
+aAC3B2: LD      (IX+8),A
+aAC3B5: LD      A,B
+	RRCA
+	RRCA
+	RRCA
+	RRCA
+	AND     0FH
+	ADD     A,(IX+8)
+ASM75:  JP      P,aAC3C3
+	XOR	A
+aAC3C3: CP      10H
+	JR      C,aAC3C9
+	LD      A,0FH
+aAC3C9: LD      D,A
+	LD      B,(IX+9)
+aAC3CD: ADD     A,D
+	DJNZ    aAC3CD
+	AND	0F0H
+	RRCA
+	RRCA
+	RRCA
+	RRCA
+	LD      (IX+7),A
+	JR      aAC411
+;
+aAC3DB: LD      L,(IX+16H)
+	LD      H,(IX+17H)
+	LD      D,H
+	LD      E,L
+	LD      A,(HL)
+	INC	HL
+	LD      B,(HL)
+	INC	HL
+	CP      20H
+	JR      C,aAC403
+	BIT	7,A
+	JR      NZ,aAC3FB
+aAC3EF: BIT     6,A
+	JR      Z,aAC403
+	LD      L,(IX+18H)
+	LD      H,(IX+19H)
+	JR      aAC403
+;
+aAC3FB: LD      (IX+18H),E
+	LD      (IX+19H),D
+	JR      aAC3EF
+;
+aAC403: LD      (IX+16H),L
+	LD      (IX+17H),H
+	LD      C,A
+	LD      A,B
+	ADD     A,(IX+2)
+	LD      (IX+2),A
+aAC411: LD      A,C
+	AND     10H
+	NEG
+	OR	C
+	ADD     A,(IX+6)
+	AND	01FH
+	LD      (IX+6),A
+	RET
+ 

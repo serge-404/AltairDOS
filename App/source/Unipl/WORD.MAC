@@ -1,0 +1,674 @@
+;
+;                        - работа в оконном меню -
+; === Resident player === 1
+; * File  ANTP    .ASM  * 2
+; * Disk  A             * 3
+; * User  0             * 4
+; * Mask  ????????.ASM  * 5
+; * Temp  ===0========  * 6
+; * Lock  OFF           * 7
+; *---------------------* 8
+; *  [Abort]    [Exit]  * 9
+; ======================= 10
+; 12345678901234567890123
+;          1         2
+
+wrfile: ld      hl,902h                 ; вывод файла
+M73:    call    gotoxy
+wrfile0:
+M74:    ld      hl,loadname
+	ld      a,12
+M75:    jp      wstrng
+;
+wruser: ld      hl,904h                 ; вывод юзера
+M79:    call    gotoxy
+M80:    ld      a,(loaduser)            ; 0..15
+	cp      10
+	jr      c,wmp0
+	ld      c,'1'
+M82:    call    conout
+	sub     10
+wmp0:   add     a,'0'
+M83:    jp      conouta
+;
+wrmask: ld      hl,905h                 ; вывод маски
+M84:    call    gotoxy
+M85:    ld      hl,masks-12
+	ld      de,12
+M86:    ld      a,(nummask)
+M87:    call    arrsel
+	ld      a,12
+M88:    jp      wstrng
+;
+wrtemp: ld      de,yellow*256+magenta
+	jr      wrtemp0
+;
+xwrtemp:ld      de,white*256+magenta
+M264:
+wrtemp0:call    setcl
+M250:   ld      hl,cm3
+	push    hl
+M262:   call    cm2
+	ld      hl,906h                 ; вывод темпа
+M251:   call    gotoxy
+M252:   ld      a,(numplay)
+	cp      0FFh
+	ret     z
+M253:   call    gettempadr              ; шкала от 1 до 12
+	ld      a,(hl)
+	cp      13
+	jr      c,sc0
+	ld      a,12
+sc0:    ld      l,a
+	ld      a,13
+	sub     l
+	ld      b,a
+	ld      a,164
+M254:
+sc1:    call    conouta
+	djnz    sc1
+	dec     l
+	ret     z
+	ld      b,l
+	ld      a,165
+M260:
+sc2:    call    conouta
+	djnz    sc2
+	ret
+;
+wrpause:ld      hl,907h                 ; вывод индикатора паузы
+M89:    call    gotoxy
+M90:    ld      a,(pause)
+	or      a
+M91:    ld      hl,offms
+	jr      z,wmp1
+M92:    ld      hl,onms
+M93:
+wmp1:   jp      write
+;
+wmainproc:
+M165:   call    writest
+	db      27,'Y',32+0,32+3,' Resident player ',0
+M166:   call    wrfile
+	ld      hl,903h                 ; вывод диска
+M76:    call    gotoxy
+M77:    ld      a,(loaddisk)            ; 0..15
+	add     a,'a'
+M78:    call    conouta
+M168:   call    wruser
+M169:   call    wrmask
+M170:   call    xwrtemp
+M171:   jp      wrpause
+;
+wmaincase:
+M160:   jp      nz,DISK
+;
+FILE:   ld      a,1
+M161:   ld      (reset),a       ; уст. флаг - сброс диска при выходе из меню
+;
+; Создать каталог с адреса bufcat, формат элемента: 11 байт - имя файла
+M296:   ld      a,(lockrd)
+	or      a
+	jr      nz,menu
+M180:
+makecat:call    setpath         ; установить путь к файлу
+M181:   call    initfcb         ; Сброс FCB
+	xor     a
+M182:   ld      (quanty),a
+M183:   ld      hl,masks-12
+	ld      de,12
+M184:   ld      a,(nummask)
+M185:   call    arrsel
+M186:   ld      de,fcb+1
+	ld      bc,8
+	ldir
+	inc     hl
+	ld      bc,3
+	ldir                    ; Установка маски FCB
+M187:   ld      de,dma          ; Уст. DMA
+	ld      c,1ah
+M188:   call    BDOS
+M189:   ld      hl,bufcat-11
+M190:   ld      (buffpoint),hl  ; Уст. нач. адреса буфера имен файлов
+	ld      c,11h
+M191:   ld      de,fcb
+M192:   call    BDOSPR          ; search first
+	cp      4
+	jr      nc,menu         ; no files
+M193:   call    copyname        ; переслать имя в буфер
+	jr      nc,menu
+;
+catloop:ld      c,12h
+M194:   ld      de,fcb
+M195:   call    BDOSPR          ; search next
+	cp      4
+	jr      nc,menu
+M196:   call    copyname
+	jr      c,catloop
+;
+; меню с прокруткой.
+; высота - 10 строк, данные - bufcat, число элементов - quanty
+menu:
+M197:   ld      a,(quanty)
+	or      a
+	jr      nz,menuword
+; нет файлов
+M261:   call    winload
+M176:   call    writest
+	db      12,'    No files',0
+	xor     a
+M297:   ld      (lockrd),a
+M177:   jp      error
+;
+menuword:
+	ld      a,1
+M298:   ld      (lockrd),a      ; не пересчитывать каталог
+M94:    call    winfile         ; открыть окно для выбора файла
+M179:   call    writest
+	db      27,'Y',32+0,32+3,' Select ',0
+M175:   call    winselect       ; окно для каталога
+M198:   call    clrscr
+	xor     a
+M200:   ld      (pointer),a
+M201:   ld      (yy),a
+;
+M202:
+menu1:  call    writefile   ; yy - позиция по Y, номер элемента - по pointer
+M203:   ld      hl,pointer
+	ld      a,(hl)
+	cp      10
+	jr      z,menu0
+M204:   ld      a,(quanty)
+	dec     a
+	cp      (hl)
+	jr      z,menu0
+	inc     (hl)
+M205:   ld      hl,yy
+	inc     (hl)
+	jr      menu1
+menu0:  ld      (hl),0
+	xor     a
+M206:   ld      (yy),a
+;
+M207:
+repmenu:call    inv
+M208:   call    writefile
+M209:   call    norm
+;
+M210:   call    rki1
+M211:   call    writefile
+M240:   ld      a,(i1)
+	cp      5
+	jr      z,menuup
+	cp      8
+	jr      z,menuup
+	cp      4
+	jr      z,menudown
+	cp      24
+	jr      z,menudown
+	cp      13
+	jr      z,menuenter
+	cp      3
+	jr      nz,noctrlc
+	xor     a
+M299:   ld      (lockrd),a
+M104:   call    closew
+M212:   jp      makecat
+noctrlc:cp      27
+	jr      nz,repmenu
+M213:   jp      closew
+;
+M214:
+menuup: ld      hl,pointer
+	xor     a
+	cp      (hl)
+	jr      z,repmenu
+	dec     (hl)
+M215:   ld      hl,yy
+	cp      (hl)
+	jr      nz,menuup0
+M216:   call    sd1
+	jr      menuup2
+menuup0:dec     (hl)
+M217:
+menuup2:call    writefile
+	jr      repmenu
+;
+menudown:
+M218:   ld      hl,pointer
+M219:   ld      a,(quanty)
+	dec     a
+	cp      (hl)
+	jr      z,repmenu
+	inc     (hl)
+M220:   ld      hl,yy
+	ld      a,10-1
+	cp      (hl)
+	jr      z,menudown0
+	inc     (hl)
+	jr      menudown1
+menudown0:
+M221:   call    su1
+menudown1:
+M222:   call    writefile
+	jr      repmenu
+;
+menuenter:
+M224:   ld      hl,loadname
+	push    hl
+M257:   ld      de,oldname
+	ld      bc,13
+	ldir
+M223:   call    getaddr
+	pop     de
+	ld      bc,8
+	ldir
+	ld      a,'.'
+	ld      (de),a
+	inc     de
+	ld      bc,3
+	ldir
+M117:   ld      hl,closew
+	push    hl
+M62:
+fload:  call    winload         ; Окно loading file
+M95:    call    writest
+	db      12,'Loading file ',0
+M241:   call    wrfile0
+;
+; загрузка файла по имени в LOADNAME и данным в loaddisk, loaduser
+M173:   call    setpath         ; сброс системы, установка диска, юзера
+;
+M100:   ld      hl,loadname
+M101:   call    initfcb
+	ld      c,0fh
+M102:   ld      de,fcb
+M103:   call    BDOSPR
+	cp      4
+	jr      c,file0
+; файл не найден
+	xor     a
+M300:   ld      (lockrd),a
+M105:   call    writest
+	db      12,'    No file',0
+	ld      a,1
+M290:   ld      (SRF),a        ; SRF = 1, если файл не найден
+M245:   ld      hl,oldname
+M247:   ld      de,loadname
+	ld      bc,13
+	ldir
+error:
+M108:   ld      hl,closew
+	push    hl
+xerror:
+M106:   call    writest
+	db      ', press ESC.',0
+M107:
+error0: call    conin
+	cp      27
+	jr      nz,error0
+	ret
+;
+file0:  di
+M110:   ld      hl,RETLAB
+M111:   ld      (INT50CALL),hl          ; деактивизировать старый проигрыватель
+M112:   call    LOCKAY0                 ; отключить AY
+	ei
+	ld      a,0ffh
+M263:   ld      (numplay),a
+;
+; загрузка SOUND - файла длиной не более 12 Кбайт
+; в буфер с адреса buffile - при работе в
+;
+	ld      b,97                    ; макс. длина - 96 записей
+M113:   ld      de,buffile
+readloop:
+	push    bc
+	push    de
+	ld      c,1ah
+M114:   call    BDOS
+	ld      c,14h
+M115:   ld      de,fcb
+M116:   call    BDOSPR
+	pop     hl
+	pop     bc
+	ld      de,128
+	add     hl,de
+	ex      de,hl
+	or      a
+	jr      nz,loadeof              ; конец файла
+	cp      0ffh            ; bdos error
+	jr      z,badsize
+	dec     b
+	jr      nz,readloop
+; длина файла > 12 Кбайт или равна 0.
+badsize:
+M118:   call    writest
+	db      12,'Bad file size',0
+	jr      error
+;
+loadeof:ld      a,b
+	cp      97
+	jr      z,badsize
+;
+; установить тип файла и активизировать новый проигрыватель
+;
+M119:   ld      a,(nummask)
+M242:   ld      (numplay),a
+	or      a
+	jr      nz,ini0
+; файл формата ASM
+M120:   call    ASMINI
+M121:   ld      hl,ASMINT50
+	jr      iniall
+ini0:   dec     a
+	jr      nz,ini1
+; файл формата SND
+M122:   call    SNDINI
+M123:   ld      hl,SNDINT50
+	jr      iniall
+; файл формата ST?
+M124:
+ini1:   call    STMINI
+M125:   ld      hl,STMINT50
+M126:
+iniall: ld      (INT50CALL),hl
+M81:    call    closew
+M269:   ld      a,(FLF)
+	or      a
+	ret     nz
+M243:   call    winmain
+M255:   call    xwrtemp
+M178:   call    wrfile
+	pop     hl              ; адрес closew
+M304:   call    winselect
+M305:   call    writest
+	db      27,'H',0
+M306:   jp      repmenu
+;
+DISK:   dec     a
+	jr      nz,USER
+	xor     a
+M301:   ld      (lockrd),a
+M127:   call    reccur
+M128:
+disk0:  call    writest
+	db      27,'Y',32+2,32+8,' ',8,0
+M129:   ld      hl,bufinp              ; надо 4 байта
+	ld      (hl),1
+	inc     hl
+	ld      (hl),0
+	push    hl
+	dec     hl
+	ex      de,hl
+	ld      c,10
+M130:   call    BDOS
+	pop     hl
+	ld      a,(hl)
+	dec     a
+	jr      nz,disk0
+	inc     hl
+	ld      a,(hl)
+	and     5fh
+	cp      'A'
+	jr      c,disk0
+	cp      'P'+1
+	jr      nc,disk0
+	sub     'A'
+M131:   ld      (loaddisk),a
+M132:   jp      hidcur
+;
+USER:   dec     a
+	jr      nz,MASK
+	xor     a
+M302:   ld      (lockrd),a
+M133:   call    reccur
+M134:
+user0:  call    writest
+	db      27,'Y',32+3,32+8,'  ',8,8,0
+M135:   ld      hl,bufinp              ; надо 5 байт
+	ld      (hl),2
+	inc     hl
+	ld      (hl),0
+	push    hl
+	dec     hl
+	ex      de,hl
+	ld      c,10
+M136:   call    BDOS
+	pop     hl
+	ld      a,(hl)
+	cp      3
+	jr      nc,user0
+	inc     hl
+	or      a
+	ld      c,a
+	ld      a,0
+	jr      z,user1         ; ввод 0 по умолчанию
+	ld      a,(hl)
+	cp      '0'
+	jr      c,user0
+	cp      '9'+1
+	jr      nc,user0
+	sub     '0'
+	dec     c
+	jr      z,user1
+	add     a,a
+	ld      b,a
+	add     a,a
+	add     a,a
+	add     a,b
+	ld      b,a
+	inc     hl
+	ld      a,(hl)
+	cp      '0'
+	jr      c,user0
+	cp      '9'+1
+	jr      nc,user0
+	sub     '0'
+	add     a,b
+M137:
+user1:  ld      (loaduser),a
+M138:   call    hidcur
+M236:   jp      wruser
+;
+MASK:   dec     a
+	jr      nz,TEMP
+	xor     a
+M303:   ld      (lockrd),a
+M139:   ld      hl,nummask
+	ld      a,(hl)
+	inc     a
+	cp      3
+	jr      c,mask0
+	xor     a
+mask0:  ld      (hl),a
+M140:   jp      wrmask
+;
+TEMP:   dec     a
+	jr      nz,LOCK
+M249:   ld      hl,xwrtemp
+	push    hl
+ts1:
+M141:   call    wrtemp
+temploop:
+M256:   call    conin
+	ld      c,a
+	ld      hl,2000h
+ts0:    dec     hl
+	ld      a,h
+	or      l
+	jr      nz,ts0
+	ld      a,c
+	cp      27
+	ret     z
+	cp      5
+	ret     z
+	cp      24
+	ret     z
+	ld      b,1
+	cp      8
+	jr      z,temp0
+	ld      b,-1
+	cp      4
+	jr      nz,temploop
+;
+temp0:
+M244:   ld      a,(numplay)
+M258:   call    gettempadr
+	ld      a,(hl)
+	add     a,b
+	jr      z,temploop      ; out of range
+	cp      13
+	jr      nc,temploop     ; out of range
+	ld      (hl),a
+	jr      ts1
+
+;
+gettempadr:
+M246:   ld      hl,ASMTEMP
+	or      a
+	ret     z
+M248:   ld      hl,SNDTEMP
+	dec     a
+	ret     z
+M259:   ld      hl,STMTEMP
+	ret
+
+;
+LOCK:   dec     a
+	jr      nz,ABORT
+M142:   ld      hl,pause
+	ld      a,(hl)
+	xor     1
+	ld      (hl),a
+M144:   jp      wrpause
+;
+ABORT:  dec     a
+	jr      nz,EXIT
+M272:   call    abort0
+	ret     nz              ; nz - отмена
+	jr      exit0
+;
+EXIT:
+M273:   ld      a,(TPAFLAG)
+	rrca
+	jr      nc,exit0        ; nc - работа в XTPA
+M274:   call    abort0          ; c - работа в TPA - запрос о удалении
+	ret     nz              ; nz - отмена
+;
+exit0:  pop     hl
+	pop     hl
+	pop     hl
+	pop     hl
+; точка входа при загрузке файла из ком. строки и резидентном режиме
+exit1:
+M164:   ld      a,(reset)
+	or      a
+	ld      c,0dh
+M237:   call    nz,BDOSPR       ; сбросить систему, если надо
+M152:   ld      a,(sysdisk)
+	ld      e,a
+	ld      c,0eh
+M153:   call    BDOSPR
+M154:   ld      a,(sysuser)
+	ld      e,a
+	ld      c,20h
+M155:   call    BDOS
+M267:   ld      de,(sysdma)
+	ld      c,1Ah
+M268:   call    BDOS            ; восстановить DMA
+M151:   call    closew
+M275:   ld      a,(TPAFLAG)
+	or      a
+	push    af
+M64:    call    nz,DEINST       ; отцепиться от векторов ДОС, если работа в TPA
+	pop     af
+	jr      nz,WTPA1           ; переход, если работа в TPA
+; освобождение XTPA (3 сегмента) - буфер окон
+M156:   ld      a,(Swind)         ; нач. сегмент буфера
+	ld      e,a
+	ld      d,3               ; вход: e - начальный сегмент
+	ld      c,104
+M157:   call    BDOS
+;
+WTPA1:  ld      a,16
+M158:   ld      hl,setlog
+M159:   jp      wstrng  ; восст. ранее полученное состояние драйвера консоли
+; ВЫХОД В ПРОГРАММУ КАСКАДИРОВАНИЯ ВЕКТОРА bdos
+;
+setpath:ld      c,0dh
+M172:   call    BDOSPR
+M96:    ld      a,(loaddisk)
+	ld      e,a
+	ld      c,0eh
+M97:    call    BDOSPR
+M98:    ld      a,(loaduser)
+	ld      e,a
+	ld      c,20h
+M99:    jp      BDOS
+;
+copyname:
+M225:   ld      hl,(buffpoint)  ; hl указывает на адрес в буфере
+	ld      de,11
+	add     hl,de
+M226:   ld      (buffpoint),hl
+	push    hl
+	add     a,a
+	add     a,a
+	add     a,a
+	add     a,a
+	add     a,a
+	inc     a               ; Пропуск номера юзера
+M227:   ld      hl,dma
+	ld      e,a
+	ld      d,0
+	add     hl,de           ; hl указывает на имя файла
+	pop     de
+	ld      bc,11
+	ldir
+M228:   ld      hl,quanty
+	ld      a,(hl)
+	inc     a
+	ret     z
+	ld      (hl),a
+	scf
+	ret
+;
+writefile:
+M234:   ld      a,(yy)
+	inc     a
+	ld      l,a
+	ld      h,1
+M235:   call    gotoxy
+M229:   call    getaddr
+	ld      a,8
+M230:   call    ws12
+	ld      c,'.'
+M238:   call    conout
+	ld      a,3
+M231:   jp      ws12
+;
+M232:
+getaddr:ld      hl,bufcat-11
+	ld      de,11
+M233:   ld      a,(pointer)
+M199:   jp      arrsel
+;
+abort0:
+M145:   call    winquit
+M146:   call    writest
+	db      27,'Y',32+0,32+7,' Abort player '
+	db      27,'Y',32+1,32+4,'Are you sure (Y/N) ?',0
+M109:   call    reccur
+M147:   call    conin
+M148:   call    closew
+	push    af
+M239:   call    hidcur
+	pop     af
+	and     5fh
+	cp      'Y'
+	ret     nz
+	ld      a,1
+M163:   ld      (exitfl),a      ; уст. флаг - выгрузка драйвера
+	ret
+                                                                            ЦЦ                         

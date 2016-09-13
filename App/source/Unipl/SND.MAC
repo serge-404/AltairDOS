@@ -1,0 +1,471 @@
+; –“œ…«“Ÿ◊¡‘≈Ãÿ SND-files
+;
+;AC000:  DEFW    AC00B   ; INIT
+;AC002:  DEFW    AC00E   ; 1/50
+;AC004:  DEFW    AC162   ; Ú·‚ÔÙ· Û AY
+;AC006:  DEFW    XBUFFER ; DATA
+;
+;        DEFB    0
+;        DEFB    80H
+;        DEFB    2EH
+;
+;AC00B:  JP      AC053
+;AC00E:  JP      AC107
+;AC011:  JP      AC095
+;
+;        DEFB    'ASM COMPILATION OF LET',27H,'S DANCE, '
+;        DEFB    'BABY !  BY OCEAN SOFTWAR 1993  '
+;
+; ÈŒ…√…¡Ã…⁄¡√…— SND-player'a
+;
+SNDINI:
+nAC053: XOR     A
+SND00:  LD      HL,nBUFFER      ; C0A9
+	push    hl
+	pop     de
+	inc     de
+	LD      BC,77
+	LD      (HL),A
+	LDIR                    ; Ô˛ÈÛÙÈÙ¯ ‚ıÊÂÚ BUFFER, ‰ÏÈÓ· 4D
+SND02:  LD      (nDC198),A
+SND03:  LD      (nBUFFER+11),A
+SND04:  LD      (nBUFFER+37),A
+SND05:  LD      (nBUFFER+63),A
+	INC	A
+SND06:  LD      (SNDTWORK),A
+SND07:  LD      DE,buffile+4A7h    ;LBUFFER+4A7H
+	LD      B,D
+	LD	C,E
+	LD	A,(DE)
+	INC	DE
+SND08:  LD      (SNDTEMP),A
+SND09:  CALL    nAC18C
+SND10:  LD      (nDC1AC),HL
+SND11:  CALL    nAC18C
+SND12:  LD      (nDC1FC),HL
+SND13:  CALL    nAC18C
+SND14:  LD      (nDC209),HL
+	LD	A,(DE)
+	INC	DE
+SND15:  LD      (nDC19E),A
+SND16:  LD      (nDC195),DE
+nAC095: XOR     A
+SND17:  LD      HL,nXBUFFER      ; C0F7
+	push    hl
+	pop     de
+	inc     de
+	LD      BC,13
+	LD	(HL),A
+	LDIR
+	DEC     A
+SND19:  LD      (nXBUFFER+7),A
+SND20:  JP      nAC162
+;
+nBUFFER: DEFS    78,0
+;
+nXBUFFER:DEFS    13,0
+;
+nDC104:  NOP
+nDC105:  NOP
+SNDTWORK:  DEFB    1
+;
+; ÙœﬁÀ¡ ◊»œƒ¡ INT50 SND-player'a
+;
+SNDINT50:
+SND67:  LD      HL,SNDTWORK
+	DEC     (HL)
+	JR      NZ,nAC134
+	DEFB    36H
+SNDTEMP:DEFB    6               ; LD      (HL),006H
+SND21:  LD      A,(nBUFFER)
+SND22:  LD      HL,nBUFFER+26
+	OR	(HL)
+SND23:  LD      HL,nBUFFER+52
+	OR	(HL)
+	BIT	0,A
+SND24:  CALL    Z,nAC194
+SND25:  LD      IX,nBUFFER
+SND26:  CALL    nAC1D1
+SND27:  LD      IX,nBUFFER+26
+SND28:  CALL    nAC1D1
+SND29:  LD      IX,nBUFFER+52
+SND30:  CALL    nAC1D1
+nAC134: XOR     A
+SND31:  LD      IX,nBUFFER
+SND32:  CALL    nAC2A9
+	LD      A,1
+SND33:  LD      IX,nBUFFER+26
+SND34:  CALL    nAC2A9
+	LD      A,2
+SND35:  LD      IX,nBUFFER+52
+SND36:  CALL    nAC2A9
+SND37:  LD      A,(nBUFFER+53)
+	RLCA
+	LD	B,A
+SND38:  LD      A,(nBUFFER+27)
+	OR      B
+	RLCA
+	LD      B,A
+SND39:  LD      A,(nBUFFER+1)
+	OR      B
+	LD      E,7
+SND40:  CALL    nAC180
+nAC162:
+SND68:  LD      HL,nDC104
+	LD      DE,0FFBFH       ; ·‰Ú. ÔÚÙÔ˜
+	LD	C,0FDH
+	LD	A,(HL)
+	INC	A
+	LD      A,0DH
+	JR      NZ,nAC172
+	DEC	A
+	DEC	HL
+nAC172: LD      B,D
+	OUT	(C),A
+	LD	B,E
+	OUTD
+	DEC	A
+SND18:  JP      P,nAC172
+SND41:  LD      (nDC104),A
+	RET
+;
+nAC180: PUSH    HL
+	PUSH    DE
+SND42:  LD      HL,nXBUFFER
+	LD      D,0
+	ADD	HL,DE
+	LD	(HL),A
+	POP	DE
+	POP	HL
+	RET
+;
+nAC18C: EX      DE,HL
+nAC18D: LD      E,(HL)
+	INC	HL
+	LD	D,(HL)
+	INC	HL
+	EX	DE,HL
+	ADD	HL,BC
+	RET
+;
+nAC194: DEFB    21H
+nDC195: DEFW    0               ; LD      HL,0
+	DEFB    11H
+nDC198: DEFW    0               ; LD      DE,00000H
+	ADD	HL,DE
+	INC	E
+	LD	A,E
+	DEFB    0FEH
+nDC19E: DEFB    1               ; CP      1
+	SBC	A,A
+	AND	E
+SND43:  LD      (nDC198),A
+	LD      A,(HL)
+	ADD	A,A
+	LD	E,A
+	ADD	A,A
+	ADD	A,E
+	LD	H,D
+	LD	L,A
+	DEFB    1
+nDC1AC: DEFW    0              ; LD      BC,00000H
+	ADD	HL,BC
+SND44:  CALL    nAC18D
+SND45:  LD      (nBUFFER+12),HL
+SND46:  CALL    nAC18C
+SND47:  LD      (nBUFFER+38),HL
+SND48:  CALL    nAC18C
+SND49:  LD      (nBUFFER+64),HL
+SND50:  LD      HL,nBUFFER
+	SET	0,(HL)
+SND51:  LD      HL,nBUFFER+26
+	SET     0,(HL)
+SND52:  LD      HL,nBUFFER+52
+	SET     0,(HL)
+	RET
+;
+nAC1D1: DEC     (IX+11)
+	RET	P
+	LD      E,(IX+12)
+	LD      D,(IX+13)
+nTC1DB: LD      A,(DE)
+	INC	DE
+	CP      60H
+	JR      C,nAC23D
+SND53:  LD      HL,nTC1DB
+	PUSH    HL
+	SUB	0F0H
+	JR      NC,nAC231
+	ADD     A,10H
+	JR      C,nAC220
+	ADD     A,20H
+	JR      C,nAC208
+	ADD     A,20H
+	JR      C,nAC1FB
+	ADD     A,40H
+	LD      (IX+10),A
+	RET
+;
+nAC1FB: DEFB    1
+nDC1FC: DEFW    0               ; LD      BC,00000H
+SND54:  CALL    nAC215
+	LD      (IX+14),L
+	LD      (IX+15),H
+	RET
+;
+nAC208: DEFB    1
+nDC209: DEFW    0               ; LD      BC,00000H
+SND55:  CALL    nAC215
+	LD      (IX+14H),L
+	LD      (IX+15H),H
+	RET
+;
+nAC215: ADD     A,A
+	LD      H,0
+	LD	L,A
+	ADD	HL,BC
+	LD	A,(HL)
+	INC	HL
+	LD	H,(HL)
+	LD	L,A
+	ADD	HL,BC
+	RET
+;
+nAC220: RES     4,(IX+0)
+	LD      (IX+9),A
+	RET	NZ
+	SET     4,(IX+0)
+	LD      (IX+9),15
+	RET
+;
+nAC231: JR      Z,nAC237
+SND56:  LD      (nDC104),A
+	RET
+;
+nAC237: LD      A,(DE)
+	INC	DE
+	LD      (IX+5),A
+	RET
+;
+nAC23D: CP      56H
+	JR      C,nAC253
+	CP      5EH
+	JR      C,nAC295
+	JR      Z,nAC24D
+	RES     2,(IX+0)
+	JR      nAC295
+;
+nAC24D: SET     3,(IX+0)
+	JR      nAC295
+;
+nAC253: SET     2,(IX+0)
+	RES     3,(IX+0)
+	LD      (IX+2),A
+	LD      A,(IX+5)
+	LD      (IX+6),A
+	XOR	A
+	LD      (IX+8),A
+	LD      (IX+3),A
+	LD      (IX+4),A
+	LD      L,(IX+14)
+	LD      H,(IX+15)
+	LD      (IX+10H),L
+	LD      (IX+11H),H
+	RES     1,(IX+0)
+	LD      L,(IX+14H)
+	LD      H,(IX+15H)
+	LD      (IX+16H),L
+	LD      (IX+17H),H
+	BIT     4,(IX+0)
+	JR      Z,nAC295
+	LD	A,(DE)
+	INC	DE
+SND57:  LD      (nXBUFFER+11),A
+nAC295: LD      A,(IX+10)
+	LD      (IX+11),A
+	LD      (IX+12),E
+	LD      (IX+13),D
+	LD	A,(DE)
+	INC	A
+	RET	NZ
+	RES     0,(IX+0)
+	RET
+;
+SND01:
+nAC2A9: LD      (nDC105),A
+	XOR	A
+	BIT     1,(IX+0)
+	JR      NZ,nAC306
+	BIT     2,(IX+0)
+	JR      Z,nAC306
+SND58:  CALL    nAC311
+SND59:  CALL    nAC3B4
+	BIT     3,(IX+1)
+	JR      NZ,nAC2CB
+	LD      A,(IX+6)
+SND60:  LD      (nXBUFFER+6),A
+nAC2CB: LD      A,(IX+2)
+	CP      56H
+	JR      C,nAC2D7
+	RLA
+	SBC	A,A
+	CPL
+	AND     55H
+nAC2D7: ADD     A,A
+	LD      B,0
+	LD      C,A
+SND61:  LD      HL,buffile+3F9h   ;LBUFFER+3F9H
+	ADD     HL,BC
+	LD	E,(HL)
+	INC	HL
+	LD	D,(HL)
+	LD      L,(IX+3)
+	LD      H,(IX+4)
+	ADD	HL,DE
+SND62:  LD      A,(nDC105)
+	ADD	A,A
+	LD	E,A
+	LD	A,L
+SND63:  CALL    nAC180
+	INC     E
+	LD	A,H
+	AND     0FH
+SND64:  CALL    nAC180
+	LD      A,(IX+0)
+	CPL
+	AND     30H
+	LD      A,(IX+7)
+	JR      NZ,nAC306
+	OR      10H
+nAC306: LD      D,A
+SND65:  LD      A,(nDC105)
+	ADD     A,8
+	LD	E,A
+	LD	A,D
+SND66:  JP      nAC180
+;
+nAC311: LD      L,(IX+10H)
+	LD      H,(IX+11H)
+	LD	D,H
+	LD	E,L
+	LD	A,(HL)
+	INC	HL
+	LD	C,(HL)
+	INC	HL
+	LD	B,(HL)
+	INC	HL
+	CP      20H
+	JR      C,nAC349
+	BIT	7,A
+	JR      NZ,nAC335
+nAC327: BIT     6,A
+	JR      NZ,nAC33D
+nAC32B: BIT     5,A
+	JR      Z,nAC349
+	SET     1,(IX+0)
+	JR      nAC349
+;
+nAC335: LD      (IX+12H),E
+	LD      (IX+13H),D
+	JR      nAC327
+;
+nAC33D: BIT     3,(IX+0)
+	JR      NZ,nAC32B
+	LD      L,(IX+12H)
+	LD      H,(IX+13H)
+nAC349: LD      (IX+10H),L
+	LD      (IX+11H),H
+	LD	E,C
+	LD	C,A
+	LD	A,E
+	RLA
+	SBC	A,A
+	LD	D,A
+	LD      L,(IX+3)
+	LD      H,(IX+4)
+	ADD	HL,DE
+	LD      (IX+3),L
+	LD      (IX+4),H
+	LD	A,B
+	AND     9
+	LD      (IX+1),A
+	LD	A,B
+	AND     6
+	CP      2
+	SET     5,(IX+0)
+	JR      Z,nAC38E
+	RES     5,(IX+0)
+	JR      C,nAC38E
+	SUB     5
+	ADD     A,(IX+8)
+SND69:  JP      P,nAC387
+	CP	0F1H
+	ADC     A,0
+	JR     nAC38B
+;
+nAC387: CP      10H
+	ADC     A,0FFH
+nAC38B: LD      (IX+8),A
+nAC38E: LD      A,B
+	RRCA
+	RRCA
+	RRCA
+	RRCA
+	AND     0FH
+	ADD     A,(IX+8)
+SND70:  JP      P,nAC39C
+	XOR	A
+nAC39C: CP      10H
+	JR      C,nAC3A2
+	LD      A,0FH
+nAC3A2: LD      D,A
+	LD      B,(IX+9)
+nAC3A6: ADD     A,D
+	DJNZ    nAC3A6
+	AND	0F0H
+	RRCA
+	RRCA
+	RRCA
+	RRCA
+	LD      (IX+7),A
+	JR      nAC3EA
+;
+nAC3B4: LD      L,(IX+16H)
+	LD      H,(IX+17H)
+	LD	D,H
+	LD	E,L
+	LD	A,(HL)
+	INC	HL
+	LD	B,(HL)
+	INC	HL
+	CP      20H
+	JR      C,nAC3DC
+	BIT	7,A
+	JR      NZ,nAC3D4
+nAC3C8: BIT     6,A
+	JR      Z,nAC3DC
+	LD      L,(IX+18H)
+	LD      H,(IX+19H)
+	JR      nAC3DC
+;
+nAC3D4: LD      (IX+18H),E
+	LD      (IX+19H),D
+	JR      nAC3C8
+;
+nAC3DC: LD      (IX+16H),L
+	LD      (IX+17H),H
+	LD	C,A
+	LD	A,B
+	ADD     A,(IX+2)
+	LD      (IX+2),A
+nAC3EA: LD      A,C
+	AND     10H
+	NEG
+	OR	C
+	ADD     A,(IX+6)
+	AND     1FH
+	LD      (IX+6),A
+	RET
+
+ sT0745:  DEFS    3,0
+sT0748:  DEFS    3,0
