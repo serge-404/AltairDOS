@@ -1,0 +1,1084 @@
+;
+; Safe Format Include Module 2
+;
+
+;
+; п/п ввода строки с клавиатуры .
+; Вход  : DE=адрес буфера ; В=длина буфера ввода ; С=позиция точки
+;         hl=позиция на зкране;
+;
+modi:
+	ld      (pushhl),bc
+	ld      (pushde),de
+	push    hl
+	call    gotoxy
+	ld      hl,(pushde)
+	ld      a,(pushhl+1)
+	inc     a
+	call    wstrng
+	pop     hl
+	call    gotoxy
+	ld      de,(pushde)
+	ld      b,0             ; рег. В - номер позиции в буфере
+modirp1:push    bc
+	push    de
+	call    inkey
+	pop     de
+	pop     bc
+	cp      27
+	ret     z
+	cp      13
+	ret     z
+	ld      hl,modirp1
+	push    hl
+	cp      7fh
+	jr      z,backspace
+	cp      8
+	jr      z,goleft
+	cp      4
+	jr      z,goright
+	cp      20h
+	ret     c
+	ld      l,b
+	ld      h,0
+	add     hl,de
+	ld      (hl),a
+	call    conouta
+	ld      a,(pushhl+1)
+	cp      b
+	jr      z,left1
+	inc     b
+	ld      a,(pushhl)              ;c
+	cp      b
+	ret     nz
+	inc     b
+	jr      right1
+;
+backspace:
+	ld      a,b
+	or      a
+	ret     z
+	call    goleft
+	ld      l,b
+	ld      h,0
+	add     hl,de
+	ld      a,' '
+	ld      (hl),a
+	call    conouta
+	jr      left1
+goleft: ld      a,b
+	or      a
+	ret     z
+	dec     b
+	ld      a,(pushhl)              ;c
+	cp      b
+	jr      nz,left1
+	dec     b
+	call    left1
+left1:  ld      a,8
+left2:  jp      conouta
+goright:
+	ld      a,(pushhl+1)
+	cp      b
+	ret     z
+	inc     b
+	ld      a,(pushhl)              ;c
+	cp      b
+	jr      nz,right1
+	inc     b
+	call    right1
+right1: ld      a,24
+	jr      left2
+
+
+;readkey:
+;        call    inkey
+;        ld      (kr),a
+;        ret
+
+rki1:   call    inkey           ;readkey
+	ld      (kr),a
+	ld      (i1),a
+	ret
+
+;**********************************
+; п/п "преобразования" входного integer (16 бит) числа в "longint" (24 бита)
+;                                   путем домножения входного числа на 128
+; Вход : HL (H7..L0=16 бит);    Выход : A,BC (A7..C0=24 бита)
+longint:ld      c,l
+	ld      b,h
+	xor     a
+	push    de
+	ld      d,7
+ford:   sla     c
+	rl      b
+	rla
+	dec     d
+	jr      nz,ford
+	pop     de
+	ret
+; п/п десятичной коррекции - вход : A,BC - 24-битное шестнадцатиричное число :
+;                                               ( D23=A7 .. D0=C0 )
+;                           выход : DE,HL - 8-значное десятичное число :
+;         (D7..D4; D3..D0; E7..E4; E3..E0; H7..H4; H3..H0; L7..L4; L3..L0)
+; не портит никакие регистры кроме выходных
+;
+correction:push    ix
+	push    af
+	push    bc
+	push    bc
+	pop     ix
+	ld      c,a
+	xor     a
+	ld      d,a
+	ld      e,a
+	ld      h,a
+	ld      l,a
+	ld      b,24
+cycl:   ld      a,c
+	add     ix,ix
+	adc     a,c
+	ld      c,a
+
+	ld      a,l
+	adc     a,l
+	daa
+	ld      l,a
+
+	ld      a,h
+	adc     a,h
+	daa
+	ld      h,a
+
+	ld      a,e
+	adc     a,e
+	daa
+	ld      e,a
+
+	ld      a,d
+	adc     a,d
+	daa
+	ld      d,a
+	djnz    cycl
+
+	pop     bc
+	pop     af
+	pop     ix
+	ret
+
+;Вывод размера файла - 8 цифр (max)
+;Вход: hl - integer размер файла
+wrsize: call    longint
+	call    correction
+	call    dellead
+scbcd:  ld      a,d
+	call    wrbcd
+	ld      a,e
+	call    wrbcd
+scbcd0: ld      a,h
+	call    wrbcd
+	ld      a,l
+wrdec:
+wrbcd:  push    bc
+	push    de
+	push    hl
+	push    af          ;ПЕЧАТЬ BCD-ЧИСЛА 00H - 99H
+
+	rrca
+	rrca
+	rrca
+	rrca
+	and     0fh
+	call    prbcd
+	pop     af
+	and     0fh
+	call    prbcd
+
+	pop     hl
+	pop     de
+	pop     bc
+	ret
+;
+prbcd:  add     a,30h       ;ПЕЧАТЬ BCD-ЧИСЛА (0-9). Если >9 ,то печатать ' '
+	cp      3ah
+	jr      c,prbcd0
+	ld      a,20h
+prbcd0: ld      c,a
+	jp      conout
+
+dellead:
+; п/п замены ведущих нулей на код fh(1111b) в 8-значном десятичном числе
+;                     вход - выход : DE,HL - 8-значное десятичное число :
+;         (D7..D4; D3..D0; E7..E4; E3..E0; H7..H4; H3..H0; L7..L4; L3..L0)
+;
+	push    af
+	push    bc
+	ld      b,d
+	call    delb
+	ld      d,b
+	jr      nz,exitdel
+	ld      b,e
+	call    delb
+	ld      e,b
+	jr      nz,exitdel
+	ld      b,h
+	call    delb
+	ld      h,b
+	jr      nz,exitdel
+	ld      b,l
+	call    delb
+	ld      l,b
+	cp      0ffh
+	jr      nz,exitdel
+	ld      l,0f0h
+exitdel:pop     bc
+	pop     af
+	ret
+
+delb:
+;
+; вспомогательная п/п для dellead . Вход - выход : рег. B
+;
+	ld      a,b
+	and     0f0h
+	ret     nz
+	ld      a,0f0h
+	or      b
+	ld      b,a
+	and     0fh
+	ret     nz
+	ld      a,0fh
+	or      b
+	ld      b,a
+	xor     a
+	ld      a,b
+	ret
+
+
+arrsel: inc     a               ;Вход hl,de,a. Выход hl
+arrsl0: add     hl,de
+	dec     a
+	jr      nz,arrsl0
+	ld      a,(hl)
+	or      a
+	ret
+
+setless:ld      c,27
+	call    conout
+	ld      c,'@'
+	jr      wrsym
+
+wrlitle:push    af
+	call    setless
+	pop     af
+	jr      conouta
+storsp: ld      a,(hl)
+	or      a
+	jr      z,wr20h
+wr2ah:  ld      a,7
+	jr      wrlitle
+wr20h:  ld      a,' '
+conouta:ld      c,a
+wrsym:  push    hl
+	push    de
+	push    bc
+	call    conout
+	pop     bc
+	pop     de
+	pop     hl
+	ret
+clrscr: ld      c,0ch              ;cls
+	jr      wrsym              ;вывод байта на экран
+
+wstr:   or      a       ;взамен wstrng , вход: hl , a
+	ret     z
+	ld      b,a
+
+ws12:   push    hl
+	ld      a,(hl)
+	cp      20h
+	call    c,setless
+	pop     hl
+	ld      a,(hl)
+	push    bc
+	call    conouta
+	pop     bc
+	inc     hl
+	djnz    ws12
+	ret
+
+space:  ld      b,a
+	ld      c,' '
+space0: push    bc
+	call    conouta
+	pop     bc
+	djnz    space0
+	ret
+
+;
+; упр. байт : d0=0/1=
+;             d1=0/1= нет/есть отчеркивание
+;             d2=0/1= нет/есть выделение цветных букв
+;             d3=0/1= нет/есть doshift
+;             d4=0/1= процедура/строка шапки
+;             d5=0/1=
+;             d6=0/1= одинарная/двойная рамка
+;             d7=0/1= нет/есть рамка
+;
+winmain:
+	db      11000100b
+	db      1,22,59,3
+	db      black,lightmagenta
+	dw      wmainproc
+	db      0
+	db      0
+	db      5
+	db      14
+	dw      wmaincase
+	db      2,1,'[ Help ]',0,0,0,0
+	db      12,1,'[Parametres]'
+	db      26,1,'[ Mode ]',0,0,0,0
+	db      37,1,'[ Format ]',0,0
+	db      49,1,'[ Quit ]',0,0,0,0
+
+wmainproc:
+	ret
+
+wmaincase:
+	jr      z,showhelp
+	dec     a
+	ld      hl,winparams
+	jr      z,dowin
+	dec     a
+	ld      hl,winmodee
+	jr      z,dowin
+	dec     a
+	jp      z,format
+	pop     hl
+	pop     hl
+	pop     hl
+	ret
+showhelp:
+	jp      redraw
+dowin:  call    initwin
+	ld      a,(i1)
+	cp      27
+	ret     z
+	ld      (i1buff+2),a
+	ld      a,0dh
+	ld      (i1buff+3),a
+	ret
+
+winparams:
+	db      10000100b
+	db      1,3,38,15
+	db      black,yellow
+	dw      wparproc
+	db      7
+	db      21
+	db      0
+	db      0
+	dw      wparcase
+	db      3,1,' Drive             '
+	db      3,3,' Cylindres on disk '
+	db      3,5,' Sectors on track  '
+	db      3,7,' sYstem  tracks    '
+	db      3,9,' caTalog size (k)  '
+	db      3,11,' Volume label ',0,0,0,0,0
+	db      3,13,' Other settings    '
+
+wrspace:ld      c,' '
+	jp      conout
+
+wparproc:
+	call    listtotal
+	call    offwritest
+	db      12,0,' Parametres ',0
+	ld      hl,1c02h
+	call    gotoxy
+	call    inv
+	call    wrspace
+	ld      a,(drv)
+	add     a,41h
+	call    conouta
+	call    wrspace
+	ld      hl,1c04h
+	call    gotoxy
+	ld      a,(trk)
+	ld      c,a
+	xor     a
+	ld      b,a
+	call    correction
+	ld      a,l
+	call    wrdec
+	ld      hl,1c06h
+	call    gotoxy
+	ld      a,(sec)
+	daa
+	call    wrdec
+	ld      hl,1c08h
+	call    gotoxy
+	ld      a,(systrk)
+	call    wrdec
+	ld      hl,1c0ah
+	call    gotoxy
+	ld      a,(catsiz)
+	sla     a
+	call    wrdec
+	call    norm
+	ld      hl,140ch
+	call    gotoxy
+	ld      hl,label-1
+	jp      write
+
+wparcase:
+	jr      z,wpcas0
+	dec     a
+	jr      z,wpcas1
+	dec     a
+	jr      z,wpcas2
+	dec     a
+	jr      z,wpcas3
+	dec     a
+	jr      z,wpcas4
+	dec     a
+	jr      z,wpcas5
+	ld      hl,repeat
+	ld      de,xrepeat
+	ld      bc,3
+	ldir
+	call    open
+	ld      hl,winother
+	call    initwin
+	jp      close
+wpcas5: call    reccur
+; Вход  : DE=адрес буфера ; В=длина буфера ввода ; С=позиция точки
+;         hl=позиция на зкране;
+	ld      de,label
+	ld      bc,15*256+250
+	ld      hl,150ch
+	call    modi
+	jp      hidcur
+wpcas0: ld      a,(drv)
+	inc     a
+	cp      3
+	jr      c,wpc00
+	xor     a
+wpc00:  ld      (drv),a
+wpcasq: jp      wparproc
+wpcas1: ld      a,(trk)
+	inc     a
+	cp      85
+	jr      c,wpc10
+	ld      a,80
+wpc10:  ld      (trk),a
+	jr      wpcasq
+wpcas2: ld      a,(sec)
+	inc     a
+	cp      11
+	jr      c,wpc20
+	ld      a,5
+wpc20:  ld      (sec),a
+	jr      wpcasq
+wpcas3: ld      a,(systrk)
+	inc     a
+	cp      5
+	jr      c,wpc30
+	ld      a,1
+wpc30:  ld      (systrk),a
+	jr      wpcasq
+wpcas4: ld      a,(catsiz)
+	inc     a
+	cp      5
+	jr      c,wpc40
+	ld      a,1
+wpc40:  ld      (catsiz),a
+	jr      wpcasq
+
+winother:
+	db      10000100b
+	db      16,10,25,8
+	db      white,lightblue
+	dw      wothproc
+	db      3
+	db      20
+	db      2
+	db      10
+	dw      wothcase
+	db      2,2,' Attempt quantity '
+	db      2,3,' User for ====.== '
+	db      2,4,' Form users&dates '
+	db      4,6,'[ Ok ]',0,0
+	db      13,6,'[Cansel]'
+xrepeat:db      0
+xuser:  db      0
+xmakeus:db      0
+
+wothcase:
+	ld      hl,xrepeat
+	jr      z,wothcs1
+	dec     a
+	ld      hl,xuser
+	jr      z,wothcs2
+	dec     a
+	jr      z,wothcs3
+	pop     hl
+	pop     hl
+	pop     hl
+	dec     a
+	ret     nz
+wothcs4:ld      hl,xrepeat
+	ld      de,repeat
+	ld      bc,3
+	ldir
+	ret
+wothcs1:
+wothcs2:ld      a,(hl)
+	inc     a
+	and     0fh
+	ld      (hl),a
+	jr      wothproc
+wothcs3:ld      hl,xmakeus
+	ld      a,(hl)
+	xor     1
+	ld      (hl),a
+
+wothproc:
+	call    offwritest
+	db      8,0,' Settings ',0
+	ld      hl,1603h
+	call    gotoxy
+	call    inv
+	ld      a,(xrepeat)
+	daa
+	call    wrdec
+	ld      hl,1604h
+	call    gotoxy
+	ld      a,(xuser)
+	daa
+	call    wrdec
+	call    norm
+	ld      de,xmakeus
+	ld      hl,1605h
+	jp      cell
+
+winmodee:
+	db      10000100b
+	db      39,3,21,11
+	db      black,yellow
+	dw      wmodeproc
+	db      6
+	db      17
+	db      0
+	db      0
+	dw      wmodecase
+	db      1,2,' Safe format   '
+	db      1,3,' Quick format  '
+	db      1,4,' Dos format    '
+	db      1,6,' Format & ',244,'est '
+	db      1,7,' Only system   '
+	db      1,8,' Interleave    '
+
+modarr: ds      3
+
+wmodc3: ld      hl,test
+	sub     3
+	jr      z,wmodc4
+	ld      hl,onlysys
+	dec     a
+	jr      z,wmodc4
+	ld      hl,interl
+wmodc4: ld      a,(hl)
+	and     1
+	xor     1
+	ld      (hl),a
+	jr      wmodeproc
+wmodecase:
+	cp      3
+	jr      nc,wmodc3
+	ld      (mode),a
+
+wmodeproc:
+	call    offwritest
+	db      7,0,' Mode ',0
+	xor     a
+	ld      hl,modarr
+	ld      (hl),a
+	ld      (modarr+1),a
+	ld      (modarr+2),a
+	ld      b,a
+	ld      a,(mode)
+	ld      c,a
+	add     hl,bc
+	ld      (hl),1
+	ld      b,3
+	ld      de,modarr
+	ld      hl,17*256+3
+wcycl1: push    de
+	push    hl
+	push    bc
+	call    cell
+	pop     bc
+	pop     hl
+	pop     de
+	inc     l
+	inc     de
+	djnz    wcycl1
+	inc     l
+	push    hl
+	ld      de,test
+	call    cell
+	pop     hl
+	inc     l
+	push    hl
+	ld      de,onlysys
+	call    cell
+	pop     hl
+	inc     l
+	ld      de,interl
+;
+cell:   push    de              ; ячейка выбора . Вход : hl=xy, de=addr
+	call    gotoxy
+	ld      c,'('
+	call    conout
+	pop     hl
+	call    storsp
+	ld      c,')'
+	jp      conout
+
+errors: ld      hl,130ch
+	ld      bc,514h
+	ld      de,yellow*256+black
+	call    window
+	call    setw
+	call    offwritest
+	db      6,0,' Warning ',0
+	ld      hl,303h
+	call    gotoxy
+	pop     hl
+	call    write
+	push    hl
+	jp      inkey
+
+wintotal:
+	ld      hl,39*256+14
+	ld      bc,4*256+21
+	ld      de,black*256+yellow
+	call    setpar
+	call    framed
+	call    setw
+	call    offwritest
+	db      6,0,' Capacity ',0
+listtotal:
+	call    fillwin
+	ld      hl,42*256+16
+	call    gotoxy
+	call    makedph
+	ld      ix,bootdph+8
+	ld      l,(ix+5)
+	ld      h,(ix+6)
+	ld      b,(ix+2)
+	dec     b
+	dec     b
+	ld      a,4
+gds0:   add     a,a
+	djnz    gds0
+	dec     a
+	ld      b,a
+	inc     hl
+	ld      d,h
+	ld      e,l
+gds1:   add     hl,de
+	djnz    gds1
+	call    wrsize
+	call    writest
+	db      '  bytes',0
+	jp      setw
+
+winprocess:
+	ld      hl,1*256+18
+	ld      bc,4*256+59
+	ld      de,black*256+yellow
+	call    setpar
+	call    framed
+	ld      hl,3*256+19
+	call    gotoxy
+	call    writest
+	db      'Processing:    ['
+	ds      15h,0b0h
+	db      ']  cylindre:  ',0
+	ld      hl,2*256+20
+	call    gotoxy
+	call    writest
+	db      '                 0%       50%      100%      side:  ',0
+	ret
+
+fmmode: push    af
+	push    bc
+	push    de
+	push    hl
+	push    af
+	call    fillwin
+	ld      hl,7*256+20
+	call    gotoxy
+	pop     af
+	call    conouta
+	pop     hl
+	pop     de
+	pop     bc
+	pop     af
+	ret
+
+winwarning:
+	db      11011100b
+	db      20,10,23,5
+	db      white,red
+	dw      wwarnstr
+	db      0
+	db      0
+	db      2
+	db      12
+	dw      wwarncase
+	db      1,3,'[ Abort ]',0
+	db      12,3,'[ Format ]'
+
+wwarnstr:
+	db      1,1,'All data may be lost',0
+
+wwarncase:
+	pop     hl
+	pop     hl
+	pop     hl
+	jp      z,redraw
+	ret
+
+winfile:
+	db      11001100b
+	db      18,10,27,6
+	db      white,red
+	dw      wfileproc
+	db      0
+	db      0
+	db      2
+	db      11
+	dw      wfilecase
+	db      3,4,'[ Save ]',0
+	db      14,4,'[ Abort ]'
+
+wfileproc:
+	call    offwritest
+wfstr1: db      1,1,'There are',0
+;
+; bad groups quantity
+;
+	xor     a
+	ld      bc,(badgrqn)
+	call    correction
+	call    dellead
+	ld      a,h
+	call    wrbcd
+	ld      a,l
+	call    wrbcd
+	call    writest
+wfstr2: db      ' bad groups',0
+	call    offwritest
+wfstr3: db      1,2,'on disk. Save bad-file?',0
+	ret
+
+wfilecase:
+	pop     hl
+	pop     hl
+	pop     hl
+	jp      nz,redraw
+	ld      c,13
+	call    bdos
+	ld      a,(drv)
+	ld      c,14
+	call    bdos            ; select disk
+	ld      c,20h
+	ld      a,(user)
+	ld      e,a
+	call    bdos            ; user 15
+	ld      hl,noz80
+	ld      (hl),0
+	inc     hl
+	ld      (hl),'='
+	ld      bc,10
+	ld      de,noz80+2
+	ldir
+	xor     a
+	ld      (extent),a
+wloop1: ld      hl,noz80+12
+	ld      de,noz80+13
+	ld      (hl),0
+	ld      bc,20
+	ldir
+	ld      a,(extent)
+	ld      (noz80+12),a
+	ld      b,8
+	ld      ix,noz80+16
+	xor     a
+	ld      hl,(beglist)
+wloop2: ex      de,hl
+	ld      hl,(badstack)
+	or      a
+	sbc     hl,de
+	ex      de,hl
+	jr      z,exsave
+	dec     hl
+	ld      d,(hl)
+	dec     hl
+	ld      e,(hl)
+	ld      (ix),e
+	ld      (ix+1),d
+	inc     ix
+	inc     ix
+	add     a,16
+	djnz    wloop2
+	ld      (beglist),hl
+	ld      (noz80+15),a
+	ld      hl,extent
+	inc     (hl)
+	ld      c,16
+	ld      de,noz80
+	call    bdos
+	inc     a
+	jr      z,exsave1
+	jr      wloop1
+exsave: ld      (noz80+15),a
+	ld      c,16
+	ld      de,noz80
+	call    bdos
+	inc     a
+	jr      nz,exsave2
+exsave1:call    errors
+	db      'Dirrectory full.',0
+	jr      exsave3
+exsave2:call    errors
+	db      'File =======.===',13,10,186,'placed to user 14.',0
+exsave3:jp      redraw
+
+winbadsec:
+	db      11001100b
+	db      15,9,33,5
+	db	white,red
+	dw      wbadsproc
+	db      0
+	db      0
+	db      4
+	db	10
+	dw      wbadscase
+	db      1,3,' Retry ',0
+	db      9,3,' Ignore '
+	db      18,3,' ignAll '
+	db      26,3,' Exit ',0
+
+wbadsproc:
+	call    offwritest
+	db      1,1,'Bad sector:cyl=',0
+	ld      a,(ntrk)
+	ld      c,a
+	xor     a
+	ld      b,a
+	call    correction
+	ld      a,l
+	call    wrdec
+	call    writest
+	db      ' sec=',0
+	ld      a,(ii)
+	call    tsrecod
+	daa
+	call    wrdec
+	call    writest
+	db      ' side=',0
+	ld      a,(nside)
+	jp      prbcd
+
+wbadscase:
+	pop     hl
+	pop     hl
+	pop     hl
+close:  push    af
+	ld      de,closestr
+	call    bdosstr
+	pop     af
+	ret
+
+closestr:db     27,'W',0,8,10,9,40,27,'W',4
+	dw      bufwin
+closepg:db      1,'$'
+
+open:   ld      de,openstr
+bdosstr:ld      c,9
+	jp      bdos
+openstr:db      27,'W',0,8,10,9,40,27,'W',3
+	dw      bufwin
+openpg: db      1,'$'
+
+winnewmode:
+	db      11001100b
+	db      15,9,30,7
+	db	white,red
+	dw      wnewproc
+	db      0
+	db      0
+	db      2
+	db      12
+	dw      wnewcase
+	db      4,5, '[Continue]'
+	db      18,5,'[Abort]',0,0,0
+
+msafe:  db      'SafeFormat',0
+mquick: db      'QuickFormat',0
+wnewproc:
+	call    offwritest
+	db      2,1,'Let',39,'s format in ',0
+	ld      a,(mode)
+	or      a
+	ld      hl,msafe
+	jr      z,ifsafe
+	ld      hl,mquick
+ifsafe: call    write
+	call    offwritest
+	db      1,2,'mode:',0
+	call    writest
+	db      'Cylindres:',0
+	ld      a,(trk)
+	ld      c,a
+	xor     a
+	ld      b,a
+	call    correction
+	ld      a,l
+	call    wrdec
+	call    writest
+	db      ' Sectors:',0
+	ld      a,(sec)
+	daa
+	call    wrdec
+	call    offwritest
+	db      6,3,'Sys.Tracks:',0
+	ld      a,(systrk)
+	call    prbcd
+	call    writest
+	db      ' Catalog:',0
+	ld      a,(catsiz)
+	sla     a
+	call    prbcd
+	ld      c,'k'
+	jp      conout
+
+wnewcase:
+	pop     hl
+	pop     hl
+	pop     hl
+	call    close
+	ret     z
+restpar:ld      hl,paramcopy
+	ld      de,trk
+	ld      bc,catsiz-trk
+	ldir
+	jp      redraw
+
+IF      DEMO
+windemo:
+	db      11011100b
+	db      20,10,23,5
+	db      White,red
+	dw      wdemostr
+	db      0
+	db      0
+	db      1
+	db      8
+	dw      wdemocase
+	db      8,3,'[ Ok ]'
+
+wdemostr:
+	db      1,1,'Sorry, it is a demo!!',0
+
+wdemocase:
+	pop     hl
+	pop     hl
+	pop     hl
+	jp      redraw
+ENDIF
+
+winabort:
+	db      11011100b
+	db      20,10,23,5
+	db      white,red
+	dw      wabstr
+	db      0
+	db      0
+	db      2
+	db      12
+	dw      wabcase
+	db      1,3,'[ Abort ]',0
+	db      12,3,'[Continue]'
+
+wabstr: db      5,1,'Abort process ?',0
+
+wabcase:
+	pop     hl
+	pop     hl
+	pop     hl
+	ret
+
+
+scale:  call    constat
+	or      a
+	jr      z,scale0
+	call    fillwin
+	ld      hl,winabort
+	call    initwin
+	jp      z,redraw
+	call    wformat
+	call    motor
+scale0:
+	call    fillwin
+	ld      hl,52*256+19
+	call    gotoxy
+	ld      a,(ntrk)
+	ld      c,a
+	xor     a
+	ld      b,a
+	call    correction
+	ld      a,l
+	call    wrdec
+	ld      hl,52*256+20
+	call    gotoxy
+	ld      a,(nside)
+	call    prbcd
+	ld      a,(ntrk)
+	cp      81
+	jp      nc,setw
+	inc     a
+	srl     a
+	srl     a
+	push    af
+	ld      h,19
+	add     a,h
+	ld      h,a
+	ld      l,19
+	call    gotoxy
+	pop     af
+	ld      c,157
+	jr      nc,scale1
+	ld      c,155
+scale1: call    conout
+	jp      setw
+
+quit:   call    cm0
+	call    reccur
+	call    writest
+	db      27,'Q',6,0
+	call    fullwin         ; монохром, окно 80х25, шрифт 6
+	call    clrscr
+	ld      c,0
+	jp      bdos            ; warm start
+
+
+
+ bc
+	push    bc
+	pop     ix
+	ld    

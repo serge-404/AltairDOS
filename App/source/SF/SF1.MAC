@@ -1,0 +1,925 @@
+;             Код цвета           Цвет
+BLACK           equ     0       ;черный
+BLUE            equ     1       ;голубой
+GREEN           equ     2       ;зеленый
+CYAN            equ     3       ;синий
+RED             equ     4       ;красный
+MAGENTA         equ     5       ;малиновый
+BROWN           equ     6       ;коричневый
+LIGHTGRAY       equ     7       ;белый
+DARKGRAY        equ     8       ;серый
+LIGHTBLUE       equ     9       ;светло-голубой
+LIGHTGREEN      equ     10      ;светло-зеленый
+LIGHTCYAN       equ     11      ;светло-синий
+LIGHTRED        equ     12      ;свето-красный
+LIGHTMAGENTA    equ     13      ;свето-малиновый
+YELLOW          equ     14      ;желтый
+WHITE           equ     15      ;интенсивно-белый
+
+bdos    equ     5
+pgMarker equ    0EFFFh
+dsf7    equ     0F3F7h         ; Тип системного драйвера
+
+bios    equ     begin-2
+k       equ     bios+52
+dsize   equ     k+64
+dused   equ     dsize+2
+ilist   equ     dused+2
+klist   equ     ilist+1
+iii     equ     klist+1
+ii      equ     iii+1
+extent  equ     ii+1
+pushhl  equ     extent+1
+pushde  equ     pushhl+2
+stack   equ     pushde+2
+asm     equ     stack+1
+vaddr   equ     asm+1        ;адрес текущего элемента в массиве верт. эл-тов
+haddr   equ     vaddr+2      ;адрес текущего элемента в массиве гор. эл-тов
+vpoint  equ     haddr+2      ;номер текущего элемента в массиве верт. эл-тов
+hpoint  equ     vpoint+1     ;номер текущего элемента в массиве гор. эл-тов
+prkey   equ     hpoint+1     ;если = 0 , то не обходить точку в modname
+winmode equ     PRKEY+1
+i1buff  equ     winmode+1
+
+ignall  equ     i1buff+4
+quickres equ    ignall+1
+badflag equ     quickres+1
+kr      equ     badflag+1
+sinterl equ     kr+1
+i1      equ     sinterl+1
+sfstack equ     i1+1
+badstack equ    sfstack+2
+beglist equ     badstack+2
+ltc     equ     beglist+2
+lbc     equ     ltc+1
+key     equ     lbc+1
+badgrqn equ     key+1
+D0A2A   equ     badgrqn+2
+D0A2C   equ     d0a2a+1
+FDCSTACK equ    d0a2c+1
+result  equ     FDCSTACK+2       ; результат операций . 0-ОК,1-BAD
+RG720   equ     result+1         ; КОПИЯ РЕГ. УПРАВЛЕНИЯ 0F720H
+NTRK    equ     rg720+1
+NSIDE   equ     ntrk+1
+NSEC    equ     nside+1
+paramcopy equ   nsec+1          ; size=6
+
+secbuf  equ     paramcopy+8     ; size=10*1024=2800h
+bufwin  equ     secbuf+2800h    ; size=40*10*10*2=2000h
+noz80   equ     bufwin+2000h    ; size=3000h
+
+constat equ     bios+6
+conin   equ     bios+9
+conout  equ     bios+12
+
+YF700	EQU	0F700H
+YF702	EQU	0F702H
+YF703	EQU	0F703H
+YF720	EQU	0F720H
+;
+;************************* CODES **************************
+DRV:    DB      0
+TRK:    DB      50H
+SEC:    DB      5
+SYSTRK: DB      4
+CATSIZ: DB      2
+MODE:   DB      2
+TEST:   DB      0
+ONLYSYS:DB      0
+INTERL: DB      0
+	DB      '['
+LABEL:  DB      'Safe Format     ',']',0
+REPEAT: DB      3
+USER:   DB      14
+MAKEUS: DB      1
+
+; П/п установить окно во весь экран
+reswinesc:db    1bh,'W',csetw,0,0,25,60
+normwin:  db    1bh,'W',csetw,0,0,25,80
+fullwin:ld      hl,normwin
+	jr      fillwin1
+fillwin:call    cm3             ; 16 - цветный скоростной режим
+	ld     hl,reswinesc
+fillwin1:
+	ld      a,7
+	jp      wstrng          ; Установить окно во весь
+				; экран
+refill: ld      hl,k
+	ld      de,k+1
+	ld      bc,400h
+	ld      (hl),c          ; 0
+	ldir
+	ld      (stack),sp
+redraw: ld      sp,(stack)
+	ld      hl,(6)
+	ld      (badstack),hl
+	ld      (beglist),hl
+	xor     a
+	ld      h,a
+	ld      l,a
+	ld      (badgrqn),hl
+	ld      (result),a
+	ld      (ignall),a
+	ld      hl,winmodee
+	call    drawwin
+	call    wintotal
+	ld      hl,winparams
+	call    drawwin
+	call    winprocess
+	ld      hl,winmain
+	call    initwin
+	jp      quit
+;
+wformat:
+	call    fillwin
+	call    framed
+	call    setw
+	call    offwritest
+	db      3,2,'F O R M A T I N G',0
+	jp      fillwin
+;
+format:
+IF      DEMO
+	LD      HL,WINDEMO
+	CALL    INITWIN
+	JP      REDRAW
+ELSE
+	ld      hl,winwarning
+	call    initwin
+	ld      a,(i1)
+	cp      27
+	jp      z,redraw
+	call    wformat
+;
+	ld      a,(drv)
+	OR      010H            ; СТОРОНА 0
+	LD      B,A
+	LD      A,(SEC)
+	cp      6
+	ld      a,8
+	jr      nc,ifhd
+	xor     a
+ifhd:   OR      B
+	LD      (YF720),A       ; РЕГ. УПРАВЛЕНИЯ КНГМД
+				; D0,D1=DRIVE, D3=HD, D4=/SIDE
+	LD      (RG720),A       ; КОПИЯ РЕГ. УПР. КНГМД
+	LD      A,8
+	CALL    A05B1           ; GOTO TRACK 0
+	CALL    A075B
+	JP      Z,A01C2
+	call    errors          ;DRIVE NOT READY => ENTER PARAMETRES ANEW
+	db      'Drive not ready!',0
+	jp      redraw
+
+A01C2:  ld      a,(mode)
+	cp      2
+	jp      nc,ifdos    ; if formating in DOS-mode then no source control
+
+	LD      A,1             ; СЕКТОР НОМЕР 1
+	LD	(YF702),A
+	LD      A,(RG720)
+	OR      010H
+	LD      (RG720),A       ; ВЫБОР НУЛЕВОЙ СТОРОНЫ ДИСКЕТЫ
+	LD      (YF720),A
+	LD      HL,NOZ80
+	push    hl
+	CALL    rdsec           ; ставит флаги и RESULT
+	pop     hl
+	Jr      Z,scontr1
+	ld      a,(RG720)
+	xor     8
+	ld      (RG720),a
+	ld      (YF720),a
+	call    rdsec
+	jr      z,scontr1
+scontr0:call    errors          ; FATAL ERROR: BOOT-SECTOR FAILURE
+	db      'Bad boot-sector',13,10,186,'Try use Dos-Format',0
+	JP      redraw
+scontr1:
+	LD      HL,NOZ80        ; НАЧАЛО ОБРАЗЦА BOOT-СЕКТОРА В ПАМЯТИ
+	LD      B,01FH
+	LD      A,066H
+SCONTR2:ADD     A,(HL)
+	INC     HL
+	DJNZ    SCONTR2         ; ПОДСЧЕТ СУММЫ DPH BOOT-СЕКТОРА
+	cp      (hl)
+	jr      nz,scontr0
+	ld      hl,trk
+	ld      de,paramcopy
+	ld      bc,catsiz-trk
+	ldir
+	ld      a,(noz80+12)
+	ld      (sec),a
+	ld      a,(noz80+14)
+	ld      (trk),a
+	ld      a,(noz80+1dh)
+	ld      (systrk),a
+	ld      a,(noz80+17h)
+	inc     a
+	ld      b,4
+	jr      z,scontr3
+	rlca
+	rlca
+	and     3
+	ld      b,a
+scontr3:ld      a,b
+	ld      (catsiz),a
+	ld      hl,noz80
+	call    getinterl       ; определяем есть ли интерливинг на исходном
+	ld      (sinterl),a     ; формате
+	call    open
+	ld      hl,winnewmode
+	call    initwin
+	ld      a,(i1)
+	cp      27
+	jp      z,restpar
+	call    motor
+ifdos:
+	LD      A,(TRK)
+	LD      (D0A2A),A
+	XOR	A
+	LD      (NTRK),A
+A02E0:  LD      A,002H          ; ФОРМАТИРУЕМ ОБЕ СТОРОНЫ
+	LD      (D0A2C),A
+	XOR	A
+	LD      (NSIDE),A
+	LD      A,(RG720)
+	OR	010H
+	LD      (RG720),A       ; УСТАНОВИТЬ СТОРОНУ 0
+A02F1:  call    scale
+	ld      a,(onlysys)
+	or      a
+	jr      z,rdsafe
+	ld      hl,nside
+	ld      a,(ntrk)
+	sla     a
+	or      (hl)            ; a:=ntrk*2+nside=(0..159) for 80trk
+	ld      hl,systrk
+	cp      (hl)
+	jp      nc,A0339
+rdsafe: ld      a,(mode)
+	cp      2
+	jr      nc,A02F2
+	ld      a,'R'
+	call    fmmode
+	ld      hl,secbuf
+	call    rdtrksec        ; читаем дорожку по секторам
+	ld      a,(mode)
+	or      a
+	jr      z,A02F2
+	ld      a,(result)
+	or      a
+	jp      z,A02F3
+;
+A02F2:  LD      HL,NOZ80
+	CALL    mktrk           ; СОЗДАТЬ В ПАМЯТИ ОБРАЗ ДОРОЖКИ
+retry1: ld      a,'F'
+	call    fmmode
+	LD      HL,NOZ80
+	CALL    wrtrk           ; ЗАПИСАТЬ НА ДИСК ДОРОЖКУ ЦЕЛИКОМ
+	ld      a,(mode)
+	or      a
+	jr      nz,mmm
+	ld      a,'W'
+	call    fmmode
+	ld      hl,secbuf
+	call    wrtrksec        ; запись дорожки по секторам
+mmm:    ld      a,(test)
+	or      a
+	jp      z,A02F3
+	ld      a,'T'
+	call    fmmode
+	LD      a,(sec)         ; тестируем N секторов
+	ld      (iii),a
+	xor     a
+	ld      (ii),a          ; (ii)-тестируемый сектор
+ltest1: ld      hl,ii
+	inc     (hl)
+	ld      a,(hl)
+	call    tsrecod
+	LD	(YF702),A
+	LD      HL,bufwin
+	CALL    rdsec           ; СЧИТАТЬ СЕКТОР
+	jp      z,ltest2
+
+bads11: xor     a
+	ld      (result),a
+	ld      hl,badflag
+	dec     (hl)
+	jr      z,wbads
+retry:  call    motor
+	jr      retry1
+wbads:  ld      a,(repeat)
+	ld      (hl),a
+	ld      a,(ignall)
+	or      a
+	jr      nz,ignore
+	call    open
+	ld      hl,winbadsec
+	call    initwin
+	ld      b,a
+	ld      a,(i1)
+	cp      27
+	jp      z,redraw
+	ld      a,b
+	or      a
+	jr      z,retry
+	dec     a
+	jr      z,ignore
+	dec     a
+	jp      nz,redraw
+	ld      a,1
+	ld      (ignall),a
+ignore: call    motor
+;
+; Здесь маркировать сбойную группу
+;
+	ld      a,(ntrk)
+	sla     a
+	ld      hl,nside
+	add     a,(hl)
+	ld      hl,systrk
+	sub     (hl)
+	jr      c,bads11
+	ld      hl,0
+	jr      z,bads1
+	ld      hl,sec
+	ld      b,(hl)
+	ld      d,l
+	ld      e,a             ; de=(ntrk*2+nside-systrk)
+bads0:  add     hl,de
+	djnz    bads0           ; hl:=de*sec
+	ld      c,a
+
+bads1:  ld      a,(ii)          ; a=текущий сектор
+	ld      e,a
+	add     hl,de
+	dec     hl
+	srl     h
+	rr      l               ; hl=номер плохой группы
+	ld      (sfstack),sp
+	ld      sp,(badstack)
+	pop     de
+	push    de
+	ex      de,hl
+	or      a
+	sbc     hl,de
+	jr      z,bads2         ; ЕСЛИ ГРУППА УЖЕ ПОМЕЧЕНА
+	push    de
+	ld      (badstack),sp
+	LD      hl,(badgrqn)
+	inc     hl
+	ld      (badgrqn),hl
+bads2:  ld      sp,(sfstack)
+
+ltest2: ld      hl,iii
+	dec     (hl)
+	jp      nz,ltest1
+
+A02F3:  LD      HL,NSIDE
+	INC     (HL)
+	LD      A,(RG720)
+	AND	0EFH
+	LD      (RG720),A       ; УСТАНОВИТЬ СТОРОНУ 1
+	LD      HL,D0A2C
+	DEC     (HL)
+	JP      NZ,A02F1
+	LD      HL,NTRK
+	INC     (HL)
+	LD      HL,D0A2A
+	DEC     (HL)
+	JP      Z,A0339         ; ПЕРЕХОД НА ЗАПИСЬ ВООТ-СЕКТОРА
+	LD      A,058H          ; 01011000b - step in & update & hld
+	CALL    A05B1           ; ИНАЧЕ - СЛЕДУЮЩАЯ ДОРОЖКА
+	JP	A02E0
+;
+ENDIF
+;
+rdrecod:ld      e,a             ;interleave для чтения-перекодировщик секторов
+	ld      a,(sinterl)     ;ускоряет чтение дорожки для Safe режима
+	jr      commrec
+;
+wrrecod:
+tsrecod:ld      e,a             ;interleave для теста-перекодировщик секторов
+commr1: ld      a,(interl)      ;ускоряет чтение при тестировании на дискете,
+commrec:or      a               ;форматируемой без интерливинга
+	ld      a,e
+	ret     nz
+	ld      a,(sec)         ;вход: а=1..10 выход a=f(1..10)=1..10
+	cp      7
+	ld      hl,tab6sec
+	jr      c,tsrec1
+	cp      9
+	ld      hl,tab8sec
+	jr      c,tsrec1
+	ld      hl,tab10sec
+tsrec1: dec     e
+	ld      d,0
+	add     hl,de
+	ld      a,(hl)
+	ret
+;
+tab6sec:db      1,3,5,2,4,6
+tab8sec:db      1,3,5,7,2,4,6,8
+tab10sec:
+	db      1,3,5,7,9,2,4,6,8,10
+;
+fmrecod:ld      e,a             ;interleave для format-перекодировщик секторов
+	ld      a,(interl)
+	or      a
+	ld      a,e
+	ret     z
+	ld      a,(sec)         ;вход: а=1..10 выход a=f(1..10)=1..10
+	cp      7
+	ld      hl,tab6wr
+	jr      c,wrrec1
+	cp      9
+	ld      hl,tab8wr
+	jr      c,wrrec1
+	ld      hl,tab10wr
+wrrec1: dec     e
+	ld      d,0
+	add     hl,de
+	ld      a,(hl)
+	ret
+;
+tab6wr: db      1,4,2,5,3,6
+tab8wr: db      1,5,2,6,3,7,4,8
+tab10wr:db      1,6,2,7,3,8,4,9,5,10
+;
+getinterl:                      ; опр. есть интерливинг на диске или нет
+	ld      hl,noz80        ; Выход : а=0/1=нет/есть интерливинг
+	ld      b,16
+loop:   push    hl
+	push    bc
+	call    rdadr           ;!
+	pop     bc
+	pop     hl
+	ld      de,8
+	add     hl,de
+	djnz    loop
+	ld      hl,noz80+2      ; de=8
+LOOP1:  LD      A,(HL)
+	DEC     A
+	JR      Z,IFONE
+	ADD     HL,DE
+	JR      LOOP1
+IFONE:  LD      A,1
+LOOP2:  CP      (HL)
+	JR      NZ,YESINT
+	ADD     HL,DE
+	INC     A
+	CP      5
+	JR      C,LOOP2
+noint:  xor     a
+	ret
+yesint: ld      a,1
+	or      a
+	ret
+;
+motor:  ld      a,(ntrk)        ; раскрутить колесо
+	or      a
+	jr      z,iftrk00
+	ld      a,01111000b     ; step out & update & hld
+	call    A05B1
+	LD      A,058H          ; 01011000b - step in & update & hld
+	JP      A05B1           ; ИНАЧЕ - СЛЕДУЮЩАЯ ДОРОЖКА
+iftrk00:LD      A,058H          ; 01011000b - step in & update & hld
+	call    A05B1
+	ld      a,00001000b
+;
+A05B1:  LD      (YF700),A       ; ПОЗИЦИОНИРОВАНИЕ ГОЛОВКИ . ВХОД: РЕГ.А
+	LD	A,018H
+A05B6:	DEC	A
+	JP      NZ,A05B6        ; ЗАДЕРЖКА
+A05BA:  LD      A,(YF700)
+	RRCA
+	JP      C,A05BA         ; цикл пока контроллер не готов
+	RET
+;
+A0339:  LD      A,008H
+	CALL    A05B1           ; HOME (TRK00)
+	ld      a,(mode)
+	cp      2
+	jp      c,redraw
+	LD      A,(RG720)
+	OR	010H
+	LD      (RG720),A       ; ВЫБОР НУЛЕВОЙ СТОРОНЫ ДИСКЕТЫ
+	LD	(YF720),A
+	LD      A,2             ; СЕКТОР НОМЕР 2
+	LD	(YF702),A
+	LD      HL,NOZ80+400h
+	CALL    rdsec           ; СЧИТАТЬ СЕКТОР
+	LD      A,1             ; СЕКТОР НОМЕР 1
+	LD	(YF702),A
+	LD      HL,NOZ80
+	CALL    rdsec           ; СЧИТАТЬ СЕКТОР
+	JP      Z,A0364
+A035B:  call    errors          ; FATAL ERROR: BOOT-SECTOR FAILURE
+	db      'Bad boot-sector',0
+	JP      redraw
+;
+;ФОРМАТ МАССИВА DPH ВООТ-СЕКТОРА (NOZ80+8 .. NOZ80+1EH)
+;    0        1       2       3       4       5       6       7
+;   └└└└└└└┘└└└└└└└┘└└└└└└└┘└└└└└└└┘└└└└└└└┘└└└└└└└┘└└└└└└└┘└└└└└└└©
+;0 ЁPAGE=1 ЁPAGE=1 Ёlengt=3Ё    =1 Ё  SEC  Ё    =0 Ё  TRK  Ё  =0   Ё 7
+;  ┐└└└└└└└┘└└└└└└└┘└└└└└└└┘└└└└└└└┘└└└└└└└┘└└└└└└└┘└└└└└└└┘└└└└└└└╢
+;8 Ё  SPT  Ё SPT'=0Ё BSH=4 ЁBLM=0FHЁ EXM=0 Ё DSM   Ё DSM'  Ё  DRM  Ё 0F
+;  ┐└└└└└└└┘└└└└└└└┘└└└└└└└┘└└└└└└└┘└└└└└└└┘└└└└└└└┘└└└└└└└┘└└└└└└└≥
+;10Ё  DRM' Ё  AL0  Ё AL1=0 Ё  CKS  Ё CKS'=0ЁOFF=SYSЁ OFF'=0Ё16 SUMM
+;  ┐└└└└└└└│└└└└└└└│└└└└└└└│└└└└└└└│└└└└└└└│└└└└└└└│└└└└└└└≥
+;     10        11      12      13      14      15      16
+;
+BOOTDPH:DB      001H,001H,003H,001H,005H,000H,050H,000H         ; 5/80
+	DB      028H,000H,004H,00FH,000H,085H,001H,07FH
+	DB      000H,0C0H,000H,020H,000H,004H,000H,000H
+;
+makedph:ld      a,(trk)
+	ld      (bootdph+6),a        ; TRK = сколько физ. дорожек
+	ld      a,(sec)
+	ld      (bootdph+4),a        ; SEC = сколько физ. секторов на дорожке
+	sla     a
+	sla     a
+	sla     a
+	ld      (bootdph+8),a        ; SPT=SEC*8= сколько логич. секторов на дор.
+	ld      a,(systrk)
+	ld      e,a
+	ld      a,(trk)
+	sla     a
+	sub     e
+	ld      e,a
+	ld      d,0
+	ld      hl,0
+	ld      a,(sec)
+	ld      b,a
+bot1:   add     hl,de           ; hl:=SEC*(TRK-OFF)
+	djnz    bot1            ; hl= размер диска (без системных дорожек)
+	srl     h               ; в физ. секторах
+	rr      l               ; hl:=hl/2 = глобал. размер в группах
+;
+	ld      a,(catsiz)
+	ld      c,a
+	ld      b,0
+	or      a
+	sbc     hl,bc
+	ld      (bootdph+0dh),hl        ; DSM - объем дисковода в группах
+	ld      a,(catsiz)
+	ld      l,a
+	ld      h,0
+	add     hl,hl
+	add     hl,hl
+	add     hl,hl
+	add     hl,hl                   ; hl=catsiz*16= CKS
+	ld      (bootdph+13h),hl        ; CKS- размер вектора проверки оглавл.
+	add     hl,hl
+	add     hl,hl
+	dec     hl
+	ld      (bootdph+0fh),hl        ; drm - число записей в оглавлении
+	ld      b,a                     ; b:=catsiz
+	xor     a
+bot3:   scf
+	rra
+	djnz    bot3
+	ld      (bootdph+11h),a         ; AL0 - резерв записей оглавления
+	ld      a,(systrk)
+	ld      (bootdph+15h),a
+	ret
+
+A0364:                          ; заполнение ВООТ-сектора
+	call    makedph
+	ld      hl,bootdph      ; HL = АДРЕС DPH (ДЛЯ ВООТ-СЕКТОРА) В ПАМЯТИ
+	LD      BC,00018H       ; РАЗМЕР DPH
+	LD      DE,NOZ80+8      ; АДРЕС DPH В ВООТ-СЕКТОРЕ (OFFSET=8)
+	LDIR
+	LD      hl,NOZ80        ; НАЧАЛО ОБРАЗЦА BOOT-СЕКТОРА В ПАМЯТИ
+	LD      B,01FH
+	LD      A,066H
+A03A2:	ADD	A,(HL)
+	INC     HL
+	DJNZ    A03A2           ; ПОДСЧЕТ СУММЫ DPH BOOT-СЕКТОРА
+	LD      (HL),A          ; ЗАПИСЬ НА OFFSET(ВООТ)+1FH  К.С. DPH
+	push    de
+	pop     hl              ; hl=de=NOZ80+20h
+	ld      a,(NOZ80+0FDh)  ; к.с. метки диска
+	ld      c,a
+	xor     a
+	ld      b,16
+xorsum: xor     (hl)
+	inc     hl
+	djnz    xorsum
+	cp      c
+	jr      z,noldir
+	ld      (NOZ80+0FDh),a  ; к.с. метки диска
+	LD      HL,LABEL        ; АДРЕС ИМЕНИ ДИСКА В ПАМЯТИ
+	LD      BC,10H
+	LDIR                    ; ПЕРЕСЛАТЬ ИМЯ ДИСКА (VOLUME LABEL)
+noldir:
+;
+; имена юзеров и даты
+	ld      a,(makeus)
+	or      a
+	jp      z,nous1
+;
+; сформировать имена юзеров и даты файлов
+;
+nous1:  LD      HL,NOZ80
+	CALL    wrsec           ; записать сектор на диск
+	LD      A,(result)
+	OR	A
+	JP      NZ,A035B        ; JP <IF BAD BOOT-SECTOR>
+
+	ld      a,(makeus)
+	or      a
+	jp      z,nous
+
+	LD      A,2             ; СЕКТОР НОМЕР 2
+	LD	(YF702),A
+	LD      HL,NOZ80+400h
+	CALL    wrsec           ; записать сектор на диск
+
+nous:   ld      hl,(badgrqn)
+	ld      a,h
+	or      l
+	jp      z,redraw
+	ld      hl,winfile
+	jp      initwin
+;
+; ЗАПИСЬ СЕКТОРА (многосекторно) С ЗАДЕРЖКОЙ 15 МС
+;
+wrmany: LD      b,0A0H          ; 10100000b
+	jr      wrcom
+;
+; ЗАПИСЬ СЕКТОРА С ЗАДЕРЖКОЙ 15 МС
+;
+wrsec:  LD      b,0A4H          ; 10100100b
+	jr      wrcom
+;
+; ЗАПИСЬ ДОРОЖКИ ЦЕЛИКОМ С ЗАДЕРЖКОЙ 15 МС
+;
+wrtrk:  LD      b,0F4H          ; 11110100b
+;
+wrcom:  di
+	LD      A,(RG720)
+	OR	020H
+	LD	(YF720),A
+	AND	0DFH
+	LD      (YF720),A       ; МИГНУЛ БИТОМ D5 РЕГ. УПР. - запуск мотора
+	ld      a,b
+	LD      (YF700),A       ; запись на диск
+	LD	A,018H
+A0627:	DEC	A
+	JP	NZ,A0627
+	PUSH	HL
+	LD      (FDCSTACK),SP   ; запомнили значение указателя стека
+	LD      SP,HL           ; стек уст. на начало ПДП
+	LD      HL,0F703H
+	LD      DE,0F700H
+A063C:	POP	BC
+A063D:	LD	A,(DE)
+	XOR     001H
+	JP	Z,A063D
+	LD      (HL),C
+	RRA
+	JP	C,A0656
+	RRA
+	JP	NC,A063D
+A064C:	LD	A,(DE)
+	XOR     001H
+	JP	Z,A064C
+	LD	(HL),B
+	JP	A063C
+;
+A0656:  LD      HL,0FFFEH
+	ADD     HL,SP
+	EX	DE,HL
+	LD      HL,(FDCSTACK)
+	LD	SP,HL
+	JP	A0685
+;
+; ЧТЕНИЕ СЕКТОРА С ЗАДЕРЖКОЙ 15 МС
+;
+rdsec:  LD      b,084H          ; 10000100b
+	jr      rdcom
+;
+; чтение номеров дорожек, стороны , сектора , длины сектора , к.с.
+;
+rdadr:  ld      b,0c4h
+;
+rdcom:  di
+	LD      A,(RG720)
+	OR	020H
+	LD	(YF720),A
+	AND	0DFH
+	LD      (YF720),A       ; МИГНУЛ БИТОМ D5 РЕГ. УПР. - запуск мотора
+	ld      a,b
+	LD      (YF700),A       ; чтение с дискa
+	LD	A,018H
+A0667:	DEC	A
+	JP      NZ,A0667        ; ЗАДЕРЖКА
+	PUSH	HL
+	LD	BC,00301H
+	LD	DE,0F700H
+A0672:	LD	A,(DE)
+	AND	B
+	XOR	C
+	JP      Z,A0672
+	AND	C
+	LD	A,(YF703)
+	JP	NZ,A0684
+	LD	(HL),A
+	INC	HL
+	JP	A0672
+;
+A0684:	EX	DE,HL
+A0685:	POP	HL
+	LD      A,(YF700)
+	AND	0DDH
+	LD      (result),A
+	ei
+	RET
+;
+; писать дорожку по секторам
+;
+wrtrksec:
+	ld      a,(ntrk)
+	cp      2
+	call    c,motor
+	ld      a,(sec)
+	ld      b,a
+wrtr1:  push    bc
+	push    hl
+	ld      a,(sec)
+	inc     a
+	sub     b
+	call    wrrecod
+	LD      (YF702),A
+	pop     hl
+	push    hl
+	dec     a               ; писать по неперекодированному АКК. ?
+	sla     a
+	sla     a
+	add     a,h
+	ld      h,a
+	ld      a,(result)
+	push    af
+	CALL    wrmany          ; ЗАПИСАТЬ СЕКТОР
+	pop     af
+	LD      HL,result
+	or      (hl)
+	ld      (hl),a
+	pop     hl
+	pop     bc
+	djnz    wrtr1
+	ret
+;
+; читать дорожку по секторам
+;
+rdtrksec:
+	ld      a,(ntrk)
+	cp      3
+	jr      nc,rtsnext
+	ld      a,4
+acycl:  ld      b,0ffh
+rtscycl:djnz    rtscycl         ; delay
+	dec     a
+	jr      nz,acycl
+rtsnext:
+	ld      a,(sec)
+	ld      b,a
+rdtr1:  push    bc
+	push    hl
+	ld      a,(sec)
+	inc     a
+	sub     b
+	call    rdrecod
+	LD      (YF702),A
+
+	pop     hl
+	push    hl
+	dec     a
+	sla     a
+	sla     a
+	add     a,h
+	ld      h,a
+	ld      a,(result)
+	push    af
+	CALL    rdsec           ; СЧИТАТЬ СЕКТОР
+	pop     af
+	LD      HL,result
+	or      (hl)
+	ld      (hl),a
+	pop     hl
+	pop     bc
+	djnz    rdtr1
+	ret
+;
+; ФОРМИРОВАТЕЛЬ ДОРОЖКИ В ПАМЯТИ . НАЧ. АДРЕС - В HL
+;
+mktrk:  LD      BC,0504EH       ; ЗАПИСЫВАЕТ METKУ НАЧАЛА ДОРОЖКИ.
+	CALL    fillc           ; 80 БАЙТ 4EH
+	LD      B,00CH
+	CALL    fill0           ; 12 НУЛЕЙ
+	LD      BC,003F6H
+	CALL    fillc           ; 3 БАЙТА 0F6H
+	LD      (HL),0FCH
+	INC     HL              ; 1 БАЙТ  0FCH
+	LD      BC,0324EH
+	CALL    fillc           ; 50 БАЙТ 4EH
+	ld      a,(sec)
+	ld      b,a
+mktrk1: push    bc
+	push    hl
+	push    de
+	ld      a,(sec)
+	inc     a
+	sub     b
+	call    fmrecod
+	ld      (nsec),a
+;        call    scale
+	pop     de
+	pop     hl
+	CALL    mksec           ; ДЕЛАЕМ SEC СЕКТОРОВ
+	pop     bc
+	djnz    mktrk1
+	ld      (hl),4eh
+	LD      BC,1000h
+	ld      d,h
+	ld      e,l
+	inc     de
+	ldir                    ; ЗАБИТЬ 4К ПАМЯТИ КОДОМ 4EH
+	ret
+;
+fill0:  LD      C,000H
+fillc:  LD      (HL),C          ; заполнение памяти константой. Вход: B,HL
+	INC	HL
+	djnz    fillc
+	RET
+;
+; ФОРМИРОВАТЕЛЬ СЕКТОРА В ПАМЯТИ . НАЧ. АДРЕС - В HL
+;
+mksec:  LD      B,00CH          ; СОЗДАЕМ СЕКТОР РАЗМЕРОМ 1К
+	CALL    fill0           ; 12 НУЛЕЙ
+	LD      BC,003F5H
+	CALL    fillc           ; 63 БАЙТА 0F5H
+	LD      (HL),0FEH       ; БАЙТ 0FEH
+	INC     HL
+	LD      A,(NTRK)        ; НОМЕР ДОРОЖКИ (0..TRACKS-1)
+	LD	(HL),A
+	INC	HL
+	LD      A,(NSIDE)       ; НОМЕР СТОРОНЫ (0,1)
+	LD	(HL),A
+	INC	HL
+	LD      A,(NSEC)        ; НОМЕР СЕКТОРА (0..SECTORS-1)
+	LD	(HL),A
+	INC	HL
+	LD      (HL),003H
+	INC	HL
+	LD	(HL),0F7H
+	INC	HL
+	LD      BC,0164EH
+	CALL    fillc
+	LD      B,00CH
+	CALL    fill0
+	LD      BC,003F5H
+	CALL    fillc
+	LD	(HL),0FBH
+	INC	HL
+	ld      (hl),0e5h
+	ld      d,h
+	ld      e,l
+	inc     de
+	ld      bc,1023
+	ldir
+	inc     hl
+	LD      (HL),0F7H
+	INC	HL
+	LD      BC,0364EH
+	JP      fillc
+;
+A075B:  LD      A,(RG720)       ; ВЫХОД - РЕГ. А=0/1 , ФЛАГИ
+	OR	020H
+	LD	(YF720),A
+	AND	0DFH
+	LD      (YF720),A       ; МИГНУЛ БИТОМ D5 РЕГИСТРА УПРАВЛЕНИЯ
+	LD	DE,07530H
+A076B:  DEC     DE
+	LD	A,E
+	OR	D
+	JP      NZ,A076B        ; ЗАДЕРЖКА ?
+	LD	DE,09000H
+A0774:	LD	A,(YF700)
+	RLCA
+	JP	NC,A0785
+	DEC	DE
+	LD      A,D
+	OR	E
+	JP	NZ,A0774
+	LD	A,001H
+	OR	A
+	RET
+;
+A0785:	XOR	A
+	RET
+
+     z,scontr1
+scontr0:cal

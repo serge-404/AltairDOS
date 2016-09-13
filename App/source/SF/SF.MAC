@@ -1,0 +1,807 @@
+	.Z80
+TITLE   'program safe format'
+;
+DEMO    EQU     0       ; признак условной трансляции демонстратора
+;
+INCLUDE SF1
+INCLUDE SF2
+;
+Winms:  db      1bh,'W'
+Winmod: ds      1       ;esc - code 'W' / select
+memy:   ds      1       ;y
+memx:   ds      1       ;x
+memdy:  ds      1       ;dy
+memdx:  ds      1       ;dx
+
+
+setcm0: db      1bh,'C',0 ;монохром
+setcm2: db      1bh,'C',2 ;16-цветн. обычный
+setcm3: db      1bh,'C',3 ;16-цветн. скоростной
+setcolor:db     1bh,'P',0 ;установка цвета
+
+norm:   push    hl              ;Выкл. инв.
+	push    bc
+	call    writest
+normms: db      1bh,'7',0       ;выкл. инверсию
+	jr      setmod
+inv:    push    hl              ;Вкл. инв.
+	push    bc
+	call    writest
+invms:  db      1bh,'6',0 ;вкл. инверсию
+setmod: pop     bc
+	pop     hl
+	ret
+
+hidcur: call    writest         ;Погасить курсор
+sethid: db      1bh,';',0       ;выкл. курсор
+	ret
+reccur: call    writest         ;Восст. курсор
+setrec: db      1bh,':',0       ;вкл.  курсор
+	ret
+;
+offwrite:
+	call    offset
+write:  ld      a,(hl)
+	inc     hl
+	or      a
+	ret     z
+	call    conouta
+	jr      write
+
+writest:pop     hl
+	call    write
+	jp      (hl)
+
+offwritest:
+	pop     hl
+	call    offwrite
+	jp      (hl)
+
+cm0:    ld      hl,setcm0        ;Вкл. монохром
+	jr      cmx
+cm2:    ld      hl,setcm2        ;16 - цветн. режим
+	jr      cmx
+cm3:    ld      hl,setcm3        ;16 - цветн. режим (без вывода цвета)
+cmx:
+	ld      a,3
+wstrng: or      a                   ;write line, длина в рег. A
+	ret     z
+wstrng0:push    af
+	ld      a,(hl)
+	call    conouta
+	inc     hl
+	pop     af
+	dec     a
+	jr      nz,wstrng0
+	ret
+; ------------------------- i n k e y --------------------
+INKEY:
+	ld      e,0ffh
+	ld      c,6
+	call    bdos
+	or      a
+	jr      z,inkey
+	ret
+
+gotoxy: ld      bc,1f1fh
+	add     hl,bc
+mgotoxy:ld      (gotoxyms+2),hl
+	call    writest
+gotoxyms:
+	db      1bh,'Y',0,0,0
+	ret
+
+setpar:                     ; h  l  c   b     d    e
+                            ; X, Y, DX, DY, TEXT, BACK
+	ld      a,h
+	dec     a
+	ld      (memx),a
+	ld      a,l
+	dec     a
+	ld      (memy),a
+	ld      a,c
+	ld      (memdx),a
+	ld      a,b
+	ld      (memdy),a
+	call    setcl
+	jp      fillwin      ; установлены параметры окна в
+			     ; мем..., однако окно определя-
+			     ; ется во весь экран.
+setcl:  ld      a,d          ; SETCOLOR: text=d, back=e
+	ld      (ltc),a
+	ld      a,e
+	ld      (lbc),a
+	rlca
+	rlca
+	rlca
+	rlca
+	or      d
+	ld      (setcolor+2),a
+	ld      hl,setcolor
+	ld      a,3
+setcl1: jp      wstrng          ;установка текущего цвета искейп-кодом
+
+setw:   ld      a,csetw         ;Установка окна по текущим: memx,memy,memdx,memdy
+	ld      b,7
+
+wrescw: ld      (Winms+2),a     ;a - mode, b - lng
+	ld      a,b
+	ld      hl,Winms
+	jr      setcl1
+
+csetw    equ     0        ; Коды оконных команд (esc,'W',code,....)
+
+;             √└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└╥
+;             ╨            Параметры окна               ╨
+;             ╨    HL - координаты левого верхнего      ╨
+;             ╨         угла обьекта                    ╨
+;             ╨    B  - размер по вертикали             ╨
+;             ╨    C  - размер по горизонтали           ╨
+;             ╨    DE - цвет окна                       ╨
+;             ⌠└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└╫
+
+window:         ; h l c  b   d   e
+		;(X,Y,DX,DY,TEXT,BACK:BYTE);
+		;d7 = 0/1 = нет/есть рамка
+		;d6 = 0/1 = одинарная/двойная рамка
+		;d0 = 0/1 = нет/есть тень
+	ld      a,11000001b
+newwindow:
+	ld      (winmode),a
+	call    setpar
+
+;             √└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└╥
+;             ╨         П/п "открыть окно"              ╨
+;             ⌠└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└╫
+opend:  call    cm2     ; 16 - цветный режим
+	ld      hl,Winms+5
+	dec     hl
+	inc     (hl)
+	dec     hl
+	inc     (hl)    ;inc y,x
+	push    hl
+	ld      a,(ltc)
+	ld      d,a
+	ld      a,(lbc)
+	ld      e,a
+	push    de
+	ld      de,700h
+	call    setcl   ;установка цвета тени
+	call    setw    ;окно для тени
+	ld      a,(winmode)
+	bit     0,a
+	call    nz,clrscr  ;тень
+	pop     de
+	call    setcl
+	pop     hl
+	dec     (hl)
+	inc     hl
+	dec     (hl)    ;dec y,x
+
+	ld      a,(winmode)
+	and     10000000b
+	jr      nz,framed
+	call    setw
+	call    clrscr
+	jp      fillwin
+
+;рисование рамки из псевдографики
+;исп. 137 141...141 187   154 132...132 191
+;     186           186   179           179
+;     136 141...141 188   128 132...132 153
+;левый верхний угол [memx]+1,[memy]+1
+;размер по вертикали [memdy], по горизонтали [memdx]
+;
+; вход : WINMODE = ( 0 - одинарная рамка , 1 - двойная рамка )
+;
+single: db      154,132,191,179,128,153
+double: db      137,141,187,186,136,188
+
+framed: ld      hl,single
+	ld      a,(winmode)
+	and     01000000b
+	jr      z,fram12
+	ld      hl,double
+fram12: ld      (pushhl),hl
+	call    setw    ;окно для рамки
+haryrama:
+	call    clrscr
+	call    fillwin
+	ld      a,(memy)
+	inc     a
+	ld      l,a
+	ld      a,(memx)
+	inc     a
+	ld      h,a     ;hl - координаты левого верхнего угла рамы
+	push    hl
+;рисование верхней балки рамы   вход: хл - лев. верхний угол
+	call    gotoxy
+	ld      hl,(pushhl)
+	ld      c,(hl)
+	push    hl
+	call    conout
+	call    updnline
+	pop     ix
+	ld      c,(ix+2)
+	call    conout
+	pop     hl
+	inc     l
+	ld      a,(memdy)
+	sub     2
+	ld      b,a     ;Число информац. строк
+rama0:  push    hl
+	push    bc
+
+	push   hl
+	call    gotoxy
+	ld      ix,(pushhl)
+	ld      c,(ix+3)
+	call    conout
+	pop     hl
+
+	ld      a,(memdx)
+	dec     a
+	add     a,h
+	ld      h,a
+	call    gotoxy
+	ld      ix,(pushhl)
+	ld      c,(ix+3)
+	call    conout
+
+	pop     bc
+	pop     hl
+	inc     l
+	djnz    rama0
+;рисование нижней балки рамы   вход: хл - лев. верхний угол
+	call    gotoxy
+	ld      ix,(pushhl)
+	ld      c,(ix+4)
+	call    conout
+	call    updnline
+	ld      ix,(pushhl)
+	ld      c,(ix+5)
+	jp      conout
+
+updnline:
+	ld      a,(memdx)
+	dec     a
+	dec     a
+	ld      b,a
+upline0:ld      hl,(pushhl)
+	inc     hl
+	ld      c,(hl)
+upline1:push    bc
+	call    conout
+	pop     bc
+	djnz    upline1
+	ret
+;
+wrprotect:
+	ld      a,(hl)
+	inc     hl
+	xor     075h
+	ret     z
+	call    conouta
+	jr      wrprotect
+;
+offset: ld      d,(hl)          ;вход: hl - начало элемента
+	inc     d
+	inc     hl
+	ld      e,(hl)
+	inc     e
+	push    hl
+	ex      de,hl
+	call    gotoxy          ;offset текста в окне
+	pop     hl
+	inc     hl
+	ret
+;
+cmenu:  call    arrsel
+	push    hl
+	ld      a,e
+	push    af
+	call    wrelem
+	call    norm
+	call    rki1buff
+	pop     af
+	pop     hl
+;
+wrelem: sub     2
+	bit     2,(ix)
+	push    af
+	call    offset          ;вход: hl - начало, a - размер  элемента
+	pop     af
+	jp      z,wstrng
+wrelem1:ld      b,a
+wrel1:  ld      a,(hl)
+	or      a
+	ret     z
+	push    bc
+	push    hl
+	ld      c,a
+	and     10100000b
+	jr      nz,wrel2
+	ld      a,c
+	cp      91
+	jr      nc,wrel2
+	push    bc
+	call    cm2
+	ld      a,(ltc)
+	add     a,7
+	and     0fh
+	ld      d,a
+	ld      a,(lbc)
+	ld      e,a
+	call    setcl
+	pop     bc
+	call    conout
+	ld      a,(ltc)
+	sub     7
+	and     0fh
+	ld      d,a
+	ld      a,(lbc)
+	ld      e,a
+	call    setcl
+	call    cm3
+	jr      wrel3
+wrel2:  call    conout
+wrel3:  pop     hl
+	inc     hl
+	pop     bc
+	djnz    wrel1
+	ret
+;
+rki1buff:
+	ld      hl,i1buff
+	ld      b,4
+ri1b1:  ld      a,(hl)
+	or      a
+	jr      nz,ri1b2
+	inc     hl
+	djnz    ri1b1
+	jp      rki1
+ri1b2:  ld      (i1),a
+	ld      (hl),0
+	ret
+;
+lstelem:push    ix
+	push    bc
+	push    hl
+	push    af
+	call    wrelem
+	pop     af
+	ld      e,a
+	ld      d,0
+	pop     hl
+	add     hl,de
+	pop     bc
+	pop     ix
+	djnz    lstelem
+	ret
+
+;
+; п/п оконного меню . Вход : hl - адрес таблицы описания меню
+;
+drawwin:ld      a,(hl)
+	and     11111011b
+	ld      (hl),a
+	ld      de,draww1
+	jr      objwin4
+draww1: ld      a,(ix)
+	or      00000100b
+	ld      (ix),a
+	ret
+initwin:xor     a
+	ld      (vpoint),a
+	ld      (hpoint),a
+objectwin:
+	ld      de,vermenu
+objwin4:
+	push    de
+	push    hl
+	pop     ix
+	call    initaddr        ; инициализация  haddr  и  vaddr  +  wset8
+	push    ix
+	call    newwindow       ;рисование рамки. Рег. A - дополнительный
+	call    setw            ;(в сравнении с вызовом п/п window)
+	pop     ix
+	push    ix
+	ld      l,(ix+7)
+	ld      h,(ix+8)        ;hl = адрес строки или процедуры шапки
+	bit     4,(ix)          ;печать строки или вызов процедуры (шапка)
+	jr      nz,obwin1
+	ld      de,obwin2
+	push    de
+	jp      (hl)            ;вызов п/п рисования шапки этого окна
+obwin1: call    offwrite        ;печать строки шапки
+obwin2: pop     ix
+	ld      a,(ix+9)
+	or      a
+	jr      z,listhor       ;если нет верт. меню
+	ld      b,a             ;b-количество пунктов верт.меню
+	ld      a,(ix+10)       ;a= длина (размер) элемента
+	ld      hl,(vaddr)
+	call    lstelem
+listhor:ld      a,(ix+11)
+	or      a
+	ret     z               ;jr      z,vermenu       ;если нет гор. меню
+	ld      b,a             ;b-количество пунктов гор. меню
+	ld      a,(ix+12)       ;a= длина (размер) элемента
+	ld      hl,(haddr)
+	jp      lstelem         ;call
+vermenu:ld      a,(ix+9)
+	or      a
+	jp      z,hormenu
+vmenu1: push    ix
+	call    inv
+	pop     ix
+	push    ix
+	ld      hl,(vaddr)
+	ld      e,(ix+10)
+	xor     a
+	ld      d,a
+	sbc     hl,de
+	ld      a,(vpoint)
+	call    cmenu
+	pop     ix
+	ld      hl,vmenu1
+	push    hl
+	ld      a,(i1)
+	cp      13
+	jr      z,venter
+	cp      8
+	jr      z,vleft
+	cp      4
+	jr      z,vright
+	cp      5
+	jr      z,vup
+	cp      24
+	jr      z,vdown
+	cp      27
+	jr      z,hvesc
+	jp      melse
+;
+vleft:  ld      a,(ix+11)
+	or      a
+	jr      z,hvesc
+	xor     a
+	ld      (vpoint),a
+	ret
+vright: ld      a,(ix+11)
+	or      a
+	jr      z,hvesc
+tohor:  pop     hl
+	jr      hormenu
+vup:    ld      a,(vpoint)
+	or      a
+	ret     z
+	dec     a
+	ld      (vpoint),a
+	ret
+vdown:  ld      b,(ix+9)
+	ld      a,(vpoint)
+	inc     a
+	cp      b
+	jr      nc,vdown1
+	ld      (vpoint),a
+	ret
+vdown1: ld      a,(ix+11)
+	or      a
+	ret     z
+	jr      tohor
+hvesc:  pop     hl
+	push    ix
+	pop     hl
+	call    drawwin
+	jp      fillwin
+venter: ld      a,(vpoint)
+	jp      vmelse
+henter: ld      a,(hpoint)
+	jr      hmelse
+;
+hormenu:push    ix
+	call    inv
+	pop     ix
+	push    ix
+	ld      hl,(haddr)
+	ld      e,(ix+12)
+	xor     a
+	ld      d,a
+	sbc     hl,de
+	ld      a,(hpoint)
+	call    cmenu
+	pop     ix
+	ld      hl,hormenu
+	push    hl
+	ld      a,(i1)
+	cp      5
+	jr      z,hup
+	cp      24
+	jr      z,hdown
+	cp      27
+	jr      z,hvesc
+	cp      13
+	jr      z,henter
+	cp      8
+	jr      z,hleft
+	cp      4
+	jr      z,hright
+melse:  bit     2,(ix)
+	ret     z
+	cp      40h
+	ret     c
+	and     5fh     ;полученное значение ищем
+	cp      '['
+	ret     nc
+	ld      b,63
+	ld      hl,k
+search: cp      (hl)
+	jr      z,melse4
+	inc     hl
+	djnz    search
+	ret
+melse4: ld      a,63
+	sub     b
+	ld      b,(ix+9)
+	cp      b
+	jr      c,melse1
+	sub     b
+	ld      (hpoint),a
+hmelse: ld      hl,(haddr)
+	ld      e,(ix+12)
+	call    invptr
+	ld      b,(ix+9)
+	add     a,b
+	jr      melse2
+melse1: ld      (vpoint),a
+vmelse: ld      hl,(vaddr)
+	ld      e,(ix+10)
+	call    invptr
+melse2: pop     bc
+	push    ix
+	push    af
+	ld      hl,return
+	push    hl
+	ld      l,(ix+13)
+	ld      h,(ix+14)
+	or      a               ;уст. признаки
+	jp      (hl)
+;
+hdown:  ld      a,(ix+11)
+	dec     a
+	ld      (hpoint),a
+	ret
+hup:    ld      a,(ix+9)
+	or      a
+	ret     z
+	pop     hl
+	jp      vermenu
+hleft:  ld      a,(hpoint)
+	or      a
+	jr      z,hup
+	dec     a
+	ld      (hpoint),a
+	ret
+hright: ld      b,(ix+11)
+	ld      a,(hpoint)
+	inc     a
+	cp      b
+	ret     nc
+	ld      (hpoint),a
+	ret
+;
+return: pop     af              ; a = номер ранее вызывавшейся функции
+	pop     hl
+	push    hl
+	pop     ix              ; hl = ix = адрес начала таблицы окна
+	ld      b,(ix+9)
+	ld      c,a
+	sub     b
+	jr      c,return1
+	ld      (hpoint),a      ; пред. вызов - из горизонтального меню
+	ld      de,hormenu
+	jr      return2
+return1:ld      a,c             ; предыдущий вызов - из вертикального меню
+	ld      (vpoint),a
+	ld      de,vermenu
+return2:push    de              ; адрес перехода по стеку
+	call    initaddr
+	push    ix
+	call    setpar
+	call    setw
+	pop     ix
+	ret
+	jp      objectwin
+;
+initaddr:
+	ld      de,15
+	add     hl,de           ;hl-начало массива верт. эл-тов
+	ld      (vaddr),hl
+	ld      d,0
+	ld      e,(ix+10)
+	ld      a,(ix+9)
+	or      a
+	jr      z,object2
+	sbc     hl,de
+	call    arrsel
+object2:ld      (haddr),hl
+	push    hl
+	ld      hl,k
+	ld      (hl),0
+	ld      de,k+1
+	ld      bc,63
+	ldir
+	pop     hl
+	ld      d,0
+	ld      e,(ix+12)
+	ld      a,(ix+11)
+	or      a
+	jr      z,object3
+	sbc     hl,de
+	call    arrsel
+object3:ld      de,(vaddr)
+	ex      de,hl
+	ld      bc,k
+object4:ld      a,(hl)
+	cp      40h
+	jr      c,object5
+	cp      '['
+	jr      nc,object5
+	ld      (bc),a
+	inc     bc
+object5:inc     hl
+	push    hl
+	sbc     hl,de
+	pop     hl
+	jr      c,object4
+	ld      a,(ix+1)
+	ld      h,a
+	ld      l,(ix+2)
+	ld      a,(ix)
+	ld      c,(ix+3)
+	ld      b,(ix+4)
+	ld      d,(ix+5)
+	ld      e,(ix+6)
+	ret
+
+;
+invptr: push    af
+	push    ix
+	or      a
+	ld      d,0
+	sbc     hl,de
+	call    arrsel
+	ld      a,e
+	push    af
+	push    hl
+	call    inv
+	pop     hl
+	pop     af
+	call    wrelem
+	call    norm
+	pop     ix
+	pop     af
+	ret
+
+;
+; ================================================
+; ============ Холодный старт программы ==========
+; === Процедура выполняется однократно после загрузки SF с диска ===
+
+begin:
+	LD      C,00CH
+	CALL    BDOS
+	exx
+	ld      de,systmsg
+	ld      a,h
+	cp      0abh
+	jr      nz,writeerror
+	ld      de,drvmsg
+	ld      a,(dsf7)        ; проверка наличия драйвера 480Cxx.SYS
+	cp      90h
+	jp      nc,loadingOk    ; определитель больше 8fh - ok!
+writeerror:
+	ld      c,9
+	jp      bdos
+
+drvmsg: db      10,13,'NO COLOR DRIVER',10,13,24h
+systmsg:db      10,13,'INCORRECT DOS VERSION',10,13,24h
+
+loadingOk:
+	ld      hl,(1)
+	ld      de,bios+3
+	ld      bc,48
+	ldir                    ; Пересылка таблицы векторов BIOS
+	ld      a,(pgMarker)
+	ld      (openpg),a
+	ld      (closepg),a
+	call    writest
+	db      1bh,'Q',8,0     ;8 бит - толщина шрифта
+	call    hidcur
+
+	call    fillwin
+	ld      a,(drv)         ; проверка правильности параметров
+	CP      3
+	Jr      NC,wrong
+;
+	ld      a,(trk)
+	CP      80
+	Jr      c,wrong
+	cp      85
+	jr      nc,wrong
+;
+	LD      A,(sec)
+	CP      5
+	Jr      C,wrong
+	CP      11
+	Jr      NC,wrong
+;
+	LD      A,(systrk)
+	or      a
+	Jr      z,wrong
+	CP      5
+	Jr      NC,wrong
+;
+	LD      A,(catsiz)
+	or      a
+	Jr      z,wrong
+	CP      5
+	jr      c,paramok
+;
+wrong:  call    errors
+	db      7,'Wrong ',7,'parametres!',7,0
+	ld      hl,drv
+	ld      (hl),0
+	inc     hl
+	ld      (hl),80
+	inc     hl
+	ld      (hl),5
+	inc     hl
+	ld      (hl),4
+	inc     hl
+	ld      (hl),2
+paramok:
+;
+HEAD:
+	ld      de,white*256+blue
+	call    setcl
+	call    clrscr
+	ld      hl,copyright
+	call    wrprotect
+	ld      hl,1*256+25
+	call    gotoxy
+	ld      hl,rows
+	ld      a,7
+	call    wstr
+	call    writest
+	db      ' - Move pointer    <Enter> - Select    <Esc> - Exit',0
+	jp      REFILL
+
+rows:   db      24,',',25,',',26,',',27
+
+copyright:
+; XOR 075H
+	DB	026H,014H,013H,010H,055H,033H,01AH,007H	; Safe For
+	DB	018H,014H,001H,055H,020H,001H,01CH,019H	; mat Util
+	DB	01CH,001H,00CH,055H,05DH,001H,018H,05CH	; ity (tm)
+	DB	05BH,055H,023H,044H,05BH,045H,05BH,055H	; . V1.0. 
+	DB	025H,007H,01AH,011H,000H,016H,010H,011H	; Produced
+	DB	055H,017H,00CH,055H,037H,019H,014H,016H	;  by Blac
+	DB	01EH,055H,036H,014H,001H,055H,01CH,01BH	; k Cat in
+	DB	016H,05BH,078H,07FH,055H,05DH,016H,05CH	; c.   (c)
+	DB      055H,044H,04CH,04CH,043H,055H,017H,00CH ;  1996 by
+	DB      055H,037H,019H,014H,016H                ;  Blac
+	DB	01EH,055H,036H,014H,001H,055H,01CH,01BH	; k Cat in
+	DB      016H,05BH,075H                          ; c.
+
+
+	end     begin
+
+ rmat'
+;
+DEMO    EQU     0       ; признак условной трансляции демонстратора
+;
+INCLUDE SF1
+INCLUDE SF2
+;
+Winms:  
