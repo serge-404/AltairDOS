@@ -1,0 +1,405 @@
+;             Код цвета           Цвет
+BLACK           equ     0       ;черный
+BLUE            equ     1       ;голубой
+GREEN           equ     2       ;зеленый
+CYAN            equ     3       ;синий
+RED             equ     4       ;красный
+MAGENTA         equ     5       ;малиновый
+BROWN           equ     6       ;коричневый
+LIGHTGRAY       equ     7       ;белый
+DARKGRAY        equ     8       ;серый
+LIGHTBLUE       equ     9       ;светло-голубой
+LIGHTGREEN      equ     10      ;светло-зеленый
+LIGHTCYAN       equ     11      ;светло-синий
+LIGHTRED        equ     12      ;светло-красный
+LIGHTMAGENTA    equ     13      ;светло-малиновый
+YELLOW          equ     14      ;желтый
+WHITE           equ     15      ;интенсивно-белый
+;
+aconout:cp      20h
+B84:    call    c,setless
+conouta:ld      c,a
+conout: push    af
+	push    hl
+	push    de
+	push    bc
+	push    ix
+B2:     ld      hl,(BIOS)
+	ld      de,9
+	add     hl,de
+B3:     ld      a,(DOS)
+	call    Bcall
+	pop     ix
+	pop     bc
+	pop     de
+	pop     hl
+	pop     af
+	ret
+;
+conin:  push    hl
+	push    de
+	push    bc
+	push    ix
+B4:     ld      hl,(BIOS)
+	ld      de,6
+	add     hl,de
+B5:     ld      a,(DOS)
+	call    Bcall
+	pop     ix
+	pop     bc
+	pop     de
+	pop     hl
+	ret
+;
+reswinesc:db    27,'W',csetw,0,0,25,80
+;
+setcolor:db     27,'P',0 ;установка цвета
+;
+norm:   push    hl              ;Выкл. инв.
+	push    bc
+B9:     call    writest
+	db      27,'7',0       ;выкл. инверсию
+	jr      setmod
+inv:    push    hl              ;Вкл. инв.
+	push    bc
+B10:    call    writest
+	db      27,'6',0 ;вкл. инверсию
+setmod: pop     bc
+	pop     hl
+	ret
+;
+writest:pop     hl
+B11:    call    write
+	jp      (hl)
+;
+write:  ld      a,(hl)
+	inc     hl
+	or      a
+	ret     z
+B6:     call    conouta
+	jr      write
+;
+wstrng: or      a                   ;write line, длина в рег. A
+	ret     z
+wstrng0:push    af
+	ld      a,(hl)
+B12:    call    conouta
+	inc     hl
+	pop     af
+	dec     a
+	jr      nz,wstrng0
+	ret
+;
+inkey:  ld      e,0ffh
+	ld      c,6
+B13:    call    BDOS
+	or      a
+	jr      z,inkey
+	ret
+;
+gotoch: ld      h,a
+gotoxy: ld      bc,1f1fh
+	add     hl,bc
+B14:    ld      (gotoxyms+2),hl
+B15:    call    writest
+gotoxyms:
+	db      27,'Y',0,0,0
+	ret
+;
+setpar:                     ; h  l  c   b     d    e
+			    ; X, Y, DX, DY, TEXT, BACK
+	ld      a,h
+	dec     a
+B16:    ld      (memx),a
+	ld      a,l
+	dec     a
+B17:    ld      (memy),a
+	ld      a,c
+B18:    ld      (memdx),a
+	ld      a,b
+B19:    ld      (memdy),a
+;
+setcl:  ld      a,e          ; SETCOLOR: text=d, back=e
+	rlca
+	rlca
+	rlca
+	rlca
+	or      d
+B24:    ld      hl,setcolor+2
+	ld      (hl),a
+	dec     hl
+	dec     hl
+	ld      a,3
+B25:
+setcl1: jp      wstrng          ;установка текущего цвета искейп-кодом
+
+setw:   ld      a,csetw         ;Установка окна по текущим: memx,memy,memdx,memdy
+	ld      b,7
+
+B26:
+wrescw: ld      (Winms+2),a     ;a - mode, b - lng
+	ld      a,b
+B27:    ld      hl,Winms
+	jr      setcl1
+
+csetw    equ     0        ; Коды оконных команд (esc,'W',code,....)
+cgetpar  equ     1
+cgetwsize equ    2
+csavew   equ     3
+crestw   equ     4
+
+; получение размера окна: s = dy * 10 * dx * 2
+getwsize:
+	ld      a,cgetwsize     ;Получение размера окна в hl
+	ld      b,3
+B28:    call    wrescw
+B29:    call    conin
+	ld      l,a
+	push    hl
+B30:    call    conin
+	pop     hl
+	ld      h,a
+	ret
+
+restw:  ld      b,crestw   ;Восст. окно, вход: hl - адрес в буфере
+	jr      srw
+
+savew:  ld      b,csavew   ;Сохр. окно,  вход: hl - адрес в буфере
+
+srw:    ex      de,hl
+B31:    ld      hl,(Winms+3)
+	push    hl
+B32:    ld      hl,(Winms+5)
+	push    hl
+	ex      de,hl
+B33:    ld      (Winms+3),hl
+B34:    ld      a,(Pwind)
+B35:    ld      (Winms+5),a
+	ld      a,b
+	ld      b,6
+B36:    call    wrescw
+	pop     hl
+B37:    ld      (Winms+5),hl
+	pop     hl
+B38:    ld      (Winms+3),hl
+	ret
+
+;             √└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└╥
+;             ╨            Параметры окна               ╨
+;             ╨    HL - координаты левого верхнего      ╨
+;             ╨         угла обьекта                    ╨
+;             ╨    B  - размер по вертикали             ╨
+;             ╨    C  - размер по горизонтали           ╨
+;             ╨    DE - цвет окна                       ╨
+;             ⌠└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└╫
+window:         ; h l c  b   d   e
+		;(X,Y,DX,DY,TEXT,BACK:BYTE);
+;             √└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└╥
+;             ╨         П/п "открыть окно"              ╨
+;             ⌠└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└╫
+opend:
+B20:    call    setpar
+B39:    call    qbuffd
+B40:    call    framed
+B41:    jp      setw
+;
+;             √└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└╥
+;             ╨             П/п  qbuffd                 ╨
+;             ⌠└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└╫
+B43:
+qbuffd:
+	call    setw
+B44:    ld      hl,ctw          ;Запомнить данные в буфер
+	ld      a,(hl)
+	inc     (hl)
+B45:    call    getwindpos
+	ld      e,(hl)
+	inc     hl
+	ld      d,(hl)
+	inc     hl
+	push    de              ;де - адрес свободного куска буфера окон
+
+	ex      de,hl
+B46:    call    moveinWinms
+
+	pop     hl
+	push    de              ; de -адрес хвоста стекового
+				; буфера
+	push    hl
+B47:    call    savew
+B48:    CALL    SETW
+B49:    call    getwsize
+	pop     de
+	add     hl,de
+	ex      de,hl
+	pop     hl
+	ld      (hl),e
+	inc     hl
+	ld      (hl),d
+	ret
+;             √└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└╥
+;             ╨         П/п "закрыть окно"              ╨
+;             ⌠└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└╫
+closew: push    af
+B50:    call    closew_p
+	pop     af
+	ret
+;
+closew_p:
+B51:    ld      hl,ctw
+	ld      a,(hl)
+	or      a
+	ret     z               ;Попытка закрыть несуществующее окно - возврат
+	dec     a
+	ld      (hl),a
+B52:    call    getwindpos
+	ld      e,(hl)
+	inc     hl
+	ld      d,(hl)
+	inc     hl
+	push    de              ;de - адрес освобождающегося куска буфера окон
+
+B53:    call    movetoWinms
+B54:    call    setw            ;Установка окнa по данным стекового буфера
+	pop     hl
+B55:    jp      restw           ;Восстановить окно
+
+;рисование рамки из псевдографики
+;исп. 137 141...141 187
+;     186           186
+;     136 141...141 188
+;левый верхний угол [memx]+1,[memy]+1
+;размер по вертикали [memdy], по горизонтали [memdx]
+B56:
+framed: call    setw    ;окно для рамки
+B57:
+haryrama:
+	call    clrscr
+B58:    ld      hl,reswinesc     ; fillwin
+	ld      a,7
+B8:     call    wstrng          ; Установить окно во весь экран
+B59:    ld      a,(memy)
+	inc     a
+	ld      l,a
+B60:    ld      a,(memx)
+	inc     a
+	ld      h,a     ;hl - координаты левого верхнего угла рамы
+	push    hl
+;рисование верхней балки рамы   вход: хл - лев. верхний угол
+B61:    call    gotoxy
+	ld      c,137
+B62:    call    conout
+B63:    call    updnline
+	ld      c,187
+B64:    call    conout
+	pop     hl
+	inc     l
+B65:    ld      a,(memdy)
+	sub     2
+	ld      b,a     ;Число информац. строк
+rama0:  push    hl
+	push    bc
+
+	push    hl
+B66:    call    gotoxy
+	ld      c,186
+B67:    call    conout
+	pop     hl
+
+B68:    ld      a,(memdx)
+	dec     a
+	add     a,h
+	ld      h,a
+B69:    call    gotoxy
+	ld      c,186
+B70:    call    conout
+
+	pop     bc
+	pop     hl
+	inc     l
+	djnz    rama0
+;рисование нижней балки рамы   вход: хл - лев. верхний угол
+B71:    call    gotoxy
+	ld      c,136
+B72:    call    conout
+B73:    call    updnline
+	ld      c,188
+B74:    jp      conout
+
+B75:
+updnline:ld      a,(memdx)
+	dec     a
+	dec     a
+	ld      b,a
+upline0:ld      c,141
+B76:    jp      space0
+moveinWinms:
+B77:    ld      hl,Winms+3
+	jr      ldir4
+movetoWinms:
+B78:    ld      de,Winms+3
+ldir4:  ld      bc,4
+	ldir
+	ret
+;
+Winms:  db      1bh,'W'
+Winmod: ds      1       ;esc - code 'W' / select
+memy:   ds      1       ;y
+memx:   ds      1       ;x
+memdy:  ds      1       ;dy
+memdx:  ds      1       ;dx
+;
+getwindpos:
+B79:    ld      hl,buffw-6      ;Восстановить картинку под окном из буфера
+	ld      de,6
+;
+arrsel: inc     a               ;Вход hl,de,a. Выход hl
+arrsl0: add     hl,de
+	dec     a
+B80:    jp      nz,arrsl0
+	ld      a,(hl)
+	or      a
+	ret
+
+setless:ld      c,27
+B81:    call    conout
+	ld      c,'@'
+	jr      wrsym
+
+B82:
+wrlitle:call    setless
+	ld      c,a
+	jr      wrsym
+;
+wr20h:  ld      c,' '
+B83:
+wrsym:  jp      conout
+;
+clrscr: ld      c,0ch              ;cls
+	jr      wrsym              ;вывод байта на экран
+
+; взамен wstrng , вход: hl, a
+wst:    or      a
+	ret     z
+ws12:   push    af
+	ld      a,(hl)
+B85:    call    aconout
+	inc     hl
+	pop     af
+	dec     a
+	jr      nz,ws12
+	ret
+;
+B86:
+space0: call    conout
+	djnz    space0
+	ret
+;
+ t
+	ld      hl,209h
+B23:    call    gotoxy
+B42:    ld      hl,usestr
+	ld      a,18
+M70:    call    wst
+;
+; Собств

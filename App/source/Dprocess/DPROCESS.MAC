@@ -1,0 +1,19 @@
+;*****************************
+;     Диспетчер процессов    *
+;*****************************
+Version equ     '0'     ; версия
+intcode equ     9       ; код вызова
+;
+INCLUDE STARTUP  ; ИНСТАЛЛЯТОР
+;
+BEGPL:
+	.phase  0
+;   - перемещаемый код -
+INCLUDE MAINMENU ; главное меню
+INCLUDE B1N      ; ИНТЕРФЕЙС С ОКОННЫМ ДРАЙВЕРОМ
+;
+endcode:
+	.dephase
+ENDPL:
+	END     BEGIN
+

@@ -1,0 +1,4 @@
+cpm m80n DPROCESS,=DPROCESS
+cpm l80m DPROCESS,DPROCESS/n/e
+del DPROCESS.rel
+

@@ -1,0 +1,567 @@
+; *****************************************************************************
+; перемещаемый код
+; *****************************************************************************
+;
+OFFSET:
+EXLINK: xor     a
+M0:     ld      (INSFLAG),a      ; запрет повтор. пересчета
+;
+INSTALLER:
+	ld      hl,BBDOS        ; копирование вектора BDOS
+M1:     ld      de,lastBBDOS
+	ld      bc,3
+	ldir
+	ld      hl,INTKEY        ; копир. вектора INTKEY
+	ld      c,3
+	ldir
+	ld      hl,BCONIN
+	ld      c,3
+	ldir
+	ld      hl,BCONST
+	ld      c,3
+	ldir
+;
+	ld      a,(MARKER)
+	ld      (BBDOS),a
+	ld      (INTKEY),a
+	ld      (BCONIN),a
+	ld      (BCONST),a
+;
+M2:     ld      hl,SUBRBBDOS
+	ld      (BBDOS+1),hl
+M71:    ld      hl,SUBRCONIN
+	ld      (BCONIN+1),hl
+M72:    ld      hl,SUBRCONST
+	ld      (BCONST+1),hl
+M3:     ld      hl,SUBRINTKEY
+	ld      (INTKEY+1),hl
+FORKILL:ret                     ; завершение инсталляции, возврат в EMM
+;
+INSTALL:db      3Eh             ; перемещающий загрузчик
+INSFLAG:db      1               ; (пересчитывает абсолютно
+	or      a               ; заданные адреса)
+	jr      z,EXLINK        ; адреса пересчитываются
+	ld      h,b             ; только один раз
+BEGTABL:ld      l,0             ; рег.В=начальный сегмент
+	add     hl,hl
+	add     hl,hl
+	add     hl,hl
+	add     hl,hl           ; сегмент -> адрес
+	ld      b,h
+	ld      c,l             ; hl=bc=install
+	ld      de,HLATTAB-OFFSET
+	add     hl,de           ; hl=hlattab
+LINK:   ld      e,(hl)
+	inc     hl
+	ld      d,(hl)
+	inc     hl
+	ld      a,e
+	or      d
+	jr      z,EXLINK
+	ex      de,hl
+	add     hl,bc
+	ex      de,hl           ; de:=de+bc (de+offset)
+	ld      a,(de)
+	add     a,c
+	ld      (de),a
+	inc     de
+	ld      a,(de)
+	adc     a,b
+	ld      (de),a
+	jr      LINK
+;
+HLATTAB:
+; MAINMENU
+	dw      M0+1,M1+1,M2+1,M3+1,M4+1,M5+1,M6+1,M7+1,M8+1,M9+1,M10+1,M11+1
+	dw      M12+1,M13+1,M14+1,M15+1,M16+1,M17+1,M18+1,M19+1,M20+1,M21+1
+	dw      M22+1,M23+1,M24+1,M25+1,M26+1,M27+1,M28+1,M29+1,M30+1,M31+1
+	dw      M32+1,M33+1,M34+1,M35+1,M36+1,M37+1,M38+1,M39+1,M40+1 ;,M41+1
+	dw      M42+1,M43+1,M44+1,M45+1,M46+1,M47+1,M48+1,M49+1,M50+1,M51+1
+	dw      M52+1,M53+1,M54+1,M55+1,M56+1,M57+1,M58+1,M59+1,M60+1,M61+1
+	dw      M62+1,M63+1,M64+1,M65+1,M66+1,M67+1,M68+1,M69+1,M70+1,M71+1
+	dw      M72+1,M73+1,M74+1,M75+1,M76+1,M77+1,M78+1,M79+1,M80+1,M81+1
+	dw      M82+1,M83+1,M84+1
+	dw      M95+1,M96+1,M97+1,M98+1,M99+1,M100+1,M101+1,M102+1,M103+1
+; B1N
+	dw      B0+1,B1+1,B2+1,B3+1,B4+1,B5+1,B6+1,B7+1,B8+1,B9+1,B10+1,B11+1
+	dw      B12+1,B13+1,B14+1,B15+1,B16+1,B17+1,B18+1,B19+1,B20+1,B21+1
+	dw      B22+1,B23+1,B24+1,B25+1,B26+1,B27+1,B28+1,B29+1,B30+1,B31+1
+	dw      B32+1,B33+1,B34+1,B35+1,B36+1,B37+1,B38+1,B39+1,B40+1,B41+1
+	dw      B42+1,B43+1,B44+1,B45+1,B46+1,B47+1,B48+1,B49+1,B50+1,B51+1
+	dw      B52+1,B53+1,B54+1,B55+1,B56+1,B57+1,B58+1,B59+1,B60+1,B61+1
+	dw      B62+1,B63+1,B64+1,B65+1,B66+1,B67+1,B68+1,B69+1,B70+1,B71+1
+	dw      B72+1,B73+1,B74+1,B75+1,B76+1,B77+1,B78+1,B79+1,B80+1,B81+1
+	dw      B82+1,B83+1,B84+1,B85+1,B86+1
+	DW      0
+	DS      140
+ENDHLATTAB:
+;
+NOXTPA: db      'Processes Dispatcher error: no XTPA memory.',10,13,'$'
+reclama:
+	db      27,'5'          ; выключить автоперевод
+	db      27,';'          ; выключить курсор
+	db      27,'7'          ; выключить инверсию
+	db      27,'X',0        ; выключить наложение для 6 бит
+	db      27,'X',1        ; выключить наложение для 8 бит
+	db      27,'P',02h      ; установить код цвета
+	db      27,'Q',8        ; установить шрифт 8 бит
+	db      27,'C',3        ; установить цветовой режим
+erecl:
+;
+lastBBDOS:   ds  3      ; не перемещать
+lastINTKEY:  ds  3      ; --"--"--"--"-
+lastCONIN:   ds  3      ; --"--"--"--"-
+lastCONST:   ds  3      ; --"--"--"--"-
+REQUEST:db      0
+ycurr:  db      1
+ACTIVE: db      0
+exitfl: db      0
+Pwind:  ds      1               ; Банк буфера окон
+Bwind:  ds      2               ; адрес буфера окон
+Swind:  ds      1               ; начальный сегмент буфера окон
+DOS:    ds      1               ; страница TPA DOS
+BIOS:   ds      2               ; начало BIOS
+;
+selvis: db      27,'V'          ; не перемещать
+actscr: ds      1               ; не перемещать
+getlogms:db     27,'U',0        ; получить состояние драйвера консоли
+setlog: db      27,'U',1        ; восстановить -"-      -"-     -"-
+drivlog:ds      13              ; состояние драйвера консоли
+;
+pointer:ds      1
+yy:     ds      1
+quanty: ds      1
+ctw:    db      0
+bfunc:  db      0
+buffw:  ds      12
+;
+SUBRINTKEY:
+	ld      a,b
+	cp      intcode         ; CTRL+SHIFT+hotkey
+	jr      nz,noactkey     ; not activate key
+	ld      a,1
+M4:     ld      (REQUEST),a     ; иначе зафиксировать запрос
+noactkey:
+M5:     ld      a,(lastINTKEY)
+M6:     ld      hl,(lastINTKEY+1)
+	jp      Bjump
+;
+SUBRCONIN:
+	ld      a,1
+	jr      SUBRCOMMON
+SUBRCONST:
+	ld      a,2
+	jr      SUBRCOMMON
+SUBRBBDOS:
+	xor     a
+SUBRCOMMON:
+M75:    ld      (BFUNC),a
+M7:     ld      a,(REQUEST)     ; не зафиксирован запрос доступа к DPROCESS
+	or      a
+	jr      z,skipcall
+; есть запрос доступа
+	ld      a,(VALUE)
+	bit     5,a
+	jr      nz,skipcall       ; драйвер консоли занят
+; драйвер консоли свободен
+	xor     a
+M8:     ld      (REQUEST),a     ; сбросить флаг запроса доступа к DPROCESS
+M9:     ld      hl,ACTIVE
+	ld      a,(hl)
+	or      a
+	jr      nz,skipcall       ; уже активизирован
+; не активен
+	ld      (hl),1          ; уст. флаг - "активизирован"
+MM10:   ld      (DOSSP),sp      ; запомнить стек ДОС
+M10 equ MM10+1
+M11:    ld      sp,ENDHLATTAB   ; установить стек в теле DPROCESS
+;
+	push    de              ; запомнить de,bc - в них передаются параметры
+	push    bc              ; для ф-ций ДОС
+	push    hl
+M12:    call    DPROC           ; запуск основной части DPROCESS
+;
+exittpa:pop     hl
+	pop     bc
+	pop     de
+	ld      (hl),0          ; сбросить флаг "активизирован"
+	db      31h             ; ld    sp,(DOSSP)
+DOSSP:  ds      2               ; восстановить стек ДОС
+;
+skipcall:
+	push    de
+M13:    ld      a,(BFUNC)
+M14:    ld      hl,lastBBDOS
+	or      a
+	jr      z,skipcomm
+M73:    ld      hl,lastCONIN
+	dec     a
+	jr      z,skipcomm
+M74:    ld      hl,lastCONST
+skipcomm:
+	ld      a,(hl)
+	inc     hl
+	ld      e,(hl)
+	inc     hl
+	ld      d,(hl)
+	ex      de,hl
+	pop     de
+;
+	jp      Bjump
+;
+M15:
+ERRQUIT:ld      de,NOXTPA
+	ld      c,9
+M16:
+BDOSPR:
+BDOS:   ld      a,(DOS)
+	ld      hl,5
+	jp      Bcall
+;
+;  Ф. 115 (73h)
+;  Получить массив диспетчера программ.
+;  Вход: DE - адрес, куда переслать массив.
+;             Банк считается автоматически.
+;  Выход: А - количество записей массива
+;  Каждая запись массива диспетчера программ занимает
+;  18 байт и состоит из:
+;     +0      - код драйвера (резидентной программы), к
+;               которой относится эта запись, т.е. номер
+;               в списке драйверов (ф. 107d)
+;     +1      - код программного прерывания, при котором
+;               активизируется резидентная программа.
+;     +2..+17 - имя резидентной программы.
+;
+M17:
+GETELEM:ld      hl,BEGTABL      ; возвр. адрес эл-та в табл.
+	ld      de,18
+geloop: dec     a               ; Вход : А = 1..xx
+	ret     z
+	add     hl,de
+	jr      geloop
+;
+usestr: db      'Use ',24,25,26,27,',Enter,Esc',0
+;
+DPROC:  ld      c,115           ; получить таблицу диспетчера
+M18:    ld      de,BEGTABL
+M68:    call    bdos
+	or      a
+	ret     z               ; если таблица пуста
+M19:    ld      (quanty),a
+	ld      a,1
+M20:    ld      (pointer),a     ; текущий элемент в таблице
+M21:    ld      (yy),a          ; верхний элемент в окне
+	xor     a
+M22:    ld      (ctw),a         ; счетчик окон
+
+	ld      de,1FFh
+	ld      c,103
+M23:    call    BDOS            ; запрос непрерывного участка XTPA размером
+	cp      0FFh            ; 4к под окнo
+	jr      z,ERRQUIT       ; выход - мало XTPA
+;
+	ld      e,a
+M24:    ld      (Swind),a
+	ld      c,112
+M25:    call    BDOS
+	xor     a
+	ld      a,l
+	ld      l,0
+M26:    ld      (Pwind),a
+M27:    ld      (buffw),hl
+;
+M28:    ld      hl,getlogms     ; получить состояние драйвера
+	ld      a,3
+M29:    call    wstrng
+M30:    ld      hl,drivlog      ; записать состояние в буфер
+	push    hl
+	ld      b,13
+M31:
+getlog: call    conin
+	ld      (hl),a
+	inc     hl
+	djnz    getlog
+	pop     ix
+;
+	ld      a,(ix+9)
+	and     3
+M32:    ld      (actscr),a      ; активный экран
+;
+	ld      a,3
+M33:    ld      hl,selvis
+M34:    call    wstrng  ; установить видимый экран совпадающим с активным
+;
+M35:    ld      hl,reclama
+	ld      a,erecl-reclama
+M36:    call    wstrng
+
+	ld      a,1
+B7:     ld      (ycurr),a
+	ld      hl,1507h
+	ld      bc,0A14h
+	ld      de,white*256+magenta
+M65:    call    window
+	ld      hl,301h
+B21:    call    gotoxy
+M69:    call    writest
+	db      ' Select process ',0
+	ld      hl,108h
+B22:    call    gotoxy
+	ld      b,18
+; Линия отчеркивания с ушами по краям
+	ld      c,87h
+B0:     call    conout
+	ld      c,84h
+B1:     call    space0
+	ld      hl,209h
+B23:    call    gotoxy
+B42:    ld      hl,usestr
+	ld      a,18
+M70:    call    wst
+
+	ld      b,5
+	ld      hl,1402h
+	push    bc
+	push    hl
+M95:    call    gotoxy
+	ld      c,162
+M96:    call    invchar
+	pop     hl
+	pop     bc
+	inc     l
+yloop:  push    bc
+	push    hl
+M97:    call    gotoxy
+	ld      c,176
+M98:    call    conout
+	pop     hl
+	inc     l
+	pop     bc
+	djnz    yloop
+M99:    call    gotoxy
+	ld      c,163
+M103:   call    invchar
+
+;
+; Собственно диспетчер процессов.
+;    01234567890123456789    Объем окна
+; 0  +- Select process -+    20*10*2*10=4000 байт
+; 1  | PROCESS_NAME_1   ⌡
+; 2  | PROCESS_NAME_2   ╠
+; 3  |[PROCESS_NAME_3  ]╠
+; 4  | PROCESS_NAME_4   ╠
+; 5  |                  ╠
+; 6  |                  ╠
+; 7  +------------------⌡
+; 8  |Use u,d,l,r,CR,ESC|
+; 9  +------------------+
+;
+mainproc:
+list:
+M84:    call    newycoord
+M42:    ld      a,(quanty)
+M43:    ld      hl,yy
+	sub     (hl)
+	inc     a
+	cp      6
+	jr      c,less6
+	ld      a,6
+less6:  ld      b,a
+	ld      a,(hl)
+	ld      hl,202h
+listl0: push    bc
+	push    hl
+	push    af
+M44:    call    gotoxy
+	pop     af
+	push    af
+M45:    ld      hl,pointer
+	cp      (hl)
+M46:    call    z,inv
+	pop     af
+	push    af
+M37:    call    getelem         ; печать строки меню
+	inc     hl              ; Вход: А= номер эл-та
+	inc     hl
+M38:    call    wr20h
+	ld      b,16
+MMCL:   ld      a,(hl)
+	or      a
+	jr      z,MMNUL
+M39:    call    aconout
+	inc     hl
+	djnz    MMCL
+MMNUL:  inc     b
+	ld      c,' '
+M40:    call    space0
+M48:    call    norm
+	pop     af
+	pop     hl
+	inc     a
+	inc     l
+	pop     bc
+	djnz    listl0
+;
+M49:    call    inkey
+M50:    ld      hl,mainproc
+	push    hl
+	cp      8       ; left
+	jr      z,isleft
+	cp      4       ; right
+	jr      z,isright
+	cp      5       ; up
+	jr      z,isup
+	cp      24      ; down
+	jr      z,isdown
+	cp      13
+	jr      z,iscr
+	cp      27
+	ret     nz
+isesc:  pop     hl
+M51:
+escsubr:call    closew
+	ld      c,104
+M52:    ld      a,(Swind)
+	ld      e,a
+	ld      d,1
+M53:    call    BDOS            ; освободить сегмент окна
+M66:    ld      hl,setlog
+	ld      a,16
+M67:    jp      wstrng
+;
+iscr:   pop     hl
+M54:    call    escsubr
+M47:    ld      a,(pointer)
+M55:    call    getelem
+	inc     hl
+	ld      b,(hl)
+	ld      a,(INTKEY)
+	ld      hl,(INTKEY+1)
+	jp      Bcall
+;        ld      c,12
+;        jp      BDOS
+;
+isleft: ld      a,1
+M56:    ld      (pointer),a
+M57:    ld      (yy),a
+	ret
+;
+M58:
+isright:ld      a,(quanty)
+M59:    ld      (pointer),a
+	sub     6
+	ret     c
+	inc     a
+	jr      M57
+;
+M60:
+isup:   ld      hl,pointer
+	ld      a,(hl)
+	dec     a
+	ret     z
+	ld      (hl),a
+M61:    ld      hl,yy
+	cp      (hl)
+	ret     nc
+	dec     (hl)
+	ret
+;
+M62:
+isdown: ld      a,(quanty)
+M63:    ld      hl,pointer
+	ld      b,(hl)
+	inc     b
+	cp      b
+	ret     c
+	ld      (hl),b
+M64:    ld      hl,yy
+	sub     (hl)
+	cp      6
+	ret     c
+	inc     (hl)
+	ret
+
+M100:
+invchar:call    inv
+M101:   call    conout
+M102:   jp      norm
+
+
+newycoord:
+	ld      c,176
+M76:    call    writey
+M77:    ld      a,(pointer)
+	ld      e,a
+	ld      c,a
+	ld      hl,0            ; de:=num, hl:=0
+	ld      d,l
+	dec     a
+	ld      a,1
+	jr      z,noldae
+	ld      a,5             ; размер скроллера (ysize)
+	ld      b,a
+ymul:   add     hl,de           ; hl-делимое
+	djnz    ymul            ; hl=ysize*pointer
+M78:    ld      а,(quanty)
+	cp      c
+	ld      c,a             ; bc-делитель (b=0)
+	ld      a,5
+	jr      z,noldae
+M79:    call    d162            ; делим: hl/bc=(de,hl)
+	ld      a,5             ; размер скроллера (ysize)
+	cp      e
+	jr      c,noldae
+	ld      a,e
+M80:
+noldae: ld      (ycurr),a
+	ld      c,155
+writey: push    bc
+	ld      h,20
+M81:    ld      a,(ycurr)
+	inc     a               ; add     a,2
+	inc     a
+	ld      l,a
+M82:    call    gotoxy
+	pop     bc
+M83:    jp      conout
+
+;
+; деление в формате 16:16. Вход: hl-делимое, bc-делитель
+;       Выход: de-частное, hl-остаток, CY=0-деление на 0
+;
+d162:   ld      a,b
+	or      c
+	ret     z
+	ex      de,hl
+	ld      hl,0
+	ld      a,16
+dloop:  push    af
+	add     hl,hl
+	xor     a
+	ex      de,hl
+	add     hl,hl
+	ex      de,hl
+	adc     a,l
+	sub     c
+	ld      l,a
+	ld      a,h
+	sbc     a,b
+	ld      h,a
+	inc     de
+	jr      nc,per
+	add     hl,bc
+	dec     de
+per:    pop     af
+	dec     a
+	jr      nz,dloop
+	scf
+	ret
+
+
+
+
+
+
+
+
+              
