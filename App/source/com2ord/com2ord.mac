@@ -1,0 +1,263 @@
+	TITLE	'CPM BIOS CONSOLE PROGRAMS TO ORDOS TRANSLATOR, FOR CPM TURBO PASCAL AS USUAL, v1.0.'
+;
+	.Z80
+;
+	ASEG
+	ORG 100h
+;
+;
+BDOS		equ	5
+ParamStr	equ	80h
+XBDOS		equ	0BF80h		; 0B780h
+XBDOSEND	equ	XBDOS+7Fh
+mon_inkey	equ	0F803h
+mon_conout	equ	0F809h
+mon_kbstat	equ	0F812h
+;
+STARTADDR equ	10h
+DELTA	 equ	XBDOS-BDOSBEG
+codesize equ	cpmemu+10
+;
+FCB1	equ	05Ch
+FCB2	equ	06Ch
+FCBI	equ	FCB1
+FCBO	equ	hellostr
+;
+BEGIN:	ld	hl,(ParamStr)
+	ld	a,h
+	or	l
+	ld	hl,usagestr
+	jp	z, STRHL
+	ld	a,(FCB1+1)
+	cp	' '
+	jp	z, STRHL
+	ld	a,(FCB2+1)
+	cp	' '
+	jp	nz,BG1
+;
+STRHL:	ld	a,(hl)
+	or	a
+	ret	z
+	ld	c,2
+	ld	e,a
+	push	hl
+	call	BDOS
+	pop	hl
+	inc	hl
+	jp	STRHL
+;
+BG1:	ld	hl, hellostr
+	call	STRHL
+	ld	hl, FCB2
+	ld	de, FCBO
+	ld	bc, 0FF12h	; ldir 12 bytes
+	call	zldir
+	ld	h,d
+	ld	l,e
+	inc	de	
+	ld	(hl),c
+	ld	c, 16h		; ldir (zero) 22 bytes (B=0FFh)
+	push	bc
+	call	zldir
+	ld	hl,FCBI+12
+	ld	(hl),c	
+	pop	bc
+	ld	de,FCBI+13
+	call	zldir		; ldir (zero) 22 bytes (B=0FFh)
+	ld	hl, FCBO+1
+	ld	de, cpmemu
+	ld	bc, 02007h	; ldir 7 bytes or until ' '(space) found
+	call	zldir
+	ex	de,hl
+	ld	(hl),'$'	; ORDOS executable flag
+	ld	hl, FCBI+1
+	call	STRHL
+;
+	LD      DE,FCBI
+FOPEN:  LD      C,0FH
+	CALL    BDOS
+	INC	A
+	ld	hl, errinp
+	jp	z, STRHL	
+FREAD:	LD      hl,(inpbufaddr)
+	ex	de,hl		; DE=inpbufaddr
+	ld	a,(BDOS+2)
+	dec	a
+	dec	a
+	cp	d
+	ld	hl,errmem
+	jp	c,STRHL
+	ld	hl,128
+	add     hl,de
+	push	hl
+	LD      C,1AH
+	CALL    BDOS            ; SET PDP
+	LD      DE,FCB1
+	LD      C,14H
+	CALL    BDOS            ; READ 128B SECTOR
+	pop	hl
+	OR	A
+	JP      NZ, DOWRITE
+	ld	(inpbufaddr),hl	; (inpbufaddr)+=128
+	ld	hl, (codesize)
+	ld	de,128
+	add     hl,de
+	ld	(codesize), hl	; (codesize)+=128
+	JP      FREAD
+;
+DOWRITE:ld	hl, writestr
+	call	STRHL
+	ld	hl, FCBO+1
+	call	STRHL
+	LD      DE,FCBO
+	LD      C, 16H
+	CALL    BDOS 		; create file
+	INC	A
+	ld	hl, errout
+	JP	z, STRHL	
+
+SAVEFL:	ld	hl,(outbufaddr)
+	ex	de,hl
+	LD      hl,(inpbufaddr)	; cp (outbufaddr),(inpbufaddr)
+	ld	a,d
+	cp	h
+	jp	c,SAVEFL1
+	ld	a,e
+	cp	l
+	jp	nc,CLOSEFL	; if (outbufaddr)>=(inpbufaddr)
+SAVEFL1:push	de
+	LD      C,1AH
+	CALL    BDOS            ; SET PDP
+	pop	de
+	ld	hl,128
+	add     hl,de
+	ld	(outbufaddr),hl	; (outbufaddr)+=128
+	ex	de,hl
+	LD      DE,FCBO
+	LD      C,15H
+	CALL    BDOS            ; WRITE 128B SECTOR
+	OR	A
+	ld	hl, errout
+	jp	nz, STRHL
+	jp	SAVEFL
+CLOSEFL:
+	LD      DE,FCBO
+	LD      C, 10H
+	CALL    BDOS 		; close file
+	INC	A
+	ld	hl, errout
+	jp	z, STRHL	
+	ld	hl, complete
+	jp	STRHL
+;
+; Transfers C bytes (b=0FFh) or until B-value found (b!=0FFh)
+;
+zldir:	ld	a,b
+	inc	a
+	ld	a,(hl)
+	jp	z,zldir1
+	cp	b
+	ret	z
+zldir1:	ld	(de),a
+	inc	hl
+	inc	de
+	dec	c
+	ret	z
+	jp	zldir
+
+;
+hellostr:db	13,10,'COM2ORD - CPM CONSOLE PROGRAMS TO ORDOS TRANSLATOR, v0.1. (c) 2016 Serge',13,10,'  Reading file  ',0
+writestr:db	13,10,'  Writing file  ',0
+usagestr:db	13,10,'Usage: COM2ORD FILENAME.COM FILENAME.ORD',13,10,0
+errmem:	 db	13,10,'COM2ORD: Out of TPA memory',13,10,0
+errout:	 db	13,10,'COM2ORD: Output file error',13,10,0
+errinp:	 db	13,10,'COM2ORD: Input file error',13,10,0
+complete:db	13,10,'Complete.'
+crlfstr: db	13,10,0
+inpbufaddr: dw	buffer
+outbufaddr: dw	cpmemu
+;
+cpmemu:
+	.phase	STARTADDR-16
+;
+	db	'        '
+	dw	STARTADDR		; start address at page0
+	dw	0F0h			; code length
+	db	0, 0FFh, 0FFh, 0FFh	; reserved	
+;
+BEG:	ld	c, 1FH			; cls
+	call	mon_conout
+	ld	hl, BDOSBEG
+	ld	DE, XBDOS
+	ld	c, LOW (XBDOSEND-XBDOS)
+xldir:	ld	a,(hl)
+	ld	(de),a
+	inc	hl
+	inc	DE
+	dec	c
+	jp	nz, xldir
+	ld	l,c			; hl=0
+	ld	(hl), 0C3h
+	inc	hl
+	ld	(hl), LOW (BIOSWRM+DELTA)
+	inc	hl
+	ld	(hl), HIGH (BIOSWRM+DELTA)
+	inc	hl			; skip IOBYTE
+	inc	hl			; skip DRIVE
+	inc	hl
+	ld	(hl), 0C3h
+	inc	hl
+	ld	(hl), LOW (XBDOS)
+	inc	hl
+	ld	(hl), HIGH (XBDOS)
+	ld	l,c
+	ld	(ParamStr),hl		; clear ParamStr
+	jp	100h
+;
+BDOSBEG:ld	a,c
+	dec	a
+	jp	c, BIOSWRM+DELTA	; (f0)
+	jp	z, CONIN+DELTA         	; (f1)
+	dec	a			; a=c-2
+	ld	c,e	
+	jp	z, CONOUT+DELTA		; (f2)	
+	cp	4			; (f6)
+	jp	nz, next1+DELTA
+	inc	e
+	jp	nz, CONOUT+DELTA
+	call	mon_kbstat	
+	or	a
+	ret	z
+	jp	CONIN+DELTA
+next1:	cp	7			; strout $-terminated (f9)
+	jp	nz, next2+DELTA
+strout:	LD      A,(de)
+	INC     de
+	CP      '$'
+	RET	Z
+	LD	C,A
+	PUSH    de
+	CALL    mon_conout
+	POP     de
+	JP      strout+DELTA
+next2:	cp	9		; constatus (f11)
+	jp	z, CONST+DELTA
+f12:	LD      A,22H		; (f12 and other)
+	ld	l,a
+	ret
+;
+BIOSBEG:JP	0F800h
+BIOSWRM:JP	0F800h
+CONST:	JP	mon_kbstat
+CONIN:	JP	mon_inkey
+CONOUT: JP	mon_conout
+	ds	BEG+0EDh-CONOUT, 0C9h	
+;
+BDOSEND:
+	.dephase	
+;
+BUFFER:	
+;
+	END	BEGIN
+
+

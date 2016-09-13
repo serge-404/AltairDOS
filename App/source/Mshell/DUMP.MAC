@@ -1,0 +1,620 @@
+; П/п *** Редактор памяти ***
+; редактирование памяти в HEX и ASCII виде, затем выход в Main Menu [ESC]
+
+; Ввод полного адреса в wpoint
+dumpbeg:ds      3,0
+flclr:  db      0
+;
+wdumpproc:
+D14:    call    writest
+	db      27,'Y',32+0,32+4,' Dump Modify ',0
+D15:    ld      hl,dumpbeg+0
+D16:    ld      de,wpoint+0
+	ld      bc,3
+	ldir
+	ld      hl,0c02h
+D17:    ld      de,dumpbeg+2
+D18:    jp      prfullst
+;
+wdumpcase:
+	jr      nz,dc1
+; address
+dc0:    ld      hl,0c02h
+D19:    call    getfull         ; ввести полный адрес в wpoint
+	jr      c,dc0
+	ret
+; ok
+dc1:    dec     a
+D20:    jp      nz,standexit    ; cancel
+D21:    ld      hl,wpoint+0
+D22:    ld      de,dumpbeg+0
+	ld      bc,3
+	ldir
+	pop     hl
+	pop     hl
+	pop     hl
+D23:    call    closew
+D24:    jp      DM0
+;
+workst: db      27,'W',0,0,0,25,60,0
+eworkst:
+; вывести текущий адрес
+D25:
+prwork: ld      hl,workst
+	ld      a,eworkst-workst
+D26:    call    wstrng          ; установить окно
+	ld      hl,113h         ; курсор
+D27:    ld      de,wpoint+2
+D28:    call    listfull          ; вывести полный адрес в формате 00:0000
+D29:    jp      frdump
+
+; вывести полный адрес hl - курсор, de - data pointer+2
+listfull:
+	push    de
+D30:    call    gotoxy
+	pop     hl
+	push    hl
+	ld      a,(hl)
+D31:    call    wrhex
+	ld      c,':'
+D32:    call    conout
+	pop     hl
+	dec     hl
+praddr: ld      a,(hl)
+	push    hl
+D33:    call    wrhex
+	pop     hl
+	dec     hl
+	ld      a,(hl)
+D34:    jp      wrhex
+;
+; вывести полный адрес в формате addr,bank (0000,00)
+; hl - курсор, de - data pointer+2
+prfullst:
+	push    de
+D35:    call    clrgetf         ; Покрасить строку перед выводом
+	pop     hl
+	push    hl
+	dec     hl
+D36:    call    praddr
+	ld      c,','
+D37:    call    conout
+	pop     hl
+	ld      a,(hl)
+D38:    jp      wrhex
+;
+; вывести адрес в формате addr (0000)
+; hl - курсор, de - data pointer+1
+prwordst:
+	push    de
+D39:    call    clr2bytes         ; Покрасить строку перед выводом
+	pop     hl
+	jr      praddr
+;
+; вывести байт в формате (00)
+; hl - курсор, de - data pointer+0
+prbytest:
+	push    de
+D40:    call    clr1byte         ; Покрасить строку перед выводом
+	pop     hl
+	ld      a,(hl)
+D41:    jp      wrhex
+;
+; выводит содержимое памяти на экран
+D42:
+listmem:call    frdump          ; уст. окно для вывода дампа
+D43:    call    writest         ; Вывод шапки
+	db      27,'H',27,'P',14,27,'C',2
+	db      '     0 1  2 3  4 5  6 7  8 9  A B  C D  E F 0123456789ABCDEF'
+	db      27,'C',3,0
+D44:    ld      hl,wpoint+0
+	ld      a,(hl)          ; уст. начальный адрес для вывода
+	push    af              ; запомнить текущий wpoint
+	ld      (hl),0          ; установить адрес xx:xx00h
+	ld      de,102h
+listloop:
+	push    de
+	push    hl
+	ex      de,hl
+D45:    call    gotoxy
+	pop     hl
+	push    hl
+	ld      a,(hl)
+D46:    call    wrhex
+	ld      c,':'
+D47:    call    conout
+	ld      b,8
+	pop     hl
+listloop0:
+	push    bc
+	push    hl
+D168:   call    resmark
+D48:    call    wr20h
+D162:   call    setmark
+D49:    call    getmembyte
+D50:    call    wrhex
+D163:   call    resmark
+	pop     hl
+	inc     (hl)
+D164:   call    setmark
+D51:    call    getmembyte
+	push    hl
+D52:    call    wrhex
+D165:   call    resmark
+	pop     hl
+	inc     (hl)
+	pop     bc
+	djnz    listloop0
+	ld      a,(hl)
+	sub     16
+	ld      (hl),a
+	push    hl
+D53:    call    wr20h
+	pop     hl
+D167:   call    resmark
+	ld      b,16
+listloop1:
+	push    bc
+D166:   call    setmark
+D54:    call    getmembyte
+	push    hl
+	cp      20h
+	push    af
+D55:    call    c,wrlitle
+	pop     af
+D56:    call    nc,conouta      ; вывод ASCII
+	pop     hl
+	pop     bc
+	inc     (hl)
+D169:   call    resmark
+	djnz    listloop1
+	dec     (hl)
+	pop     de
+	inc     e
+	inc     (hl)
+	push    hl
+	push    de
+	push    bc
+	push    af
+D152:   call    writest
+	db      27,'C',3,0
+	xor     a
+D177:   ld      (flclr),a
+	pop     af
+	pop     bc
+	pop     de
+	pop     hl
+	jr      nz,listloop
+	pop     af
+	ld      (hl),a          ; восстановить текущий wpoint
+	ret
+
+; вкл. маркировку модели цветом
+setmark:push    af
+D153:   ld      a,(found_ok)
+	or      a
+	jr      z,esetmark              ; выход, нет модели для маркировки
+D170:   ld      a,(flclr)
+	or      a
+	jr      nz,esetmark             ; выход, маркировка уже включена
+	push    bc
+	push    de
+	push    hl
+D171:   call    f_area                  ; попадание wpoint в модель -> CY=1
+	jr      nc,eesetmark
+;
+D155:   call    writest
+	db      27,'P',14,27,'C',2,0
+	ld      a,1
+D159:   ld      (flclr),a               ; маркировка включена
+eesetmark:
+	pop     hl
+	pop     de
+	pop     bc
+esetmark:
+	pop     af
+	ret
+;
+; выкл. маркировку модели цветом
+resmark:push    af
+D172:   ld      a,(found_ok)
+	or      a
+	jr      z,eresmark              ; выход, нет модели для маркировки
+D173:   ld      a,(flclr)
+	or      a
+	jr      z,eresmark              ; выход, маркировка не включена
+	push    bc
+	push    de
+	push    hl
+D174:   call    f_area                  ; попадание wpoint в модель -> CY=1
+	jr      c,eeresmark
+;
+D175:   call    writest
+	db      27,'P',15,27,'C',3,0
+	xor     a
+D176:   ld      (flclr),a               ; маркировка выключена
+eeresmark:
+	pop     hl
+	pop     de
+	pop     bc
+eresmark:
+	pop     af
+	ret
+;
+f_area:
+;
+D157:   ld      a,(found_ok)
+	ld      b,a
+D154:   ld      hl,(wpoint+0)
+D156:   ld      de,(wsearch+0)
+	and     a
+	sbc     hl,de
+	ccf
+	ret     nc              ; CY = 0
+	ld      a,h
+	or      a
+	ret     nz              ; CY = 0
+	ld      a,l
+	cp      b
+	ret
+;
+
+; Вывод байта в dump в HEX и ASCII виде.  Вход: wpoint - адрес
+hextable:  db   4,6,9,11,14,16,19,21,24,26,29,31,34,36,39,41
+asciitable:db   44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59
+;
+wrhexascii:
+D57:    call    getmembyte
+	push    af              ; байт из памяти
+D58:    ld      a,(wpoint+0)
+	push    af
+	rrca
+	rrca
+	rrca
+	rrca                    ; старший полубайт
+	and     0fh
+	add     a,2             ; Положение курсора по Y
+	ld      c,a
+	pop     af
+	and     0fh             ; младший полубайт
+	ld      d,0
+	ld      e,a
+D59:    ld      hl,hextable
+	add     hl,de
+	ld      b,(hl)
+	inc     b               ; !
+D60:    ld      (curhex),bc     ; положение курсора для вывода HEX
+	ld      de,16
+	add     hl,de
+	ld      b,(hl)
+	inc     b               ; !
+D61:    ld      (curascii),bc   ; положение курсора для вывода ASCII
+	pop     af
+;
+whexasc:push    af
+D62:    ld      hl,(curhex)
+D63:    call    gotoxy
+	pop     af
+	push    af
+D64:    call    wrhex           ; вывод HEX
+D65:    ld      hl,(curascii)
+D66:    call    gotoxy
+	pop     af
+	cp      20h
+	push    af
+D67:    call    c,wrlitle
+	pop     af
+	ret     c
+D68:    jp      conouta      ; вывод ASCII
+;
+nextedit:
+	db      31h             ; ld sp,(dumpsp)
+dumpsp: ds      2
+	jr      repdump
+
+; точка входа из ф-ции Search
+D69:
+DM0:    call    frdump
+D70:    call    clrscr
+D71:
+repdump:ld      (dumpsp),sp
+D72:    call    reccur          ; cls+reccur
+D160:   ld      hl,flclr        ; флаг очистки фона
+	ld      a,(hl)
+	ld      (hl),0
+	or      a
+	jr      z,nobackclr
+D161:   call    writest
+	db      27,'P',15,27,'B',0
+nobackclr:
+D73:    call    listmem
+
+	xor     a
+D74:    ld      (nibble),a      ; флаг - редактируется левый полубайт
+
+D75:    ld      hl,editmode
+	res     7,(hl)          ; сбросить флаг - "выход в Main Menu"
+
+; Главный repeat редактора
+D76:
+editrp: ld      hl,editrp
+	push    hl
+D77:    ld      a,(editmode)    ; editmode: d7 (0/1) - выход из редактирования
+				;           d0 (0/1) - HEX/ASCII
+	or      a               ; 0
+	jr      z,edithex
+	dec     a               ; 1
+D78:    jp      z,editascii
+	pop     hl
+	ret                     ; Выход в Main Menu
+
+; Редактор HEX - кода
+edithex:
+; repeat редактора HEX - кода
+D79:    call    prwork          ; вывести адрес
+D80:    call    prpointH        ; вывести H и A, уст. курсор
+D81:    call    rki1            ; повтор, ввод символа
+	cp      13
+D82:    jp      z,crha
+D83:    ld      hl,editmode
+	cp      27              ; если нажата ESC или
+	set     7,(hl)          ; установить флаг выхода в Main Menu
+	ret     z
+	res     7,(hl)
+	cp      9               ; если нажата TAB, то
+	set     0,(hl)          ; установить флаг перехода в редактор ASCII
+	ret     z
+	res     0,(hl)
+D84:    ld      hl,edithex
+	push    hl
+
+	cp      8               ; КЛ - вызов curleft
+D85:    jp      z,curleftH
+	cp      5               ; КВ - вызов curup
+D86:    jp      z,curupH
+	cp      4               ; КП - вызов curright
+D87:    jp      z,currightH
+	cp      18h             ; КН - вызов curdown
+D88:    jp      z,curdownH
+
+; Иначе, анализ ввода шестнадцатиричных символов
+	or      10h             ; изменение кодов 20h-2fh --> 30h-3fh
+	sub     30h
+	ret     c               ; код < "0" - выход
+	cp      0ah
+	jr      c,ehnumb        ; переход, введена цифра
+
+ND0:    ld      a,(i1)
+	sub     30h
+	and     1fh             ;
+	cp      11h
+	ret     c               ; "9" < код < "A" - выход
+	cp      17h
+	ret     nc              ; код > "F"
+ehsym:  sub     7               ; введена буква
+ehnumb:                         ; введена цифра
+				; получен код в пределах 0 - 0fh
+	ld      b,a
+D89:    ld      a,(nibble)
+	or      a
+	ld      a,b
+	ld      c,0f0h
+	jr      nz,ehnoshift
+				; осуществляется ввод в старший полубайт,
+				; (nibble = 0),
+				; сдвинуть введенную цифру на 4 бита влево
+	rlca
+	rlca
+	rlca
+	rlca
+	and     0f0h            ; в рег. А код полубайта
+	ld      c,0fh
+ehnoshift:
+	ld      b,a
+
+D90:    call    getmembyte      ; a - байт из памяти
+	and     c
+	or      b
+D91:    call    setmembyte      ; из а в память
+D92:    call    prpointH        ; Вывести сотворенное на экран
+D93:    jp      currightH       ; Если ковырялись в младшем полубайте,
+				; то передвинуть курсор вправо
+prpointH:                       ; Вывести HEX - байт по указателю (wpoint+4)
+				; установить курсор
+D94:    ld      a,(wpoint+0)    ; получить смещение для вывода на экран
+D95:    call    wrhexascii
+D96:    ld      hl,(curhex)
+D97:    ld      a,(nibble)
+	add     a,h
+	ld      h,a
+D98:    jp      gotoxy
+
+currightH:                       ; увеличить адрес на 1
+D99:    ld      a,(wpoint+0)
+	sub     0ffh
+	ld      b,a
+D100:   ld      a,(nibble)
+	xor     1
+	or      b
+	jr      z,currh         ; выход: правый полубайт + offset 0ffh
+D101:   call    rplnibble
+	ret     nz
+D102:   ld      hl,wpoint+0
+	ld      a,(hl)
+	cp      0ffh
+	ret     nc
+	inc     (hl)
+	ret
+currh:  xor     a               ; переход на след. блок
+D103:   ld      (nibble),a
+D104:
+curra:  ld      hl,(wpoint+0)
+	inc     hl
+D105:   ld      (wpoint+0),hl
+D106:   jp      nextedit
+
+curleftH:                        ; уменьшить адрес на 1
+D107:   ld      a,(wpoint+0)
+	ld      b,a
+D108:   ld      a,(nibble)
+	or      b
+	jr      z,curlh          ; выход: левый полубайт + 0 offset
+D109:   call    rplnibble
+	ret     z
+D110:   ld      hl,wpoint+0
+	ld      a,(hl)
+	or      a
+	ret     z
+	dec     (hl)
+	ret
+;
+curlh:  ld      a,1              ; переход на след. блок
+D111:   ld      (nibble),a
+D112:
+curla:  ld      hl,(wpoint+0)
+	dec     hl
+D113:   ld      (wpoint+0),hl
+D114:   jp      nextedit
+
+curupH:                          ; уменьшить адрес на 16
+curupA:
+D115:
+	ld      hl,wpoint+0
+	ld      a,(hl)
+	cp      16
+	jr      c,curuha
+	sub     16
+	ld      (hl),a
+	ret
+
+curuha:
+; переход на след. блок
+D116:   ld      hl,wpoint+0
+	ld      a,-16
+	add     a,(hl)
+	ld      (hl),a
+	inc     hl
+	dec     (hl)
+D117:   jp      nextedit
+
+curdownH:                        ; увеличить адрес на 16
+curdownA:
+D118:   ld      hl,wpoint+0
+	ld      a,(hl)
+	cp      0f0h
+	jr      nc,curdha
+	add     a,16
+	ld      (hl),a
+	ret
+;
+curdha:                          ; переход на след. блок
+D119:   ld      hl,wpoint+0
+	ld      a,16
+	add     a,(hl)
+	ld      (hl),a
+	inc     hl
+	inc     (hl)
+D120:   jp      nextedit
+
+D121:
+crha:   ld      hl,wpoint+1
+	inc     (hl)            ; + 256
+D122:   jp      nextedit
+;
+rplnibble:
+	push    hl
+D123:   ld      hl,nibble
+	ld      a,(hl)
+	xor     1               ; Сменить полубайт для след. ввода
+	ld      (hl),a
+	pop     hl
+	ret
+
+; получить байт из памяти (указатель wpoint+0..wpoint+2)
+getmembyte:
+	push    hl
+	push    de
+	push    bc
+D158:   call    setmark
+D124:   ld      hl,(wpoint+0)
+D125:   ld      a,(wpoint+2)
+	call    BLDB
+	ld      a,b
+	pop     bc
+	pop     de
+	pop     hl
+	ret
+
+; записать байт из A в память (указатель wpoint+0..wpoint+2)
+setmembyte:
+	push    hl
+	push    de
+	push    bc
+	ld      b,a
+D127:   ld      hl,(wpoint+0)
+D128:   ld      a,(wpoint+2)
+	call    BSTB
+	pop     bc
+	pop     de
+	pop     hl
+	ret
+
+; Редактор ASCII - кода
+editascii:
+; repeat редактора ASCII - кода
+D130:   call    prwork          ; вывести адрес
+D131:   call    prpointA        ; вывести H и A, уст. курсор
+
+D132:   call    rki1            ; повтор, ввод символа
+	cp      13
+D133:   jp      z,crha
+D134:   ld      hl,editmode
+	cp      27              ; если нажата ESC
+	set     7,(hl)          ; установить флаг выхода в Main Menu
+	ret     z
+	res     7,(hl)
+	cp      9               ; если нажата TAB, то
+	res     0,(hl)          ; установить флаг перехода в редактор HEX
+	ret     z
+	set     0,(hl)
+D135:   ld      hl,editascii
+	push    hl
+
+	cp      8               ; КЛ - вызов curleft
+D136:   jp      z,curleftA
+	cp      5               ; КВ - вызов curup
+D137:   jp      z,curupA
+	cp      4               ; КП - вызов curright
+D138:   jp      z,currightA
+	cp      18h             ; КН - вызов curdown
+D139:   jp      z,curdownA
+
+	cp      20h             ; введенный код меньше 32 - возврат на ввод
+	ret     c
+D140:   call    setmembyte
+D141:   call    prpointA        ; Вывести сотворенное на экран
+	jr      currightA       ; Передвинуть курсор вправо
+prpointA:                       ; Вывести ASCII - байт по указателю (wpoint+0)
+				; установить курсор
+D142:   ld      a,(wpoint+0)
+D143:   call    wrhexascii
+D144:   ld      hl,(curascii)
+D145:   jp      gotoxy
+
+currightA:                      ; увеличить адрес на 1
+D146:   ld      hl,wpoint+0
+	ld      a,(hl)
+	cp      0ffh
+D147:   jp      nc,curra        ; выход: offset 0ffh
+	inc     (hl)
+	ret
+
+curleftA:                       ; уменьшить адрес на 1
+D148:   ld      hl,wpoint+0
+	ld      a,(hl)
+	or      a
+D149:   jp      z,curla         ; выход: offset 00h
+	dec     (hl)
+	ret
+
+ _#мeW! иМ{▄>м▌>ЪМsГм╡1цюи  ╢< ≈ ╔ Dump modify  cAll         Move    

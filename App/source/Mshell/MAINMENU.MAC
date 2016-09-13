@@ -1,0 +1,624 @@
+;
+NOXTPA: db      'Monitor Shell V3.'
+	db      Version
+	db      ' Error: no XTPA memory.',10,13,'$'
+reclama:db      27,'7'          ; выключить инверсию
+	db      27,'X',0        ; выключить наложение для 6 бит
+	db      27,'X',1        ; выключить наложение для 8 бит
+	db      27,'R',8        ; установить размер курсора
+	db      27,'P',1Fh      ; установить код цвета
+	db      27,'C',3        ; установить цветовой режим
+	db      12              ; CLS
+	db      27,'P',4Fh,27,'C',2
+	db      '                  Shadow Monitor version 3.'
+	db      Version
+	db      '               '
+	db      27,'P',1Fh,27,'C',3
+erecl:
+;
+lastBBDOS:  ds  3       ; НЕ ПЕРЕМЕЩАТЬ
+lastINTKEY: ds  3       ; -"-
+lastCONIN:  ds  3       ; -"-
+lastCONST:  ds  3       ; -"-
+BFUNC:  db      0
+oldlongv:ds     12      ; копия межбанковых векторов ошибок BDOS
+reset:  ds      1
+REQUEST:db      0
+ACTIVE: db      0
+Pwind:  ds      1               ; Страница ОЗУ под буфер окон (опр. EMM)
+Bwind:  ds      2               ; адрес -""-  (XX:XX00)
+Swind:  ds      1
+DOS:    ds      1               ; страница TPA DOS
+BIOS:   ds      2               ; начало BIOS
+TPAFLAG:db      0               ; 0 - работа в XTPA, 1 - работа в TPA
+loadms: db      27,'Q',8,27,'W',0,0,0,25,60,27,'C'
+loadcol:ds      1
+	db      27,'W',4
+ldaddr: ds      2
+ldbank: ds      1
+eloadms:
+;
+selvis: db      27,'V'          ; не перемещать
+actscr: ds      1               ; не перемещать
+color:  ds      1               ; не перемещать
+getlogms:db     27,'U',0        ; получить состояние драйвера консоли
+setlog: db      27,'U',1        ; восстановить -"-      -"-     -"-
+drivlog:ds      13              ; состояние драйвера консоли
+	db      12              ; используется при работе в TPA
+;
+scrseg: ds      1               ; начальный сегмент под экран
+savems: db      27,'Q',8,27,'W',0,0,0,25,60
+savems0:db      27,'W',3
+svaddr: ds      2
+svbank: ds      1
+esavems:
+INSTALL:DI
+	db      3Eh             ; перемещающий загрузчик
+INSFLAG:db      1               ; (пересчитывает абсолютно
+	or      a               ; заданные адреса)
+	jr      z,EXLINK        ; адреса пересчитываются
+	ld      h,b             ; только один раз
+	ld      l,0             ; рег.В=начальный сегмент
+	add     hl,hl
+	add     hl,hl
+	add     hl,hl
+	add     hl,hl           ; сегмент -> адрес
+	ld      b,h
+	ld      c,l             ; hl=bc=install
+	ld      de,HLATTAB-OFFSET
+	add     hl,de           ; hl=hlattab
+LINK:   ld      e,(hl)
+	inc     hl
+	ld      d,(hl)
+	inc     hl
+	ld      a,e
+	or      d
+	jr      z,EXLINK
+	ex      de,hl
+	add     hl,bc
+	ex      de,hl           ; de:=de+bc (de+offset)
+	ld      a,(de)
+	add     a,c
+	ld      (de),a
+	inc     de
+	ld      a,(de)
+	adc     a,b
+	ld      (de),a
+	jr      LINK
+;
+EXLINK: xor     a
+M0:     ld      (INSFLAG),a      ; запрет повтор. пересчета
+;
+	ld      hl,BBDOS        ; копирование вектора BDOS
+M1:     ld      de,lastBBDOS
+	ld      bc,3
+	ldir
+	ld      hl,INTKEY        ; копир. вектора INTKEY
+	ld      c,3
+	ldir
+	ld      hl,BCONIN
+	ld      c,3
+	ldir
+	ld      hl,BCONST
+	ld      c,3
+	ldir
+;
+	ld      a,(MARKER)
+	ld      (BBDOS),a
+	ld      (INTKEY),a
+	ld      (BCONIN),a
+	ld      (BCONST),a
+;
+M2:     ld      hl,SUBRBBDOS
+	ld      (BBDOS+1),hl
+M122:   ld      hl,SUBRCONIN
+	ld      (BCONIN+1),hl
+M123:   ld      hl,SUBRCONST
+	ld      (BCONST+1),hl
+M3:     ld      hl,SUBRINTKEY
+	ld      (INTKEY+1),hl
+FORKILL:ret                     ; завершение инсталляции, возврат в EMM
+;
+SUBRINTKEY:
+	ld      a,b
+	cp      intcode         ; CTRL+SHIFT+J
+	jr      nz,exitkey      ; not activate key
+	ld      a,1
+M14:    ld      (REQUEST),a     ; иначе зафиксировать запрос
+exitkey:
+M12:    ld      a,(lastINTKEY)
+M13:    ld      hl,(lastINTKEY+1)
+	jp      Bjump
+;
+SUBRCONIN:
+	ld      a,1
+	jr      SUBRCOMMON
+SUBRCONST:
+	ld      a,2
+	jr      SUBRCOMMON
+SUBRBBDOS:
+	xor     a
+SUBRCOMMON:
+M4:     ld      (BFUNC),a
+;
+M7:     ld      a,(REQUEST)     ; не зафиксирован запрос доступа к MSHELL
+	or      a
+	jr      z,skipcall
+; есть запрос доступа
+	ld      a,(VALUE)
+	bit     5,a
+	jr      nz,skipcall     ; драйвер консоли занят
+; драйвер консоли свободен
+	xor     a
+M15:    ld      (REQUEST),a     ; сбросить флаг запроса доступа к MSHELL
+M16:    ld      hl,ACTIVE
+	ld      a,(hl)
+	or      a
+	jr      nz,skipcall     ; монитор уже активизирован
+; монитор не активен
+	ld      (hl),1          ; уст. флаг - "монитор активизирован"
+M77:    ld      (DOSSP),sp      ; запомнить стек ДОС
+M78:    ld      sp,ENDHLATTAB   ; установить стек в теле MSHELL
+;
+	push    de
+	push    bc              ; запомнить de,bc - в них передаются параметры
+	push    hl              ; для ф-ций ДОС
+	xor     a
+M121:   ld      (reset),a
+M99:    call    setlong         ; подменить вектора ошибок BDOS
+M10:    call    MONITOR         ; запуск основной части MSHELL
+M100:   call    reclong         ; отключиться от векторов ошибок BDOS
+	pop     hl
+	pop     bc
+	pop     de
+;
+	db      31h             ; ld    sp,(DOSSP)
+DOSSP:  ds      2               ; восстановить стек ДОС
+	ld      (hl),0          ; сбросить флаг "монитор активизирован"
+;
+skipcall:
+	push    de
+M5:     ld      a,(BFUNC)
+M6:     ld      hl,lastBBDOS
+	or      a
+	jr      z,skipcomm
+M8:     ld      hl,lastCONIN
+	dec     a
+	jr      z,skipcomm
+M9:     ld      hl,lastCONST
+skipcomm:
+	ld      a,(hl)
+	inc     hl
+	ld      e,(hl)
+	inc     hl
+	ld      d,(hl)
+	ex      de,hl
+	pop     de
+;
+	jp      Bjump
+;
+M56:
+ERRQUIT:ld      de,NOXTPA
+	ld      c,9
+M17:
+BDOS:   ld      a,(DOS)
+	ld      hl,5
+	jp      Bcall
+
+; ----- ОСНОВНОЕ ТЕЛО МОНИТОРА ---
+
+; в случае работы из TPA экран ДОС не запоминается
+MONITOR:
+M83:    ld      a,(TPAFLAG)
+	rrca                    ; CY=1 - работа в TPA
+	ld      a,(MARKER)      ; банк буфера окон в TPA
+M84:    ld      hl,ENMON        ; начало буфера окон в TPA
+	jr      c,WTPA          ; переход, если работа в TPA
+;
+M55:    ld      hl,ERRQUIT
+	push    hl
+;
+	ld      de,3FFh
+M18:    call    resseg          ; запрос непрерывного участка XTPA размером
+				; 12к под буфер окон
+	ret     z               ; выход - мало XTPA
+;
+	ld      e,a
+M19:    ld      (Swind),a
+	ld      c,112
+M20:    call    BDOS
+	xor     a               ; CY=0
+	ld      a,l
+	ld      l,0
+;
+WTPA:   push    af              ; запомнить carry
+M21:    ld      (Pwind),a
+M22:    ld      (buffw),hl      ; ctw обнуляется при общей очистке переменных
+;
+M79:    ld      hl,getlogms     ; получить состояние драйвера
+	ld      a,3
+M88:    call    wstrng
+M80:    ld      hl,drivlog      ; записать состояние в буфер
+	push    hl
+	ld      b,13
+M81:
+getlog: call    conin
+	ld      (hl),a
+	inc     hl
+	djnz    getlog
+	pop     ix
+	pop     af
+M89:    jp      c,WTPA0         ; переход, если работа в TPA
+;
+	push    ix
+M130:   call    resfrscr        ; попытка включить свободный экран
+	pop     ix
+	or      a
+	scf
+	pop     hl              ; адрес ERRQUIT
+M131:   jp      nz,WTPA0        ; удачно, тогда не делать своппинг scr. 0
+	push    hl
+;
+M85:    ld      hl,actscr       ; активный экран
+	ld      a,(ix+9)
+	and     3
+	ld      (hl),a
+	inc     hl
+	ld      a,(ix+0)
+	and     3
+	ld      (hl),a          ; 0-mono/<>0-any color mode
+;
+; запись активного экрана в буфер в XTPA (16/32k)
+	ld      d,4             ; монохром
+	jr      z,svs0
+	ld      d,8             ; цвет
+svs0:   ld      e,0FFh          ; Зарезервировать 16/32K в XTPA
+M58:    call    resseg
+	jr      nz,scrres
+;
+M93:    ld      a,(Swind)       ; начальный сегмент буфера окон
+	ld      e,a
+	ld      d,3             ; Освободить буфер под окна
+M94:    jp      frseg           ; выход - мало XTPA
+;
+scrres: pop     hl              ; убрать адрес выхода по ошибке
+M57:    ld      (scrseg),a      ; начальный сегмент буфера
+	ld      e,a
+	ld      c,112
+M59:    call    BDOS
+	ld      a,l
+M60:    ld      (svbank),a
+	ld      l,0
+M61:    ld      (svaddr),hl
+M62:    ld      hl,savems
+	ld      a,esavems-savems
+M63:    call    wstrng  ; записать активный экран в XTPA
+
+;
+	ld      a,3
+M65:    ld      hl,selvis
+M64:    call    wstrng  ; установить видимый экран совпадающим с активным
+	xor     a       ; CY=0
+;
+WTPA0:                  ; CY=1 работа в TPA
+M91:    ld      hl,savems
+	ld      a,savems0-savems
+M92:    call    c,wstrng  ; при работе в TPA установить окно 25х60Width8
+
+M23:    ld      hl,CLEAR
+	ld      (hl),0
+	ld      e,l
+	ld      d,h
+	inc     de
+	ld      bc,ENDCLEAR-CLEAR-1
+	ldir
+;
+	ld      c,19h           ; акт. диск в рег. A
+M24:    call    BDOS
+;
+M25:    ld      (sysdisk),a     ; запомнить
+;M26:    ld      (savedisk),a
+;M27:    ld      (loaddisk),a
+;
+	ld      c,20h
+	ld      e,0ffh
+M28:    call    BDOS            ; получить текущий юзер
+M29:    ld      (sysuser),a     ; запомнить
+;M30:    ld      (saveuser),a
+;M31:    ld      (loaduser),a
+;
+	ld      c,3Ah
+M95:    call    BDOS            ; F3A - ПОЛУЧИТЬ АДРЕС DMA
+M96:    ld      (sysdma),hl
+;
+M11:    ld      hl,reclama
+	ld      a,erecl-reclama
+M39:    call    wstrng
+;
+mainrepeat:
+M40:    call    hidcur
+M41:    ld      hl,winmain+2
+M42:    call    objectwin
+	jr      mainrepeat
+
+mainmess:db     25,0, ' Main menu ',0
+maincase:
+	push    af
+	xor     a
+M26:    ld      (found_ok),a
+	pop     af
+M43:    ld      hl,hidcur
+	push    hl
+M44:    jp      z,DUMPMODIFY
+	dec     a
+M45:    jp      z,FCALL
+	dec     a
+M46:    jp      z,MOVE
+	dec     a
+M47:    jp      z,COMPAIR
+	dec     a
+M48:    jp      z,SEARCH
+	dec     a
+M49:    jp      z,FILL
+	dec     a
+M50:    jp      z,ARITHMETIC
+	dec     a
+M51:    jp      z,LOADFILE
+	dec     a
+M52:    jp      z,SAVEFILE
+	dec     a
+M53:    jp      z,FDIS
+	dec     a
+M54:    jp      z,CHECKSUM
+	dec     a
+M66:    jp      z,FXOR
+	dec     a
+M67:    jp      z,FDEF
+	dec     a
+M82:    jp      z,MEM
+	pop     hl
+
+	pop     hl
+	pop     hl
+	pop     hl
+
+	pop     hl
+
+; EXIT
+M119:   ld      a,(reset)
+	or      a
+	ld      c,13
+M120:   call    nz,BDOSPR
+M32:    ld      a,(sysdisk)
+	ld      e,a
+	ld      c,0eh
+M33:    call    BDOSPR
+M34:    ld      a,(sysuser)
+	ld      e,a
+	ld      c,20h
+M35:    call    BDOS
+;
+M97:    ld      de,(sysdma)
+	ld      c,1Ah
+M98:    call    BDOS            ; восстановить системный DMA
+;
+M36:    call    closal
+M90:    ld      a,(TPAFLAG)
+	rrca
+	jr      c,WTPA1         ; переход, если работа в TPA
+;
+; освобождение XTPA (3 сегмента) - буфер окон
+M37:    ld      a,(Swind)         ; нач. сегмент буфера
+	ld      e,a
+	ld      d,3               ; вход: e - начальный сегмент
+M38:    call    frseg
+;
+M132:   ld      a,(act_scr)     ; перекл. экран, если не делался своппинг
+	or      a
+	push    af
+M133:   call    nz,frfrscr      ; откл. от другого экрана
+	pop     af
+M134:   jp      nz,WTPA1        ; переход, если работали на другом экране
+;
+; восстановление активного экрана из буфера в XTPA (16/32k)
+; Вход: color - код цветового режима 0/<>0
+;
+M68:    ld      a,(color)
+	push    af
+	or      a               ; если режим не монохром, то включить 16c_fast
+	jr      z,exit0
+	ld      a,3
+exit0:
+M69:    ld      (loadcol),a
+M70:    ld      a,(scrseg)
+	push    af
+	ld      e,a
+	ld      c,112
+M71:    call    BDOS
+	ld      a,l
+M72:    ld      (ldbank),a
+	ld      l,0
+M73:    ld      (ldaddr),hl
+M74:    ld      hl,loadms
+	ld      a,eloadms-loadms
+M75:    call    wstrng  ; восстановить активный экран из XTPA
+	pop     af
+	ld      e,a
+	pop     af
+	or      a
+	ld      d,4
+	jr      z,lds0  ; монохром
+	ld      d,8     ; цвет
+lds0:   ld      c,104   ; Освободить сегменты
+M76:    call    BDOS
+	xor     a       ; CY=0
+;
+WTPA1:  ld      a,16    ; CY=1 если работа в TPA
+	jr      nc,noclr
+	inc     a       ; последний байт в стринге (14) - код CLS
+noclr:
+M86:    ld      hl,setlog
+M87:    jp      wstrng  ; восст. ранее полученное состояние драйвера консоли
+	; ВЫХОД В ПРОГРАММУ КАСКАДИРОВАНИЯ ВЕКТОРА bdos, CONIN, CONSTATUS
+;
+; --- Работа с межбанковыми векторами ошибок BDOS ---
+;
+; получить байт из TPA. Вход: hl, выход: a. Не портит другие регистры
+getb:   push    bc
+	push    de
+	push    hl
+M101:   ld      a,(DOS)
+	call    BLDB
+	ld      a,b
+	pop     hl
+	pop     de
+	pop     bc
+	ret
+;
+; записать байт в TPA. Вход: hl,a. Не портит другие регистры.
+setb:   push    af
+	push    bc
+	push    de
+	push    hl
+	ld      b,a
+M102:   ld      a,(DOS)
+	call    BSTB
+	pop     hl
+	pop     de
+	pop     bc
+	pop     af
+	ret
+;
+; подключиться на межбанковые вектора ошибок BDOS
+M103:
+setlong:call    getladdr        ; получить адрес длинных векторов ошибок BDOS
+	push    hl
+M104:   ld      de,oldlongv
+	ld      b,12
+M105:
+svlong: call    getb            ; запомнить старые вектора ошибок
+	ld      (de),a
+	inc     hl
+	inc     de
+	djnz    svlong
+	pop     hl
+	ld      a,(MARKER)
+	ld      c,a
+M106:   ld      de,BDOSERR      ; адрес п/п обработки ошибок BDOS
+	ld      b,4
+newlong:ld      a,c             ; переключить длинные вектора ошибок BDOS
+M107:   call    setb
+	inc     hl
+	ld      a,e
+M108:   call    setb
+	inc     hl
+	ld      a,d
+M109:   call    setb
+	inc     hl
+	djnz    newlong
+	ret
+;
+; отключиться от межбанковых векторов ошибок BDOS
+M110:
+reclong:call    getladdr        ; получить адрес длинных векторов ошибок BDOS
+M111:   ld      de,oldlongv
+	ld      b,12
+rclong: ld      a,(de)
+M112:   call    setb            ; восстановить старые вектора ошибок
+	inc     hl
+	inc     de
+	djnz    rclong
+	ret
+;
+getladdr:ld     hl,6            ; получить адрес длинных векторов ошибок BDOS
+M113:   call    getb
+	ld      e,a
+	inc     hl
+M114:   call    getb
+	ld      d,a
+	ld      hl,11
+	add     hl,de
+	ret
+
+; перехват ошибок BDOS
+M115:
+BDOSERR:ld      sp,(DOSSP)      ; восстановить межбанковый стек
+	ld      a,7
+M116:   call    conouta
+	ld      a,0ffh
+	jr      BDOSALL
+
+; защищенный вызов BDOS
+M117:
+BDOSPR: ld      (plstack),sp    ; восстановить стек монитора
+M118:   call    BDOS
+BDOSALL:db      31h             ; ld    sp,NN
+plstack:ds      2
+	ret
+
+; уст. свободного экрана
+resfrscr:
+	xor     a
+M135:   ld      (act_scr),a
+M136:   ld      (v_scr),a
+	ld      de,404h         ; экран 1
+M137:   call    resseg
+	jr      z,resscr2       ; неудачно
+	ld      de,414h
+M138:   call    resseg
+	ld      a,1
+	jr      nz,res_ok       ; удачно
+	ld      de,404h         ; экран 1
+M150:   call    frseg           ; неудачно
+;
+resscr2:ld      de,408h         ; экран 2
+M139:   call    resseg
+	ld      a,0
+	ret     z               ; неудачно
+	ld      de,418h
+M140:   call    resseg
+	ld      a,2
+	jr      nz,res_ok       ; удачно
+	ld      de,408h         ; экран 2
+M151:   call    frseg
+	ld      a,0
+	ret     z               ; неудачно
+M141:
+res_ok: ld      (act_scr),a     ; запомнить установленный акт. экран
+M142:   ld      (v_scr),a
+	push    af
+M143:   call    writest
+	db      27,'I'
+act_scr:db      0
+	db      12              ; CLS
+	db      27,'V'
+v_scr:  db      0
+	db      0
+	pop     af
+	ret
+;
+frfrscr:
+M144:   ld      a,(act_scr)     ; откл. от другого экрана
+	cp      1
+	ld      de,404h
+M145:   call    z,frseg
+	ld      de,414h
+M146:   call    z,frseg
+	ld      de,408h
+M147:   call    nz,frseg
+	ld      de,418h
+;       jp      frseg
+frseg:  ld      c,104           ; освоб. сегменты
+	push    af
+M148:   call    BDOS
+	pop     af
+	ret
+;
+resseg: push    de
+	ld      c,103           ; зарез. сегменты, Z=1 -> ошибка
+M149:   call    BDOS
+	pop     de
+	cp      0ffh
+	ret
+;
+                                                                 

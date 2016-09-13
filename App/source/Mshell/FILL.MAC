@@ -1,0 +1,99 @@
+; начало блока в fillbeg+0..fillbeg+1
+; конец  блока в filllast+0..filllast+1
+; банк в fillbeg+2
+; код в filllast+2
+;
+wfillproc:
+FL0:    call    writest
+	db      27,'Y',32+0,32+10,' Fill ',0
+;
+FL1:    ld      hl,fillbeg+0
+FL2:    ld      de,wbeg+0
+	ld      bc,6
+	ldir
+;FL3:    ld      de,wlast+0
+;        ld      bc,3
+;        ldir
+;
+	ld      hl,1202h
+FL4:    ld      de,fillbeg+2
+FL5:    call    prfullst
+	ld      hl,1203h
+FL6:    ld      de,filllast+1
+FL7:    call    prwordst
+	ld      hl,1204h
+FL8:    ld      de,filllast+2
+FL9:    jp      prbytest
+;
+fillbeg:ds      3,0             ; начало, банк
+filllast:ds     3,0             ; конец,код
+;
+wfillcase:
+	or      a
+	jr      z,getflbeg
+	dec     a
+	jr      z,getfllst
+	dec     a
+	jr      z,getflcode
+	dec     a
+	jr      z,procfill
+FL10:   jp      standexit
+
+; ввод адреса источника
+getflbeg:
+	ld      hl,1202h
+FL11:   call    getfull          ; ввести полный адрес в wpoint
+	jr      c,getflbeg
+FL12:   ld      hl,wpoint+0
+FL13:   ld      de,wbeg+0
+	ld      bc,3
+	ldir
+	ret
+
+; ввод адреса приемника
+getfllst:
+	ld      hl,1203h
+FL14:   call    get2bytes         ; ввести адрес в wpoint
+	jr      c,getfllst
+FL15:   ld      hl,(wpoint+0)
+FL16:   ld      (wlast+0),hl
+	ret
+;
+getflcode:
+	ld      hl,1204h
+FL17:   call    get1byte
+	jr      c,getflcode
+FL18:   ld      a,(wpoint+0)
+FL19:   ld      (wlast+2),a
+	ret
+;
+procfill:
+;
+FL20:   ld      hl,wbeg+0
+FL21:   ld      de,fillbeg+0
+	ld      bc,6
+	ldir
+;FL22:   ld      hl,wlast+0
+;        ld      bc,3
+;        ldir
+;
+FL23:   ld      hl,(wlast+0)
+FL24:   ld      de,(wbeg+0)
+	and     a
+	sbc     hl,de
+	jr      c,fill0         ; last адрес < begin адрес
+	inc     hl
+	ex      de,hl           ; hl - нач. адрес, de - длина
+FL25:   ld      a,(wbeg+2)
+	ld      c,a             ; c - банк
+FL26:   ld      a,(wlast+2)
+	ld      b,a             ; b - код
+;
+fillc:  push    hl
+	push    de
+	push    bc
+	ld      a,c
+	call    BSTB
+	pop     bc
+	pop     de
+	pop     hlицеров или другого начальства. Отдельно у северной стены выходом на ворота, поставили нечто вроде временного гаража. Там стоят т

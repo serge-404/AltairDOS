@@ -1,0 +1,171 @@
+		.Z80
+
+BDOS5   equ     5
+FCB1    equ     5dh             ; адрес для поиска ключей
+MARKER  equ     0EFFFh
+BBDOS   EQU     0F301H          ; ВЕКТОР bdos
+INTKEY  EQU     0F334H          ; ВЕКТОР программного прерывания
+BCONST  EQU     0F307H
+BCONIN  EQU     0F30AH
+VALUE   EQU     0F3F6h          ; исп. бит D5 (разрешено/запрещено обращение
+				; к драйверу консоли)
+monink  EQU     0F81Bh          ; monitor - inkey
+Bldir   equ     0F201H
+Bjump   equ     Bldir+3
+Bcall   equ     Bjump+3
+Bret    equ     Bcall+3
+BLDB    equ     Bret+3
+BSTB    equ     BLDB+3
+;
+MAINERR:db      10,13,'MONITOR SHELL SYSTEM V3.'
+	db      Version
+CRLF:   db      '.',10,13,'$'
+NOMEMORY:db     'Error: no XTPA memory.$'
+NOTPA:  db      'Error: not enough TPA memory.$'
+IALREADY:db     'Error: MSHELL already installed (driver MSHELL3'
+	db      Version
+	db      ', use call SHIFT+CTRL+'
+	db      intcode+40h
+	db      ').$'
+BADKEY: db      'Error: bad system line. Use key /NR for work MSHELL to TPA.'
+	db      10,13,'$'
+NOZ80:  db      10,13,'ONLY Z80 CPU',10,13,'$'
+BADSYS: db      10,13,'SORRY, ONLY FOR ALTAIR DOS V3.04 OR HIGHER.',13,10,'$'
+;
+BEGIN:  XOR     A
+	DEC     A
+	ld      de,NOZ80
+	jp      pe,PRERR                ; проверка CPU
+
+	ld      c,12
+	call    BDOS5
+	exx
+	ld      a,h
+	cp      0ABh
+	ld      de,BADSYS               ; проверка BEST DOS
+	jr      nz,PRERR
+
+	ld      a,(MARKER)
+	ld      (DOS-OFFSET+BEGMON),a   ; опр. страницы ТРА ДОС
+	ld      hl,(1)
+	ld      (BIOS-OFFSET+BEGMON),hl ; НАЧАЛО BIOS
+	ld      de,6
+	add     hl,de
+	ld      (BIOS6-OFFSET+BEGMON),hl; адрес CONIN в BIOS'e
+	ld      de,3
+	add     hl,de
+	ld      (BCNT),hl               ; адрес CONOUT в BIOS'e
+	ld      (BIOS9-OFFSET+BEGMON),hl
+	ld      c,19h
+	call    BDOS5
+	ld      (loaddisk-OFFSET+BEGMON),a
+	ld      (savedisk-OFFSET+BEGMON),a
+	ld      c,20h
+	ld      e,0ffh
+	call    BDOS5
+	ld      (loaduser-OFFSET+BEGMON),a
+	ld      (saveuser-OFFSET+BEGMON),a
+;
+	ld      hl,FCB1                 ; поиск ключей
+	ld      de,BADKEY
+	ld      a,(hl)
+	cp      '/'
+	jr      nz,noANYkey
+	inc     hl
+	ld      a,(hl)
+	cp      'N'
+	jr      nz,PRERR
+	inc     hl
+	ld      a,(hl)
+	cp      'R'
+	jr      nz,PRERR
+
+; инсталляция как ТРА-программа
+	ld      hl,TPAFLAG-OFFSET+BEGMON ; установить флаг - работа в TPA
+	ld      (hl),1
+	ld      hl,ENMON-OFFSET+BEGMON   ; начало буфера окон
+	ld      de,3000h-1               ; размер буфера окон-1
+	add     hl,de
+	ld      de,(6)
+	and     a
+	sbc     hl,de
+	ld      de,NOTPA
+	jr      nc,PRERR
+	ld      hl,HLATTAB-OFFSET+BEGMON; HL - начало HLATTAB в TPA
+	ld      bc,BEGMON               ; BC - начало перемещаемого кода в TPA
+TPAINS: ld      e,(hl)
+	inc     hl
+	ld      d,(hl)
+	inc     hl
+	ld      a,e
+	or      d
+	jp      z,MONITOR-OFFSET+BEGMON ; запуск монитора
+	ex      de,hl
+	add     hl,bc
+	ex      de,hl
+	ld      a,(de)
+	add     a,c
+	ld      (de),a
+	inc     de
+	ld      a,(de)
+	adc     a,b
+	ld      (de),a
+	jr      TPAINS
+
+PRERR:  push    de
+	ld      de,MAINERR
+	call    MSG
+	pop     de
+MSG:    ld      c,9
+	jp      BDOS5
+
+; инсталляция как драйвера
+noANYkey:
+	ld      de,80h
+	ld      c,100                   ; установить PDP
+	call    BDOS5
+
+	ld      de,DRVNAME
+	ld      c,108
+	call    BDOS5                   ; Поиск драйвера по имени
+	cp      0FFh
+	ld      de,IALREADY
+	jr      nz,PRERR                ; Ошибка - повторная инсталляция
+
+	ld      de,DRVSTR               ; ИНСТАЛЛЯЦИЯ МОНИТОРА КАК ДРАЙВЕРА
+	ld      c,105
+	call    BDOS5
+	inc     a
+	ld      de,NOMEMORY
+	jr      z,PRERR
+
+	ld      hl,INFO
+LP:     ld      a,(hl)
+	cp      '$'
+	ret     z              ; выход в ДОС
+	push    hl
+	ld      c,a
+	defb    0CDh
+BCNT:   defs    2
+	pop     hl
+	inc     hl
+	jr      LP
+;
+;
+INFO:   db      'Монитор MSHELL V3.'
+	db      Version
+	db      '$'
+;
+DRVSTR: db      0ffh          ; номер банка, где будет располагаться драйвер
+DRVNAME:db      'MSHELL3'
+	db      Version       ; имя драйвера
+	dw      BEGMON        ; начальный адрес драйвера в ОЗУ ТРА СРМ(16 бит)
+	dw      ENDMON-BEGMON ; длина драйвера (16 бит)
+	dw      INSTALL-OFFSET; адрес п/п захвата векторов (в ОЗУ доп. стр.)
+	dw      FORKILL-OFFSET; адрес п/п УВЕДОМЛЕНИЯ драйвера о удалении
+	dw      0ffffh        ; начальный адрес драйвера (в ОЗУ доп. страницы)
+	db      7fh           ; код, указывающий, что далее идет информация для
+			      ; диспетчера программ .
+	db      intcode       ; код программного прерывания по которому
+			      ; активизируется данная резидентная программа
+			      вал либо вертолёт, либо беспилотник, а может и целый АС-130(30). При воспоминании о том, что представляет из себя эта летающая к

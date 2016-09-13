@@ -1,0 +1,959 @@
+; Дизассемблер из программы М256/Z V1.3 Adelaide 1993
+;
+DZ0:
+clsysln:ld      hl,clsys
+	ld      a,eclsys-clsys
+DZ1:    jp      wstrng
+clsys:  db      27,'W',0,0,0,25,60,27,'Y',32+18,32,27,'K'
+eclsys:
+;
+disbeg: ds      3,0
+;
+wdisproc:
+DZ2:    call    writest
+	db      27,'Y',32+0,32+4,' Disassemble ',0
+DZ3:    ld      hl,disbeg+0
+DZ4:    ld      de,wpoint+0
+	ld      bc,3
+	ldir
+	ld      hl,0c02h
+DZ5:    ld      de,disbeg+2
+DZ6:    jp      prfullst
+;
+wdiscase:
+	jr      nz,ds1
+; address
+ds0:    ld      hl,0c02h
+DZ7:    call    getfull         ; ввести полный адрес в wpoint
+	jr      c,ds0
+	ret
+; ok
+ds1:    dec     a
+DZ8:    jp      nz,standexit    ; cancel
+DZ9:    ld      hl,wpoint+0
+DZ10:   ld      de,disbeg+0
+	ld      bc,3
+	ldir
+	pop     hl
+	pop     hl
+	pop     hl
+DZ11:   call    closew
+	jr      FD0
+;
+DZ12:
+FD0:    call    clsysln
+DZ13:   call    frdump
+DZ14:   call    clrscr
+DZ15:   ld      hl,(wpoint+0)
+DZ16:   ld      (wbeg+0),hl     ; DISADDR
+DZ17:   LD      HL,TB088
+DZ18:   LD      (DISBUF),HL
+DZ19:   LD      IY,TAA70
+	LD      (IY),0
+DZ20:
+FD1:    call    DISLOOP
+DZ21:   call    dislist
+ML:     CALL    monink
+	cp      27
+	ret     z
+	CP      0FFH
+	JR      Z,ML
+	jr      FD1
+; -----------------------------------------------------------------------------
+DISBUF: DEFS    2       ; позиция по буферу TB088
+;
+;
+getmembyte0:
+DZ23:   ld      (wpoint+0),hl
+DZ24:   call    getmembyte
+	ld      c,a
+	ret
+;
+AB49F:	PUSH	BC
+	PUSH	AF
+	RRCA
+	RRCA
+	RRCA
+	RRCA
+DZ25:   CALL    AB4AE
+	POP     AF
+DZ26:   CALL    AB4AE
+	POP     BC
+	RET
+;
+AB4AE:  AND     0FH
+	CP      0AH
+	jr      c,AB4B7
+	ADD     A,7
+AB4B7:  ADD     A,30H
+DZ27:   JP      CONOUTA
+;
+TAA70:  DEFW    0
+DZ28:
+AAA72:  LD      HL,(wbeg+0)
+	PUSH    BC
+DZ29:   CALL    getmembyte0
+	LD      A,C
+	POP     BC
+	INC     HL
+DZ30:   LD      (wbeg+0),HL
+	EXX
+	EX      DE,HL
+DZ31:   CALL    HEXSYM
+	PUSH    HL
+DZ32:   LD      HL,(DISBUF)
+DZ33:   CALL    MKBYTE
+	POP     HL
+	EX	DE,HL
+	RET
+;
+DZ34:
+AAA8E:  LD      HL,(wbeg+0)
+	PUSH    BC
+DZ35:   CALL    getmembyte0
+	LD      E,C
+	POP     BC
+	INC     HL
+	PUSH    BC
+DZ36:   CALL    getmembyte0
+	LD      D,C
+	POP     BC
+	INC     HL
+DZ37:   LD      (wbeg+0),HL
+	PUSH    DE
+	EXX
+	POP	HL
+	EX	DE,HL
+DZ38:   CALL    MKADR
+	PUSH    HL
+DZ39:   LD      HL,(DISBUF)
+	LD      A,E
+DZ40:   CALL    MKBYTE
+	LD      A,D
+DZ41:   CALL    MKBYTE
+	POP     HL
+	EX      DE,HL
+	RET
+;
+PRF_DD: LD      (IY+1),8
+	JR      AAAC2
+;
+PRF_FD: LD      (IY+1),12
+DZ42:
+AAAC2:  JP      AB0D6
+;
+DZ43:
+AAAC5:  LD      HL,TAC75
+	BIT     3,(IY+1)
+	RET	Z
+	CP	011H
+	JR	NZ,AAAEF
+	ADD     A,2
+	BIT     2,(IY+1)
+	JR	Z,AAADA
+	INC	A
+AAADA:	RET
+;
+RES23IY1:RES    2,(IY+1)
+	RES     3,(IY+1)
+	RET
+;
+; >> NO EXECUTION PATH TO HERE <<
+	LD	D,(HL)
+AAAE5:	JR	Z,AAADA
+	ADD	A,002H
+	JR	AAADA
+;
+; >> NO EXECUTION PATH TO HERE <<
+	CP	006H
+	JR	Z,AAAE5
+AAAEF:	CP	007H
+	RET	NZ
+	ADD	A,006H
+	BIT	2,(IY+001H)
+	JR	Z,AAAFB
+	INC	A
+AAAFB:	ADD	A,A
+	ADD	A,A
+	ADD	A,L
+	JR	NC,AAB01
+	INC	H
+AAB01:	LD	L,A
+	LD      BC,4
+	LDIR
+	EXX
+DZ44:   LD      HL,(wbeg+0)
+	PUSH    BC
+DZ45:   CALL    getmembyte0
+	LD      A,C
+	POP     BC
+	INC     HL
+DZ46:   LD      (wbeg+0),HL
+DZ47:   LD      HL,(DISBUF)
+DZ48:   CALL    MKBYTE
+	NOP
+DZ49:   LD      (DISBUF),HL
+	EXX
+	EX      DE,HL
+DZ50:   CALL    HEXSYM
+	LD      A,029H
+	LD      (HL),A
+	INC     HL
+	EX      DE,HL
+	EXX
+	POP     HL
+DZ51:   JP      AB19A
+;
+AAB2E:  BIT     3,(IY+1)
+	RET	Z
+	ADD     A,6
+	BIT     2,(IY+1)
+	JR      Z,AAB3C
+	INC	A
+AAB3C:	RET
+;
+AAB3D:  BIT     3,(IY+1)
+	RET	Z
+DZ52:   LD      HL,(wbeg+0)
+	DEC     HL
+	DEC	HL
+	PUSH	BC
+DZ53:   CALL    getmembyte0
+	LD      A,C
+	POP     BC
+	EX      DE,HL
+DZ54:   CALL    HEXSYM
+	LD      A,')'
+	LD	(HL),A
+	RES     2,(IY+1)
+	RES     3,(IY+1)
+	RET
+;
+TAB5D:  DEFB      0,0,0,0
+TAB61:  DEFB      'RLC ','RRC ','RL  ','RR  '
+	DEFB      'SLA ','SRA ','SLL ','SRL '
+TAB81:  DEFB      'BIT ','RES ','SET ','IN  '
+	DEFB      'OUT ','SBC ','LD  ','NEG '
+	DEFB      'RETN','IM  ','LD  ','ADD '
+	DEFB      'AND ','ADC ','CALL','CCF '
+	DEFB      'RETI','RRD ','RLD ','CP  '
+	DEFB      'CPL ','DAA ','DEC ','DI  '
+	DEFB      'DJNZ','EI  ','EX  ','EXX '
+	DEFB      'HALT','INC ','JP  ','JR  '
+	DEFB      'NOP ','OR  ','POP ','PUSH'
+	DEFB      'RET ','RLA ','RLCA','RRA '
+	DEFB      'RRCA','RST ','SCF ','SUB '
+	DEFB      'XOR ','LDI ','LDD ','LDIR'
+	DEFB      'LDDR','CPI ','CPD ','CPIR'
+	DEFB      'CPDR','INI ','IND ','INIR'
+	DEFB      'INDR','OUTI','OUTD','OTIR'
+	DEFB      'OTDR'
+TAC75:  DEFB      '    '
+TAC79:  DEFB      'B   ','C   '
+	DEFB      'D   ','E   ','H   ','L   '
+	DEFB      '(HL)','A   ','(SP)','XL  '
+	DEFB      'YH  ','YL  ','(IX+','(IY+'
+	DEFB      'BC  ','DE  ','HL  ','SP  '
+	DEFB      'IX  ','IY  ','AF  ','NZ  '
+	DEFB      'Z   ','NC  ','C   ','PO  '
+	DEFB      'PE  ','P   ','M   ','(C) '
+	DEFB      'I   ','R   ','(BC)','(DE)'
+	DEFB      '0   ','8   ','10  ','18  '
+	DEFB      '20  ','28  ','30  ','38  '
+	DEFB      '1   ','2   ','n   ','(n) '
+	DEFB      'nn  ','(nn)'
+
+TAD39:  DEFB      ')'
+	DEFB      000H,000H,00FH
+	DEFB      00FH,02FH,00FH,021H,008H,026H,00FH,000H
+	DEFB      026H,001H,000H,01FH,001H,000H,00FH,001H
+	DEFB      02DH,02FH,000H,000H,023H,015H,015H,014H
+	DEFB      011H,00FH,00FH,008H,021H,01FH,00FH,000H
+
+	DEFB      026H,002H,000H,01FH,002H,000H,00FH,002H
+	DEFB      02DH,031H,000H,000H,021H,019H,000H,00FH
+	DEFB      010H,02FH,00FH,022H,008H,026H,010H,000H
+	DEFB      026H,003H,000H,01FH,003H,000H,00FH,003H
+	DEFB      02DH,02EH,000H,000H,028H,019H,000H,014H
+	DEFB      011H,010H,00FH,008H,022H,01FH,010H,000H
+	DEFB      026H,004H,000H,01FH,004H,000H,00FH,004H
+	DEFB      02DH,030H,000H,000H,028H,016H,019H,00FH
+	DEFB      011H,02FH,00FH,030H,011H,026H,011H,000H
+	DEFB      026H,005H,000H,01FH,005H,000H,00FH,005H
+	DEFB      02DH,01EH,000H,000H,028H,017H,019H,014H
+	DEFB      011H,011H,00FH,011H,030H,01FH,011H,000H
+	DEFB      026H,006H,000H,01FH,006H,000H,00FH,006H
+	DEFB      02DH,01DH,000H,000H,028H,018H,019H,00FH
+	DEFB      012H,02FH,00FH,030H,008H,026H,012H,000H
+	DEFB      026H,007H,000H,01FH,007H,000H,00FH,007H
+
+	DEFB      02DH,033H,000H,000H,028H,002H,019H,014H
+	DEFB      011H,012H,00FH,008H,030H,01FH,012H,000H
+	DEFB      026H,008H,000H,01FH,008H,000H,00FH,008H
+	DEFB      02DH,018H,000H,000H,00FH,001H,001H,00FH
+	DEFB      001H,002H,00FH,001H,003H,00FH,001H,004H
+	DEFB      00FH,001H,005H,00FH,001H,006H,00FH,001H
+	DEFB      007H,00FH,001H,008H,00FH,002H,001H,00FH
+	DEFB      002H,002H,00FH,002H,003H,00FH,002H,004H
+	DEFB      00FH,002H,005H,00FH,002H,006H,00FH,002H
+	DEFB      007H,00FH,002H,008H,00FH,003H,001H,00FH
+	DEFB      003H,002H,00FH,003H,003H,00FH,003H,004H
+	DEFB      00FH,003H,005H,00FH,003H,006H,00FH,003H
+	DEFB      007H,00FH,003H,008H,00FH,004H,001H,00FH
+	DEFB      004H,002H,00FH,004H,003H,00FH,004H,004H
+	DEFB      00FH,004H,005H,00FH,004H,006H,00FH,004H
+	DEFB      007H,00FH,004H,008H,00FH,005H,001H,00FH
+
+	DEFB      005H,002H,00FH,005H,003H,00FH,005H,004H
+	DEFB      00FH,005H,005H,00FH,005H,006H,00FH,005H
+	DEFB      007H,00FH,005H,008H,00FH,006H,001H,00FH
+	DEFB      006H,002H,00FH,006H,003H,00FH,006H,004H
+	DEFB      00FH,006H,005H,00FH,006H,006H,00FH,006H
+	DEFB      007H,00FH,006H,008H,00FH,007H,001H,00FH
+	DEFB      007H,002H,00FH,007H,003H,00FH,007H,004H
+	DEFB      00FH,007H,005H,00FH,007H,006H,025H,000H
+	DEFB      000H,00FH,007H,008H,00FH,008H,001H,00FH
+	DEFB      008H,002H,00FH,008H,003H,00FH,008H,004H
+	DEFB      00FH,008H,005H,00FH,008H,006H,00FH,008H
+	DEFB      007H,00FH,008H,008H,014H,008H,001H,014H
+	DEFB      008H,002H,014H,008H,003H,014H,008H,004H
+	DEFB      014H,008H,005H,014H,008H,006H,014H,008H
+	DEFB      007H,014H,008H,008H,016H,008H,001H,016H
+	DEFB      008H,002H,016H,008H,003H,016H,008H,004H
+
+	DEFB      016H,008H,005H,016H,008H,006H,016H,008H
+	DEFB      007H,016H,008H,008H,034H,001H,000H,034H
+	DEFB      002H,000H,034H,003H,000H,034H,004H,000H
+	DEFB      034H,005H,000H,034H,006H,000H,034H,007H
+	DEFB      000H,034H,008H,000H,00EH,008H,001H,00EH
+	DEFB      008H,002H,00EH,008H,003H,00EH,008H,004H
+	DEFB      00EH,008H,005H,00EH,008H,006H,00EH,008H
+	DEFB      007H,00EH,008H,008H,015H,001H,000H,015H
+	DEFB      002H,000H,015H,003H,000H,015H,004H,000H
+	DEFB      015H,005H,000H,015H,006H,000H,015H,007H
+	DEFB      000H,015H,008H,000H,035H,001H,000H,035H
+	DEFB      002H,000H,035H,003H,000H,035H,004H,000H
+	DEFB      035H,005H,000H,035H,006H,000H,035H,007H
+	DEFB      000H,035H,008H,000H,02AH,001H,000H,02AH
+	DEFB      002H,000H,02AH,003H,000H,02AH,004H,000H
+	DEFB      02AH,005H,000H,02AH,006H,000H,02AH,007H
+
+	DEFB      000H,02AH,008H,000H,01CH,001H,000H,01CH
+	DEFB      002H,000H,01CH,003H,000H,01CH,004H,000H
+	DEFB      01CH,005H,000H,01CH,006H,000H,01CH,007H
+	DEFB      000H,01CH,008H,000H,02DH,016H,000H,02BH
+	DEFB      00FH,000H,027H,016H,02FH,027H,02FH,000H
+	DEFB      017H,016H,02FH,02CH,00FH,000H,014H,008H
+	DEFB      02DH,032H,023H,000H,02DH,017H,000H,02DH
+	DEFB      000H,000H,027H,017H,02FH,000H,000H,000H
+	DEFB      017H,017H,02FH,017H,02FH,000H,016H,008H
+	DEFB      02DH,032H,024H,000H,02DH,018H,000H,02BH
+	DEFB      010H,000H,027H,018H,02FH,00DH,02EH,008H
+	DEFB      017H,018H,02FH,02CH,010H,000H,034H,02DH
+	DEFB      000H,032H,025H,000H,02DH,002H,000H,024H
+	DEFB      000H,000H,027H,002H,02FH,00CH,008H,02EH
+	DEFB      017H,002H,02FH,000H,000H,000H,00EH,008H
+	DEFB      02DH,032H,026H,000H,02DH,01AH,000H,02BH
+
+	DEFB      011H,000H,027H,01AH,02FH,023H,009H,011H
+	DEFB      017H,01AH,02FH,02CH,011H,000H,015H,02DH
+	DEFB      000H,032H,027H,000H,02DH,01BH,000H,027H
+	DEFB      011H,000H,027H,01BH,02FH,023H,010H,011H
+	DEFB      017H,01BH,02FH
+TB000:  DEFB      038H,000H,000H,035H,02DH
+	DEFB      000H,032H,028H,000H,02DH,01CH,000H,02BH
+	DEFB      015H,000H,027H,01CH,02FH,020H,000H,000H
+	DEFB      017H,01CH,02FH,02CH,015H,000H,02AH,02DH
+	DEFB      000H,032H,029H,000H,02DH,01DH,000H,00FH
+	DEFB      012H,011H,027H,01DH,02FH,022H,000H,000H
+	DEFB      017H,01DH,02FH,000H,000H,000H,01CH,02DH
+	DEFB      000H,032H,02AH,000H,0EBH
+
+GETMKBYTE:
+	EX      DE,HL
+	PUSH	BC
+DZ55:   CALL    getmembyte0
+	LD      A,C
+	POP     BC
+	EX      DE,HL
+DZ56:   jp      MKBYTE
+;
+MKADR:  LD      A,D
+DZ57:   CALL    HEXSYM
+	LD      A,E
+DZ58:   jp      HEXSYM
+;
+MKBYTE: PUSH    AF
+;        CP      7FH
+;        JR      Z,AB05B
+;        OR      A
+;        JP      M,AB05B
+	CP      ' '
+	JR	NC,AB05D
+AB05B:  LD      A,'.'
+AB05D:	PUSH	HL
+	PUSH	DE
+	LD      DE,9
+	ADD	HL,DE
+	LD	(HL),A
+	POP	DE
+	POP	HL
+	POP	AF
+
+HEXSYM: PUSH    AF
+	AND	0F0H
+	RRA
+	RRA
+	RRA
+	RRA
+	ADD     A,30H
+	CP      3AH
+	JR	C,AB076
+	ADD     A,7
+AB076:	LD	(HL),A
+	INC	HL
+	POP	AF
+	PUSH	AF
+	AND     0FH
+	ADD     A,30H
+	CP      3AH
+	JR	C,AB084
+	ADD     A,7
+AB084:	LD	(HL),A
+	INC	HL
+	POP	AF
+	RET
+;
+; >> NO EXECUTION PATH TO HERE <<
+TB088:  DEFS    23,' '
+TB09F:  DEFS    5,' '
+TB0A4:  DEFS    14,' '
+	DEFB    10,13,0
+
+CLBUF:  PUSH    DE
+	PUSH	HL
+DZ59:   LD      HL,TB088
+	LD      A,' '
+	LD      B,41
+AB0BE:  LD      (HL),A
+	INC     HL
+AB0C0:  DJNZ    AB0BE
+	POP     HL
+AB0C3:  POP     DE
+	RET
+
+DISLOOP:LD      B,10H
+AB0C7:	AND	A
+DZ60:   LD      DE,(wbeg+0)      ; ADDRESS
+DZ61:   CALL    CLBUF
+DZ62:
+AB0CF:  LD      HL,TB088
+DZ63:   CALL    MKADR
+	INC     HL
+DZ64:
+AB0D6:  CALL    GETMKBYTE
+	INC     DE
+DZ65:   LD      (wbeg+0),DE
+DZ66:   LD      (DISBUF),HL
+	CP      0DDH              ; анализ префикса
+DZ67:   JP      Z,PRF_DD
+	CP      0FDH
+DZ68:   JP      Z,PRF_FD
+	CP      0CBH
+DZ69:   JP      Z,PRF_CB
+	CP      0EDH
+DZ70:   JP      Z,PRF_ED
+DZ71:
+AB0F5:  CALL    NOT_PRF
+DZ72:
+AB0F8:  JP      RES23IY1
+
+DZ73:
+dislist:LD      A,(wpoint+2)         ; PAGE
+DZ74:   CALL    AB49F
+	LD      C,':'
+DZ75:   CALL    conout
+DZ76:   LD      HL,TB088
+DZ77:   JP      write
+;
+NOT_PRF:
+DZ78:   LD      HL,TAD39
+	LD      B,A
+	ADD     A,A
+	JR      NC,AB13A
+	INC     H
+AB13A:  ADD     A,B
+	JR      NC,AB13E
+	INC     H
+AB13E:	ADD	A,L
+	JR	NC,AB142
+	INC	H
+AB142:	LD	L,A
+	LD	A,(HL)
+	INC	HL
+	PUSH	HL
+DZ79:   LD      DE,TAB5D
+	ADD     A,A
+	ADD     A,A
+	JR      NC,AB14E
+	INC     D
+AB14E:  ADD     A,E
+	JR      NC,AB152
+	INC     D
+AB152:  LD      E,A
+	LD      BC,4
+DZ80:   LD      HL,TB09F
+	EX      DE,HL
+	LDIR
+	LD      B,2
+	EXX
+DZ81:   LD      DE,TB0A4
+	EXX
+AB163:  POP     HL
+	LD      A,(HL)
+	INC     HL
+	CP      0
+	RET     Z
+	PUSH    HL
+	LD      C,A
+	LD      A,B
+	CP      1
+	JR      NZ,AB176
+	EXX
+	LD      A,','
+	LD      (DE),A
+	INC     DE
+	EXX
+AB176:  LD      A,C
+	CP      2DH
+	JR	NC,AB1D2
+	CP      19H
+	JR	Z,AB19E
+	EXX
+DZ82:   CALL    AAAC5
+	ADD     A,A
+	ADD     A,A
+	ADD     A,L
+	JR      NC,AB189
+	INC     H
+AB189:  LD      L,A
+	NOP
+	NOP
+	LD      A,20H
+	LD      BC,4
+AB191:  LDI
+DZ83:   JP      PO,AB199
+	CP      (HL)
+	JR      NZ,AB191
+AB199:	EXX
+AB19A:	DJNZ	AB163
+	POP	HL
+	RET
+;
+DZ84:
+AB19E:  LD      HL,(wbeg+0)
+	PUSH    BC
+DZ85:   CALL    getmembyte0
+	LD      A,C
+	POP     BC
+	INC     HL
+DZ86:   LD      (wbeg+0),HL
+	PUSH    HL
+DZ87:   LD      HL,(DISBUF)
+DZ88:   CALL    MKBYTE
+	POP     HL
+	CP      80H
+	JR      NC,AB1C7
+	ADD     A,L
+	JR	NC,AB1BB
+	INC     H
+AB1BB:	LD	L,A
+AB1BC:	PUSH	HL
+	EXX
+	POP	HL
+	EX	DE,HL
+DZ89:   CALL    MKADR
+	EX      DE,HL
+	EXX
+AB1C5:	JR	AB19A
+;
+AB1C7:	NEG
+	LD	C,A
+	LD	A,L
+	SUB	C
+	JR	NC,AB1CF
+	DEC	H
+AB1CF:  LD      L,A
+	JR	AB1BC
+;
+AB1D2:  CP      2FH
+	JR	C,AB1F0
+	CP      30H
+	JR	C,AB1EA
+	LD      A,'('
+	EXX
+	LD	(DE),A
+	INC	DE
+	EXX
+DZ90:   CALL    AAA8E
+	LD      A,')'
+	LD      (DE),A
+	INC     DE
+	EXX
+	JR      AB1C5
+;
+DZ91:
+AB1EA:  CALL    AAA8E
+	EXX
+AB1EE:	JR	AB1C5
+;
+AB1F0:  CP      2EH
+	JR	C,AB204
+	LD      A,'('
+	EXX
+	LD	(DE),A
+	INC	DE
+	EXX
+DZ92:   CALL    AAA72
+	LD      A,')'
+	LD      (DE),A
+	INC     DE
+	EXX
+	JR      AB1EE
+;
+DZ93:
+AB204:  CALL    AAA72
+	EXX
+	JR	AB1EE
+;
+PRF_CB: EX      DE,HL
+	PUSH	BC
+DZ94:   CALL    getmembyte0
+	LD      A,C
+	POP     BC
+	EX      DE,HL
+DZ95:   CALL    MKBYTE
+	BIT     3,(IY+1)
+	JR      Z,AB227
+	INC     DE
+	EX      DE,HL
+	PUSH    BC
+DZ96:   CALL    getmembyte0
+	LD      A,C
+	POP     BC
+	EX      DE,HL
+DZ97:   CALL    MKBYTE
+AB227:  INC     DE
+DZ98:   LD      (wbeg+0),DE
+DZ99:   LD      (DISBUF),HL
+	PUSH    AF
+	AND     0C0H
+	JR      NZ,AB277
+	POP     AF
+	PUSH    AF
+	SRL     A
+	SRL     A
+	SRL     A
+	LD      B,A
+DZ100:  LD      HL,TAB61
+	ADD     A,A
+	ADD     A,A
+	ADD     A,L
+	JR      NC,AB246
+	INC     H
+AB246:  LD      L,A
+DZ101:  LD      DE,TB09F
+	LD      BC,4
+	LDIR
+	POP	AF
+	AND	007H
+	PUSH	AF
+DZ102:  CALL    AAB2E
+DZ103:  LD      HL,TAC79
+	ADD     A,A
+	ADD     A,A
+	ADD     A,L
+	JR      NC,AB25F
+	INC     H
+AB25F:  LD      L,A
+DZ104:  LD      DE,TB0A4
+	POP     AF
+	LD      A,20H
+	LD      BC,4
+AB269:  LDI
+DZ105:  JP      PO,AB271
+	CP      (HL)
+	JR      NZ,AB269
+DZ106:
+AB271:  CALL    AAB3D
+DZ107:  JP      AB0F8
+;
+AB277:  AND     A
+	RLA
+	RLA
+	RLA
+	DEC     A
+	LD      B,A
+DZ108:  LD      HL,TAB81
+	ADD     A,A
+	ADD     A,A
+	ADD     A,L
+	JR      NC,AB286
+	INC     H
+AB286:	LD	L,A
+DZ109:  LD      DE,TB09F
+	LD      BC,4
+	LDIR
+	POP     AF
+	PUSH    AF
+	AND     0C0H
+	LD      B,A
+	POP     AF
+	PUSH    AF
+	SUB     B
+	SRL     A
+	SRL     A
+	SRL     A
+	PUSH    AF
+	ADD     A,30H
+DZ110:  LD      DE,TB0A4
+	LD      (DE),A
+	INC	DE
+	LD      A,','
+	LD	(DE),A
+	INC	DE
+	POP	AF
+	SLA	A
+	SLA	A
+	SLA	A
+	ADD	A,B
+	LD	B,A
+	POP	AF
+	SUB	B
+DZ111:  CALL    AAB2E
+DZ112:  LD      HL,TAC79
+	ADD     A,A
+	ADD     A,A
+	ADD     A,L
+	JR      NC,AB2C0
+	INC     H
+AB2C0:  LD      L,A
+	LD      A,20H
+	LD      BC,4
+AB2C6:	LDI
+DZ113:  JP      PO,AB2CE
+	CP      (HL)
+	JR      NZ,AB2C6
+DZ114:
+AB2CE:  CALL    AAB3D
+DZ115:  JP      AB0F8
+;
+PRF_ED: EX      DE,HL
+	PUSH    BC
+DZ116:  CALL    getmembyte0
+	LD      A,C
+	POP     BC
+	EX      DE,HL
+DZ117:  CALL    MKBYTE
+	INC     DE
+DZ118:  LD      (wbeg+0),DE
+DZ119:  LD      (DISBUF),HL
+DZ120:  LD      HL,TB000
+	LD      (HL),0
+	INC	HL
+	LD      (HL),0
+	INC	HL
+	LD      (HL),0
+DZ121:  LD      HL,TB000
+	PUSH    AF
+	CP      80H
+DZ122:  JP      NC,AB402
+	AND     7
+	CP      3
+	JR      Z,AB35F
+DZ123:  JP      NC,AB388
+	CP      2
+	JR      Z,AB33C
+	CP      1
+	JR      NZ,AB324
+DZ124:  LD      HL,TB000
+	LD      (HL),0DH
+	INC	HL
+	LD      (HL),1EH
+	INC	HL
+	POP	AF
+	SRL	A
+	SRL	A
+	SRL	A
+	SUB     7
+	LD	(HL),A
+	LD	A,0EDH
+DZ125:  JP      AB0F5
+;
+DZ126:
+AB324:  LD      HL,TB000
+	LD      (HL),0CH
+	INC	HL
+	POP	AF
+	SRL	A
+	SRL	A
+	SRL	A
+	SUB     7
+	LD	(HL),A
+	INC	HL
+	LD      (HL),1EH
+	LD	A,0EDH
+DZ127:  JP      AB0F5
+;
+AB33C:  POP     AF
+	AND     3FH
+	BIT     3,A
+DZ128:  LD      HL,TB000
+	JR      Z,AB34B
+	LD      (HL),16H
+	INC     HL
+	JR      AB34E
+;
+AB34B:  LD      (HL),0EH
+	INC     HL
+AB34E:  LD      (HL),11H
+	INC	HL
+	SRL	A
+	SRL	A
+	SRL	A
+	SRL	A
+	ADD     A,0FH
+	LD	(HL),A
+DZ129:  JP      AB417
+;
+AB35F:  LD      (HL),0FH
+	INC     HL
+	POP     AF
+	LD      B,0
+	BIT     3,A
+	JR      NZ,AB36A
+	INC     B
+AB36A:  DEC     B
+	INC     B
+	JR      Z,AB371
+	LD      (HL),30H
+	INC     HL
+AB371:  AND     3FH
+	SRL	A
+	SRL	A
+	SRL	A
+	SRL	A
+	ADD     A,0FH
+	LD	(HL),A
+	INC	HL
+	DEC	B
+	INC	B
+	JR	NZ,AB385
+	LD      (HL),30H
+DZ130:
+AB385:  JP      AB417
+;
+DZ131:
+AB388:  LD      HL,TB000
+	POP     AF
+	PUSH    AF
+	AND     0FH
+	CP      4
+	JR	NZ,AB397
+	LD      (HL),10H
+	JR	AB416
+;
+AB397:  CP      5
+	JR	NZ,AB39F
+	LD	(HL),011H
+	JR	AB416
+;
+AB39F:  CP      0DH
+	JR	NZ,AB3A7
+	LD      (HL),19H
+	JR	AB416
+;
+AB3A7:  AND     7
+	CP      6
+	JR	NZ,AB3C4
+	POP	AF
+	LD      (HL),12H
+	INC	HL
+	SRL	A
+	SRL	A
+	SRL	A
+	SUB     8
+	JR	NZ,AB3BF
+	LD      (HL),23H
+	JR	AB417
+;
+AB3BF:  ADD     A,29H
+	LD	(HL),A
+	JR	AB417
+;
+AB3C4:	POP	AF
+	BIT	5,A
+	JR	NZ,AB3F4
+	LD      (HL),0FH
+	INC	HL
+	BIT	3,A
+	JR	Z,AB3E2
+	BIT	4,A
+	JR	Z,AB3DB
+	LD      (HL),8
+	INC	HL
+	LD      (HL),20H
+	JR	AB417
+;
+AB3DB:  LD      (HL),20H
+	INC	HL
+	LD      (HL),8
+	JR	AB417
+;
+AB3E2:	BIT	4,A
+	JR	Z,AB3ED
+	LD      (HL),8
+	INC	HL
+	LD      (HL),1FH
+	JR	AB417
+;
+AB3ED:  LD      (HL),1FH
+	INC	HL
+	LD      (HL),8
+	JR	AB417
+;
+AB3F4:  AND     0FH
+	CP      8
+	JR	C,AB3FE
+	LD      (HL),1BH
+	JR	AB417
+;
+AB3FE:  LD      (HL),1AH
+	JR	AB417
+;
+AB402:  AND     7
+	RLA
+	RLA
+	LD	B,A
+	POP	AF
+	AND     1FH
+	SRL	A
+	SRL	A
+	SRL	A
+	ADD	A,B
+	ADD     A,36H
+	LD	(HL),A
+	JR	AB417
+;
+AB416:  POP     AF
+AB417:	LD	A,0EDH
+DZ132:  JP      AB0F5
+
+ 
+B82:
+framed: call    setw    ;окно для рамки
+B83:
+haryrama:
+	call    clrscr
+B84:    call    fillwin
+B85:    ld      a

@@ -1,0 +1,618 @@
+; "Main menu"
+	db      lightmagenta
+winmain:db      0               ; hpoint
+	db      0               ; vpoint
+	db      10110100b       ; тип окна
+	db      1,20,60,6       ; размеры
+	db      yellow,black    ; цвет
+W0:     dw      mainmess        ; интерьер окна
+	db      15              ; число пунктов верт. меню
+	db      15              ; их размер
+	db      0               ; -""-          гор. меню
+	db      4               ; -""- (ШАГ МЕНЮ ПРИ ОТСУТСТВИИ ГОР. МЕНЮ)
+W1:     dw      maincase
+; *       1     *   2         3 *       4         5         6
+;123456789012345678901234567890123456789012345678901234567890
+;------------------------------------------------------------
+;: dump modify   search         file save       default     :
+;: call          fill           dizassm         mem         :
+;: transfer      compair        checksum        quit        :
+;: compair       file load      xor                         :
+;------------------------------------------------------------
+	db      1,1,' Dump modify '
+	db      1,2,' cAll        '
+	db      1,3,' Move        '
+	db      1,4,' Compair     '
+	db      15,1,' sEarch      '
+	db      15,2,' Fill        '
+	db      15,3,' ariThmetic  '
+	db      15,4,' file Load   '
+	db      30,1,' file Save   '
+	db      30,2,' diZassm     '
+	db      30,3,' cHecksum    '
+	db      30,4,' Xor         '
+	db      45,1,' defaUlt     '
+	db      45,2,' memOry      '
+	db      45,3,' Quit        '
+
+;  ---------- Move ----------- 1
+;  : Source address:-------- : 2
+;  : Dest.  address:-------- : 3
+;  :         Length:-----    : 4
+;  :-------------------------: 5
+;  :  [ Ok ]      [Cancel]   : 6
+;  --------------------------- 7
+;  123456789012345678901234567
+;           1         2
+;
+	db      yellow
+windmov:db      0
+	db      0
+	db      11100111b
+	db      15,15,27,7
+	db      white,red
+W2:     dw      wmovproc
+	db      3
+	db      17
+	db      2
+	db      10
+W3:     dw      wmovcase
+	db      2,1,'Source address:'
+	db      2,2,'Dest.  address:'
+	db      2,3,'        Length:'
+	db      3,5,'[ Ok ]',0,0
+	db      15,5,'[Cancel]'
+;
+;  ---------- Fill ---------- 1
+;  : Begin address:-------- : 2
+;  : Last  address:-------- : 3
+;  :          coDe:---      : 4
+;  :------------------------: 5
+;  :  [ Ok ]     [Cancel]   : 6
+;  -------------------------- 7
+;  12345678901234567890123456
+;           1         2
+;
+	db      yellow
+windfill:
+	db      0
+	db      0
+	db      11100111b
+	db      15,15,26,7
+	db      white,red
+W4:     dw      wfillproc
+	db      3
+	db      16
+	db      2
+	db      10
+W5:     dw      wfillcase
+	db      2,1,'Begin address:'
+	db      2,2,'Last  address:'
+	db      2,3,'         coDe:'
+	db      3,5,'[ Ok ]',0,0
+	db      14,5,'[Cancel]'
+;
+;  ----------- Xor  --------- 1
+;  : Begin address:-------- : 2
+;  : Last  address:-------- : 3
+;  :      xor coDe:---      : 4
+;  :------------------------: 5
+;  :  [ Ok ]     [Cancel]   : 6
+;  -------------------------- 7
+;  12345678901234567890123456
+;           1         2
+;
+	db      yellow
+windxor:
+	db      0
+	db      0
+	db      11100111b
+	db      15,15,26,7
+	db      white,red
+W44:    dw      wxorproc
+	db      3
+	db      16
+	db      2
+	db      10
+W45:    dw      wxorcase
+	db      2,1,'Begin address:'
+	db      2,2,'Last  address:'
+	db      2,3,'     xor coDe:'
+	db      3,5,'[ Ok ]',0,0
+	db      14,5,'[Cancel]'
+;
+;       --------- Search ---------- 1
+;       : Begin address: -------- : 2
+;       :  Last address: -----    : 3
+;       :  ignore  Reg.   (*)     : 4
+;       :  ignore Alph.   (*)     : 5
+;       :   Edit model            : 6
+;       :-------------------------: 7
+;       : [Search]       [Cancel] : 8
+;       --------------------------- 9
+;       123456789012345678901234567
+;                1         2
+; меню "Search"
+	db      white
+winsearch:
+	db      0
+	db      0
+	db      11100111b
+	db      14,15,27,9
+	db      yellow,red
+W6:     dw      wsearchproc
+	db      5
+	db      17
+	db      2
+	db      10
+W7:     dw      wsearchcase
+	db      1,1,' Begin address:'
+	db      1,2,'  Last address:'
+	db      1,3,'  ignore Reg.  '
+	db      1,4,'  ignore Alph. '
+	db      1,5,'   Edit model  '
+	db       2,7,'[Search]'
+	db      17,7,'[Cancel]'
+
+; меню "Model found"
+	db      lightred
+wscont:
+	db      0       ; hpoint
+	db      0       ; vpoint
+	db      11100111b
+	db      19,19,22,5
+	db      white,lightmagenta
+W8:     dw      wscontproc
+	db      0       ; v
+	db      0
+	db      2       ; h
+	db      12
+W9:     dw      wscontcase
+	db       2,3,'[Continue]'
+	db      16,3,'[Ok]',0,0,0,0,0,0
+
+; меню "Not found"
+	db      yellow
+wsnotf: db      0
+	db      0
+	db      11100111b
+	db      19,16,22,6
+	db      white,red
+W10:    dw      wsnotfproc
+	db      0       ; v
+	db      0
+	db      1       ; h
+	db      6
+W11:    dw      standexit
+	db      9,4,'[Ok]'
+;
+; :======== Load =========: 1
+; : Load address: ------- : 2
+; :         Disk: --      : 3
+; :         User: ---     : 4
+; : File: --------.----   : 5
+; :    Show directory     : 6
+; :---------------------- : 7
+; :  [Ok]       [Cancel]  : 8
+; :=======================: 9
+;          1         2
+; 1234567890123456789013456
+	db      yellow
+wloadmenu:
+	db      0       ; hpoint
+	db      0       ; vpoint
+	db      11100111b
+	db      17,15,26,9
+	db      white,red
+W12:    dw      wloadproc
+	db      5       ; v
+	db      18
+	db      2       ; h
+	db      10
+W13:    dw      wloadcase
+	db      1,1,' Load address:',0,0
+	db      1,2,'         Disk:',0,0
+	db      1,3,'         User:',0,0
+	db      1,4,' File:',0,0,0,0,0,0,0,0,0,0
+	db      5,5,' Show directory '
+	db      3,7,'[Ok]',0,0,0,0
+	db      14,7,'[Cancel]'
+;
+; :========= Save =========: 1
+; : Begin address: ------- : 2
+; :  Last address: ------- : 3
+; :          Disk: --      : 4
+; :          User: ---     : 5
+; : File: --------.----    : 6
+; :     Show directory     ; 7
+; :----------------------- : 8
+; :  [Ok]        [Cancel]  : 9
+; :========================: 10
+;          1         2
+; 12345678901234567890134567
+	db      yellow
+wsavemenu:
+	db      0       ; hpoint
+	db      0       ; vpoint
+	db      11100111b
+	db      16,14,27,10
+	db      white,red
+W14:    dw      wsaveproc
+	db      6       ; v
+	db      18
+	db      2       ; h
+	db      10
+W15:    dw      wsavecase
+	db      1,1,' Begin address:',0
+	db      1,2,'  Last address:',0
+	db      1,3,'          Disk:',0
+	db      1,4,'          User:',0
+	db      1,5,' File:',0,0,0,0,0,0,0,0,0,0
+	db      5,6,' Show directory '
+	db      3,8,'[Ok]',0,0,0,0
+	db      15,8,'[Cancel]'
+;
+; -------- Load ------- 1
+; : file 12345678.9ab : 2
+; : begin: ----       : 3
+; :  last: ----       : 4
+; :-------------------: 6
+; :       [Ok]        : 7
+; --------------------- 8
+; 123456789012345678901
+;          1         2
+; меню "file loaded"
+	db      yellow
+wfld:   db      0
+	db      0
+	db      11100111b
+	db      20,13,21,7
+	db      white,red
+W16:    dw      wfldproc
+	db      0       ; v
+	db      0
+	db      1       ; h
+	db      6
+W17:    dw      standexit
+	db      8,5,'[Ok]'
+;
+; --------- Save --------- 1
+; : File --------.---    : 2
+; :    already exists    : 3
+; :                      : 4
+; : [Overwrite] [Cancel] : 5
+; ------------------------ 6
+; 123456789012345678901234
+;          1         2
+	db      yellow
+wovermenu:
+	db      0       ; hpoint
+	db      0       ; vpoint
+	db      11100111b
+	db      20,19,24,6
+	db      white,lightmagenta
+W18:    dw      woverproc
+	db      0       ; v
+	db      0
+	db      2       ; h
+	db      13
+W19:    dw      wovercase
+	db      2,4,'[Overwrite]'
+	db      14,4,'[Cancel]',0,0,0
+; ------ Save ----- 1
+; :  Disk A: full : 2
+; :      [Ok]     : 3
+; :---------------: 4
+; 12345678901234567
+;          1
+	db      yellow
+; меню "диск дурак"
+wdiskf: db      0
+	db      0
+	db      11100111b
+	db      21,19,17,4
+	db      white,lightmagenta
+W20:    dw      wdiskfproc
+	db      0       ; v
+	db      0
+	db      1       ; h
+	db      6
+W21:    dw      standexit
+	db      7,2,'[Ok]'
+;
+; ------ Save ------ 1
+; : Directory full : 2
+; :      [Ok]      : 3
+; ------------------ 4
+; 123456789012345678
+;          1
+	db      yellow
+; меню "каталог дурак"
+wdirf:  db      0
+	db      0
+	db      11100111b
+	db      20,19,18,4
+	db      white,lightmagenta
+W22:    dw      wdirfproc
+	db      0       ; v
+	db      0
+	db      1       ; h
+	db      6
+W23:    dw      standexit
+	db      7,2,'[Ok]'
+;
+; -------- Load ------- 1
+; : File --------.--- : 2
+; :      not found    : 3
+; :-------------------: 4
+; :        [Ok]       : 5
+; --------------------- 6
+; 123456789012345678901
+;          1         2
+;
+	db      yellow
+wnofile:db      0
+	db      0
+	db      11100111b
+	db      23,19,21,6
+	db      white,lightmagenta
+W24:    dw      wnofproc
+	db      0       ; v
+	db      0
+	db      1       ; h
+	db      6
+W25:    dw      standexit
+	db      8,4,'[Ok]'
+
+; ---- Dump Modify ---- 1
+; : Address: -------- : 2
+; :-------------------: 3
+; : [Ok]     [Cancel] : 4
+; --------------------- 5
+; 123456789012345678901
+;          1         2
+	db      yellow
+windump:db      0
+	db      0
+	db      11100111b
+	db      22,18,21,5
+	db      white,red
+W26:    dw      wdumpproc
+	db      1       ; v
+	db      11
+	db      2       ; h
+	db      10
+W27:    dw      wdumpcase
+	db      1,1,' Address:'
+	db      2,3,'[Ok]',0,0,0,0
+	db      11,3,'[Cancel]'
+
+; ------- Call -------- 1
+; : Address: -------- : 2
+; :-------------------: 3
+; : [Ok]     [Cancel] : 4
+; --------------------- 5
+; 123456789012345678901
+;          1         2
+	db      yellow
+wincall:db      0
+	db      0
+	db      11100111b
+	db      22,18,21,5
+	db      white,red
+W28:    dw      wcallproc
+	db      1       ; v
+	db      11
+	db      2       ; h
+	db      10
+W29:    dw      wcallcase
+	db      1,1,' Address:'
+	db      2,3,'[Ok]',0,0,0,0
+	db      11,3,'[Cancel]'
+; ------ Default ------ 1
+; : Address: -------- : 2
+; :-------------------: 3
+; : [Ok]     [Cancel] : 4
+; --------------------- 5
+; 123456789012345678901
+;          1         2
+	db      yellow
+windef: db      0
+	db      0
+	db      11100111b
+	db      22,18,21,5
+	db      white,red
+W46:    dw      wdefproc
+	db      1       ; v
+	db      11
+	db      2       ; h
+	db      10
+W47:    dw      wdefcase
+	db      1,1,' Address:'
+	db      2,3,'[Ok]',0,0,0,0
+	db      11,3,'[Cancel]'
+;
+; ---- Disassemble ---- 1
+; : Address: -------- : 2
+; :-------------------: 3
+; : [Ok]     [Cancel] : 4
+; --------------------- 5
+; 123456789012345678901
+;          1         2
+	db      yellow
+windis: db      0
+	db      0
+	db      11100111b
+	db      22,18,21,5
+	db      white,red
+W30:    dw      wdisproc
+	db      1       ; v
+	db      11
+	db      2       ; h
+	db      10
+W31:    dw      wdiscase
+	db      1,1,' Address:'
+	db      2,3,'[Ok]',0,0,0,0
+	db      11,3,'[Cancel]'
+;
+; --------- Checksum -------- 1
+; : Begin address: -------- : 2
+; :  Last address: -----    : 3
+; :      CHECKSUM: ----     : 4
+; :       Xor_sum: --       : 5
+; :-------------------------: 6
+; :  [Ok]         [Cancel]  : 7
+; --------------------------- 8
+; 123456789012345678901234567
+;          1         2
+	db      yellow
+wincheck:
+	db      0
+	db      0
+	db      11100111b
+	db      17,13,27,10
+	db      white,lightmagenta
+W32:    dw      wcheckproc
+	db      3       ; v
+	db      17
+	db      2       ; h
+	db      10
+W33:    dw      wcheckcase
+	db      2,1,' Begin address:'
+	db      2,2,'  Last address:'
+	db      2,3,'  bYte for crc:'
+	db      3,8,'[Ok]',0,0,0,0
+	db      16,8,'[Cancel]'
+
+; ------ Arithmetic ------ 1
+; : variable_oNe: -----  : 2
+; : variable_Two: -----  : 3
+; :----------------------: 4
+; :   +     -       x    : 5
+; : ----  ----  -------- : 6
+; :----------------------: 7
+; :  [Ok]      [Cancel]  : 8
+; ------------------------ 9
+; 123456789012345678901234
+;          1         2
+	db      yellow
+winart: db      0
+	db      0
+	db      11100111b
+	db      18,14,24,9
+	db      white,lightmagenta
+W34:    dw      wartproc
+	db      2       ; v
+	db      16
+	db      2       ; h
+	db      10
+W35:    dw      wartcase
+	db      1,1,' variable_oNe:'
+	db      1,2,' variable_Two:'
+	db      3,7,'[Ok]',0,0,0,0
+	db      13,7,'[Cancel]'
+;
+; --------- Compare ---------- 1
+; : Please wait, working ... : 2
+; ---------------------------- 3
+; 1234567890123456789012345678
+;          1         2
+workwin:ld      hl,1013h
+	ld      de,white*256+lightmagenta
+	ld      bc,31ch
+W36:    call    window
+	jr      set3
+;
+; окно под каталог
+W37:
+frcat:  call    wset6
+	ld      hl,0102h
+	ld      de,yellow*256+black
+	ld      bc,114fh
+	jr      set2
+; окно под дамп
+frdump: ld      hl,0102h
+	ld      de,white*256+black
+	ld      bc,113fh
+W38:
+set2:   call    setpar
+W39:
+set3:   jp      setw
+;
+winmodel:ld     hl,0110h
+	ld      de,white*256+lightmagenta
+	ld      bc,33ch
+	jr      W36
+;
+;       ---------- Compair --------- 1
+;       :  Begin address: -------- : 2
+;       :   Last address: -----    : 3
+;       : Search address: -------- : 4
+;       : show Non-equal:    (*)   : 5
+;       :     show Equal:    ( )   : 5
+;       :--------------------------: 7
+;       :   [Ok]        [Cancel]   : 8
+;       ---------------------------- 9
+;       1234567890123456789012345678
+;                1         2
+	db      yellow
+wincom: db      0
+	db      0
+	db      11100111b
+	db      13,15,28,9
+	db      white,red
+W40:    dw      wcomproc
+	db      5
+	db      18
+	db      2
+	db      10
+W41:    dw      wcomcase
+	db      1,1,'  Begin address:'
+	db      1,2,'   Last address:'
+	db      1,3,' Search address:'
+	db      1,4,' show Non-equal:'
+	db      1,5,'     show Equal:'
+	db       4,7,'[Ok]',0,0,0,0
+	db      16,7,'[Cancel]'
+;
+; меню - условие останова выполняется, продолжать поиск ?
+; ------- Compair ------- 1
+; :    Area NON-equal   : 2
+; :---------------------: 3
+; : [Continue]     [Ok] : 4
+; ----------------------- 5
+; 12345678901234567890123
+;          1         2
+	db      yellow
+wcomstop:
+	db      0
+	db      0
+	db      11100111b
+	db      18,18,23,5
+	db      white,red
+W42:    dw      wcomstproc
+	db      0       ; v
+	db      0
+	db      2       ; h
+	db      12
+W43:    dw      wcomstcase
+	db      2,3,'[Continue]'
+	db      17,3,'[Ok]',0,0,0,0,0,0
+
+;
+;    как должны выглядеть рез-ты команды  MEM
+;
+; *       1     *   2         3 *       4         5         6
+;123456789012345678901234567890123456789012345678901234567890
+;------------------------------------------------------------
+;bank | 0 1 2 3 4 5 6 7 8 9 A B C D E F <-seg.|    notes
+; 0   | E E E E 0 0 0 0 0 0 0 0 E E E F       | E - system
+; 1   | E E E E 0 0 0 0 0 0 E E E E E F       | F - not exist
+; 2   | E E E E E E E E E E E E E E E F       | 0 - unused
+; 3   | 0 0 0 0 0 0 0 0 0 0 0 0 0 0 E F       | 1 - MSHELL23
+;      .    .    .    .    .    .    .    .    .    .    .
+; e   | 1 1 1 1 1 0 0 0 0 0 0 0 0 0 E F       | 2 - KORO6
+; f   | 0 0 0 0 0 0 0 0 0 0 2 3 3 3 E F       | 3 - SMARTDRV
+ 
+	push    de
+	push    bc              ; запомнить de

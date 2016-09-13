@@ -1,0 +1,211 @@
+; combeg - начальный адрес и банк
+; comlast - конечный адрес
+; comfind - адрес массива для поиска
+;
+combeg: ds      3,0
+comlast:ds      2,0
+comfind:ds      3,0
+comequ: db      1               ; условие останова 1 - по несовпадению
+comnequ:db      0               ;                  0 - по совпадению
+;
+wfind:  ds      3               ; переменная класса wpoint
+;
+wcomproc:
+CP0:    call    writest
+	db      27,'Y',32+0,32+9,' Compair ',0
+;
+CP1:    ld      hl,combeg+0
+CP2:    ld      de,wbeg+0
+	ld      bc,3
+	ldir
+CP3:    ld      de,wlast+0
+	ld      bc,2
+	ldir
+CP4:    ld      de,wfind+0
+	ld      bc,3
+	ldir
+;
+	ld      hl,1302h
+CP5:    ld      de,combeg+2
+CP6:    call    prfullst
+	ld      hl,1303h
+CP7:    ld      de,comlast+1
+CP8:    call    prwordst
+	ld      hl,1304h
+CP9:    ld      de,comfind+2
+CP10:   call    prfullst
+;
+wcompr0:ld      hl,1805h
+CP11:   ld      de,comequ
+CP12:   call    cell            ; "кнопки"
+CP13:   jp      cell
+;
+wcomcase:
+	jr      nz,wcom1       ; begin
+wcom0:  ld      hl,1302h
+CP14:   call    getfull         ; ввести полный адрес в wpoint
+	jr      c,wcom0
+CP15:   ld      hl,wpoint+0
+CP16:   ld      de,wbeg+0
+	ld      bc,3
+	ldir
+	ret
+;
+wcom1:  dec     a
+	jr      nz,wcom2        ; last
+wcom10: ld      hl,1303h
+CP17:   call    get2bytes       ; ввести адрес в wpoint
+	jr      c,wcom10
+CP18:   ld      hl,(wpoint+0)
+CP19:   ld      (wlast+0),hl
+	ret
+;
+wcom2:  dec     a               ; searching area
+	jr      nz,wcom3
+wcom20: ld      hl,1304h
+CP20:   call    getfull         ; ввести полный адрес в wpoint
+	jr      c,wcom20
+CP21:   ld      hl,wpoint+0
+CP22:   ld      de,wfind+0
+	ld      bc,3
+	ldir
+	ret
+;
+CP23:
+wcom3:  ld      hl,comequ
+	dec     a               ; show non-equal
+	jr      nz,wcom4
+	inc     a
+wcom30: cp      (hl)
+	ret     z
+	ld      (hl),a
+	xor     1
+	inc     hl
+	ld      (hl),a
+	jr      wcompr0         ; обновить кнопки
+;
+wcom4:  dec     a               ; show equal
+	jr      z,wcom30
+;
+wcom5:  dec     a
+CP24:   jp      nz,standexit    ; cancel
+; COMPARE
+CP25:   ld      hl,(wlast+0)
+CP26:   ld      de,(wbeg+0)
+	and     a
+	sbc     hl,de
+	ret     c               ; перекрытие адресов
+	push    hl
+;
+CP27:   ld      hl,wbeg+0
+CP28:   ld      de,combeg+0
+	ld      bc,3
+	ldir
+CP29:   ld      hl,wlast+0
+	ld      bc,2
+	ldir
+CP30:   ld      hl,wfind+0
+	ld      bc,3
+	ldir
+;
+	pop     hl
+	inc     hl
+	inc     hl
+CP31:   ld      (wlast+0),hl    ; длина массива + 1
+CP32:   ld      hl,(wbeg+0)
+	dec     hl
+CP33:   ld      (wbeg+0),hl
+CP34:   ld      hl,(wfind+0)
+	dec     hl
+CP35:   ld      (wfind+0),hl
+;
+	pop     hl
+	pop     hl
+	pop     hl
+CP36:   call    closew          ; убрать меню Compair
+;
+; ЦИКЛ СРАВНЕНИЯ
+repcom:
+CP37:   call    workwin
+CP38:   call    writest
+	db      27,'Y',32+0,32+8,' Compare '
+	db      27,'Y',32+1,32+2,'Please wait, working ...',0
+;
+CP39:   call    comparea        ; вызов собственно процедуры поиска
+				; если ошибка или не найдено, то возв. CY=0
+				; если найдено, то CY=1, wpoint уст. на начало
+				; модели.
+CP40:   call    closew          ; убрать окно "working..."
+	ret     nc              ; условие останова не выполняется - выход в
+				; Main Menu
+;
+CP41:   ld      hl,wfind+0
+CP42:   ld      de,wpoint+0
+	ld      bc,3
+	ldir
+CP43:   call    prwork          ; вывести адрес найденной модели
+CP44:   call    frdump
+CP45:   call    writest
+	db      27,'B',0
+CP46:   call    listmem         ; вывести дамп
+CP47:   ld      hl,wcomstop+2   ; меню - условие останова выполняется,
+CP48:   jp      objectwin       ; продолжать поиск ?
+;
+; Сравнение Вход: wbeg+0..wbeg+1 - первый адрес-1, wbeg+2 - банк
+;                 wlast+0..wlast+1 - длина+1
+;                 wfind+0..wfind+1 - начало проверяемой области-1, wfind+2 - банк
+comparea:
+CP49:   ld      hl,(wlast+0)
+	dec     hl
+CP50:   ld      (wlast+0),hl
+	ld      a,h
+	or      l
+	ret     z               ; CY=0 - конец области поиска
+CP51:   ld      hl,(wbeg+0)
+	inc     hl
+CP52:   ld      (wbeg+0),hl
+CP53:   ld      a,(wbeg+2)
+	call    BLDB            ; reg.B - master-byte
+	push    bc
+CP54:   ld      hl,(wfind+0)
+	inc     hl
+CP55:   ld      (wfind+0),hl
+CP56:   ld      a,(wfind+2)
+	call    BLDB            ; reg.B - search-byte
+	pop     af
+	cp      b
+CP57:   ld      a,(comequ)      ; проверка условия выхода
+	jr      nz,nonequ
+; Байты совпали
+	or      a
+	jr      nz,comparea
+	scf
+	ret                     ; выход, если режим show equal
+nonequ:
+; Байты не совпали
+	or      a
+	jr      z,comparea
+	scf
+	ret                     ; выход, если режим show non-equal
+;
+wcomstproc:
+CP58:   call    writest
+	db      27,'Y',32+0,32+7,' Compair ',0
+CP59:   ld      a,(comequ)
+	or      a
+	jr      z,wcomstp0
+CP60:   call    writest
+	db      27,'Y',32+1,32+4,'Bytes non-equal',0
+	ret
+wcomstp0:
+CP61:   call    writest
+	db      27,'Y',32+1,32+6,'Bytes equal',0
+	ret
+;
+wcomstcase:
+	pop     hl
+	pop     hl
+	pop     hl
+CP62:   call    closew
+CP63:   jp      nz,DM0          ; ok
+CP64:   jpотивник распознаёт снайпера. В наставлениях боевиков НВФ чётко сказано, что боец в составе групы противника имеющий оружие отвеч

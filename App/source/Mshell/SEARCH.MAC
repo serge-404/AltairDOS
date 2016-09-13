@@ -1,0 +1,575 @@
+; srbeg - начальный адрес и банк
+; srlast - конечный адрес
+;
+ignr:   db      1               ; игнорировать регистры
+igna:   db      1               ; игнорировать различие в алфавите
+found_ok:db     0
+wsearch:ds      3,0
+;
+srbeg:  ds      3,0
+srlast: ds      2,0
+;
+wsearchproc:
+S0:     call    writest
+	db      27,'Y',32+0,32+10,' Search ',0
+;
+S1:     ld      hl,srbeg+0
+S2:     ld      de,wpoint+0
+	ld      bc,3
+	ldir
+S3:     ld      de,wlast+0
+	ld      bc,2
+	ldir
+;
+	ld      hl,1202h
+S4:     ld      de,srbeg+2
+S5:     call    prfullst
+	ld      hl,1203h
+S6:     ld      de,srlast+1
+S7:     call    prwordst
+;
+wsr0:   ld      hl,1304h
+S8:     ld      de,ignr
+S9:     call    cell            ; "кнопки"
+S10:    jp      cell
+;
+wsearchcase:
+	jr      nz,wsc1         ; option "Begin address"
+wsc0:   ld      hl,1202h
+S11:    call    getfull         ; ввести полный адрес в wpoint
+	jr      c,wsc0
+	ret                     ; ввод в wpoint+0..wpoint+2
+;
+wsc1:   dec     a
+	jr      nz,wsc3         ; option "Last address"
+;
+S12:    ld      hl,(wpoint+0)
+	push    hl
+S13:    ld      a,(wpoint+2)
+	push    af
+;
+wsc10:  ld      hl,1203h
+S14:    call    get2bytes       ; ввести адрес в wpoint
+	jr      c,wsc10
+S15:    ld      hl,(wpoint+0)
+S16:    ld      (wlast+0),hl    ; переслать в srlast
+;
+wsc11:  pop     af
+S17:    ld      (wpoint+2),a
+	pop     hl
+S18:    ld      (wpoint+0),hl
+;
+	ret                     ; ввод в srlast+0..srlast+1
+;
+wsc3:   dec     a               ; option "ignore reg."
+	jr      nz,wsc4
+S19:    ld      hl,ignr
+wsc30:  ld      a,(hl)
+	xor     1
+	ld      (hl),a
+	jr      wsr0
+;
+wsc4:   dec     a               ; option "ignore alph."
+S21:    ld      hl,igna
+	jr      z,wsc30
+;
+	dec     a               ; edit model
+S22:    jp      z,edMODEL       ; вывод модели для поиска и ее редактирование
+; SEARCH
+	dec     a
+S23:    jp      nz,standexit    ; иначе переход на [CANSEL]
+;
+S24:    ld      hl,wpoint+0
+S25:    ld      de,srbeg+0
+	ld      bc,3
+	ldir
+S26:    ld      hl,wlast+0
+	ld      bc,2
+	ldir
+;
+S27:    call    convmod         ; преобразовать модель в соотв. с ignr, igna
+				; если длина = 0, то CY = 0 и возврат
+	ret     nc              ; в меню "Search"
+;
+S28:    ld      hl,(wlast+0)
+S29:    ld      de,(wpoint+0)
+	and     a
+	sbc     hl,de
+	ret     c               ; перекрытие адресов - возврат в меню Search
+;
+	pop     hl
+	pop     hl
+	pop     hl
+S30:    call    closew          ; убрать меню "Search"
+; ЦИКЛ ПОИСКА
+repsearch:
+S31:    call    listmodel       ; вывести модель
+S32:    call    writest
+	db      27,'Y',32,32+3,'[ SEARCHING ... ]',0
+S33:    call    cmpmodel        ; вызов собственно процедуры поиска
+				; если ошибка или не найдено, то возв. CY=0
+				; если найдено, то CY=1, wpoint уст. на начало
+				; модели.
+S34:    call    closew
+S35:    ld      hl,wsnotf+2     ; иначе выдать окно "not found" и выйти в
+S36:    jp      nc,objectwin    ; main menu
+;
+S37:    ld      hl,(wpoint+0)
+S38:    ld      (wbeg+0),hl     ; значение WPOINT для Search
+S39:    ld      a,(vremleng)    ; длина модели
+S20:    ld      (found_ok),a    ; флаг - модель найдена
+	ld      e,a
+	ld      d,0
+	and     a
+	sbc     hl,de
+S40:    ld      (wpoint+0),hl
+S56:    ld      (wsearch+0),hl   ; адрес
+S63:    ld      a,(wpoint+2)
+S66:    ld      (wsearch+2),a    ; и банк, где найдена модель
+;
+S41:    call    prwork          ; вывести адрес найденной модели
+S42:    call    frdump
+S43:    call    writest
+	db      27,'B',0
+S44:    call    listmem         ; вывести дамп
+S45:    ld      hl,wscont+2     ; меню - найдена модель, продолжать поиск ?
+S46:    jp      objectwin
+;
+; ПОИСК Вход: wpoint+0..wpoint+1 - первый адрес
+;               wlast+0..wlast+1 - последний адрес
+;                       wpoint+2 - банк
+cmpmodel:
+S47:    ld      hl,vremleng     ; уст. hl - начало модели, b - длина модели
+	ld      b,(hl)
+	inc     hl
+;
+scanner:exx
+S48:    ld      hl,(wpoint+0)
+S49:    ld      de,(wlast+0)    ; проверка на out of range
+	inc     de
+	and     a
+	sbc     hl,de
+	exx
+	ret     nc
+S50:    call    getmembyte
+	exx
+S51:    ld      hl,(wpoint+0)   ; инкремент адреса
+	inc     hl
+S52:    ld      (wpoint+0),hl
+	exx
+S53:    call    transbyte       ; преобразовать байт, полученный с памяти
+	ld      c,a
+	cp      (hl)            ; сравнить с байтом из модели
+	jr      z,cmpmodelx     ; переход, если совпадают
+S54:    ld      hl,vremleng     ; уст. hl - начало модели, b - длина модели
+	ld      b,(hl)
+	inc     hl
+	cp      (hl)            ; Проверка на совпадение с первым байтом модели
+	jr      nz,cmpmodel
+cmpmodelx:
+	inc     hl
+	djnz    scanner         ; цикл сравнения модели и диска
+	scf                     ; О, чудо! модель и память совпали !!!
+	ret                     ; Установка победного флага CY = 1, выход.
+;
+wscontproc:
+S55:    call    writest
+	db      27,'Y',32+0,32+7,' Search ',27,'Y',32+1,32+5,'Model found !',7,0
+	ret
+;
+wscontcase:
+	pop     hl
+	pop     hl
+	pop     hl
+S57:    call    closew
+S58:    jp      nz,DM0          ; cancel - переход в редактор памяти
+S67:    ld      (found_ok),a    ; сбросить флаг - модель найдена
+S59:    ld      hl,(wbeg+0)
+S60:    ld      (wpoint+0),hl
+S61:    jp      repsearch       ; continue - продолжение поиска
+;
+wsnotfproc:
+S62:    call    writest
+	db      27,'Y',32+0,32+7,' Search ',27,'Y',32+2,32+3,'Model NOT FOUND !',7,0
+	ret
+
+; П/п получения рабочей модели
+; вход: модель+размер по адресу modleng
+;       переменные ignr,igna
+; выход: рабочая модель по адресу vremleng
+convmod:
+S64:    ld      hl,MODEL-1
+	ld      a,(hl)
+	or      a
+	ret     z               ; Выход, длина модели = 0, CY = 0
+S65:    ld      de,vremMODEL-1
+	ld      (de),a
+	ld      b,a             ; иначе в B длина модели
+	inc     hl
+	inc     de
+convmcycl:
+	ld      a,(hl)
+S68:    call    transbyte       ; преобразовать байт рег. А
+				; в соотв. с ignr,igna
+				; выход: рег. А
+	ld      (de),a
+	inc     hl
+	inc     de
+	djnz    convmcycl
+	scf
+	ret
+
+transbyte:                      ; преобразовать байт рег. А
+				; в соотв. с ignr,igna
+	cp      40h             ; выход: рег. А
+	ret     c               ; выход: код спец. символа или цифры
+	cp      80h
+	jr      c,trsbcont
+	cp      0c0h
+	ret     c               ; выход: код псевдографики
+trsbcont:
+	ld      c,a
+S69:    ld      a,(ignr)        ; игнорировать регистры
+	or      a
+	jr      z,trsbcont0
+	res     5,c
+trsbcont0:
+S70:    ld      a,(igna)        ; игнорировать алфавиты
+	or      a
+	jr      z,trsbcont1
+	res     7,c
+trsbcont1:
+	ld      a,c
+	ret
+;
+cell:   push    hl
+	push    de
+S71:    call    gotoxy
+	ld      c,'('
+S72:    call    conout
+	pop     de
+	push    de
+	ld      a,(de)
+	or      a
+	ld      c,' '
+S73:    call    z,conout
+	ld      a,7
+S74:    call    nz,wrlitle
+	ld      c,')'
+S75:    call    conout
+	pop     de
+	pop     hl
+	inc     l
+	inc     de
+	ret
+; -----------------------------------------------------------------------------
+wrhexasciiM:
+	push    bc
+	push    hl
+	ld      c,2             ; положение курсора по Y
+	and     a
+S76:    ld      de,MODEL
+	sbc     hl,de
+S77:    ld      de,hextable
+	add     hl,de
+	ld      b,(hl)
+	dec     b
+S78:    ld      (curhex),bc     ; положение курсора для вывода HEX
+	ld      de,16
+	add     hl,de
+	ld      b,(hl)
+	dec     b
+S79:    ld      (curascii),bc   ; положение курсора для вывода ASCII
+	pop     hl
+	push    hl
+	ld      a,(hl)
+S80:    call    whexasc
+	pop     hl
+	pop     bc
+	ret
+
+; п/п delMODEL - уменьшить длину модели на 1
+delMODEL:
+S81:    ld      hl,modleng
+	ld      a,(hl)
+	or      a
+	jr      z,whaM
+	dec     (hl)
+	jr      whaM
+
+; п/п insMODEL - увеличить длину модели на 1
+insMODEL:
+S82:    ld      hl,modleng
+	ld      a,(hl)
+	cp      16
+	jr      nc,whaM
+	inc     (hl)
+;        jp      whaM
+S83:
+whaM:   call    writest
+	db      27,'P',0dfh,27,'C',2,0
+S84:    ld      hl,modleng
+	ld      c,(hl)
+	inc     hl
+	ld      b,16            ; вывести весь буфер
+whaM0:  ld      a,c
+	or      a
+	jr      nz,wham1
+	push    hl
+	push    bc
+S85:    call    writest
+	db      27,'P',0d4h,0
+	pop     bc
+	pop     hl
+S86:
+wham1:  call    wrhexasciiM     ; Вывести байт в HEX и ASCII виде
+	inc     hl
+	dec     c
+	djnz    whaM0
+S87:    jp      cm3
+;
+listmodel:
+S88:    call    winmodel        ; уст. окно модели
+S89:    call    writest
+	db      27,'Y',32,32+26,' Model ',0
+S90:    jp      whaM            ; Вывод всей модели
+				; Действительная часть MODEL выделяется цветом
+
+; Редактор модели для SEARCH
+S91:
+edMODEL:call    listmodel
+S92:    call    reccur
+	xor     a
+S93:    ld      (nibbleM),a     ; флаг - редактируется левый полубайт
+S94:    ld      hl,editmodeM
+	res     7,(hl)          ; сбросить флаг - "выход"
+;
+; Главный repeat редактора
+S95:
+editrpM:ld      de,editrpM
+	push    de
+S96:    ld      a,(editmodeM)   ; editmode: d7 (0/1) - выход из редактирования
+				;           d0 (0/1) - HEX/ASCII
+	or      a
+	jr      z,edithexM
+	dec     a
+S97:    jp      z,editasciiM
+	pop     hl              ; Выход
+S98:    call    hidcur
+S99:    jp      closew          ; убрать окно с моделью
+;
+; Редактор HEX - кода
+; repeat редактора HEX - кода
+S100:
+edithexM:call   prpointHM       ; вывести H и A, уст. курсор
+S101:   call    rki1            ; ввод символа
+S102:   ld      hl,editmodeM
+	set     7,(hl)
+	cp      27              ; если нажата ESC
+	ret     z
+	cp      13              ; или ВK
+	ret     z               ; установить флаг выхода в Main Menu
+	res     7,(hl)
+	cp      9               ; если нажата TAB, то
+	set     0,(hl)          ; установить флаг перехода в редактор ASCII
+	ret     z
+	res     0,(hl)
+;
+S103:   ld      hl,edithexM
+	push    hl
+	cp      8               ; КЛ - вызов curleft
+S104:   jp      z,curleftHM
+	cp      4               ; КП - вызов curright
+S105:   jp      z,currightHM
+	cp      5               ; КВ - убить крайний справа символ строки
+S106:   jp      z,delMODEL
+	cp      18h
+S107:   jp      z,insMODEL      ; КН - увеличить строку
+; Иначе, анализ ввода шестнадцатиричных символов
+	or      10h             ; изменение кодов 20h-2fh --> 30h-3fh
+	sub     30h
+	ret     c               ; код < "0" - выход
+	cp      0ah
+	jr      c,ehnumbM       ; переход, введена цифра
+SN0:    ld      a,(i1)
+	sub     30h
+	and     1fh             ;
+	cp      11h
+	ret     c               ; "9" < код < "A" - выход
+	cp      17h
+	ret     nc              ; код > "F"
+	sub     7               ; введена буква
+ehnumbM:                        ; введена цифра
+				; получен код в пределах 0 - 0fh
+	ld      b,a
+S108:   ld      a,(nibbleM)
+	or      a
+	ld      a,b
+	ld      c,0f0h
+	jr      nz,ehnoshiftM
+				; осуществляется ввод в старший полубайт,
+				; (nibble = 0),
+				; сдвинуть введенную цифру на 4 бита влево
+	rlca
+	rlca
+	rlca
+	rlca
+	and     0f0h            ; в рег. А код полубайта
+	ld      c,0fh
+;
+ehnoshiftM:
+	ld      b,a
+S109:   call    getaddrdmaM     ; HL - адрес в MODEL
+	ld      a,(hl)
+	and     c
+	or      b
+	ld      (hl),a          ; В MODEL занесен измененный байт
+S110:   call    prpointHM       ; Вывести сотворенное на экран
+S111:   ld      hl,modleng
+S112:   ld      a,(wpointM)     ; если ковырялись в красной зоне, то расширить
+				; зеленую зону
+	cp      (hl)
+	jr      c,eh2m
+	add     a,2             ; !   modleng = (max wpoint)+1+1
+	ld      (hl),a
+S113:   call    delMODEL        ; - 1
+eh2m:
+S114:   jp      currightHM      ; Если ковырялись в младшем полубайте,
+				; то передвинуть курсор вправо
+
+prpointHM:                      ; Вывести HEX - байт по указателю (wpointM)
+				; установить курсор
+S115:   call    getaddrdmaM
+S116:   call    wrhexasciiM
+S117:   ld      hl,(curhex)
+S118:   ld      a,(nibbleM)
+	add     a,h
+	ld      h,a
+S119:   jp      gotoxy
+
+currightHM:                     ; увеличить адрес на 1 - key
+
+S120:   ld      a,(wpointM)
+	sub     0fh
+	ld      b,a
+S121:   ld      a,(nibbleM)
+	xor     1
+	or      b
+	ret     z               ; выход: правый полубайт + offset 0fh
+
+S122:   call    rplnibbleM
+	ret     nz
+
+
+S123:   ld      hl,wpointM
+	ld      a,(hl)
+	cp      0fh
+	ret     nc
+	inc     (hl)
+
+	ret
+
+curleftHM:                        ; уменьшить адрес на 1
+S124:   ld      a,(wpointM)
+	ld      b,a
+S125:   ld      a,(nibbleM)
+	or      b
+	ret     z               ; выход: левый полубайт + 0 offset
+S126:   call    rplnibbleM
+	ret     z
+S127:   ld      hl,wpointM
+	ld      a,(hl)
+	or      a
+	ret     z
+	dec     (hl)
+	ret
+
+rplnibbleM:
+	push    hl
+S128:   ld      hl,nibbleM
+	ld      a,(hl)
+	xor     1                  ; Сменить полубайт для след. ввода
+	ld      (hl),a
+	pop     hl
+	ret
+
+getaddrdmaM:
+	push    af
+S129:   ld      a,(wpointM)
+S130:   ld      hl,MODEL
+	ld      d,0
+	ld      e,a
+	add     hl,de              ; в HL редактируемый адрес в DMA
+	pop     af
+	ret
+
+; Редактор ASCII - кода
+editasciiM:
+; repeat редактора ASCII - кода
+S131:   call    prpointAM        ; вывести H и A, уст. курсор
+
+S132:   call    rki1            ; повтор, ввод символа
+S133:   ld      hl,editmodeM
+	set     7,(hl)          ; установить флаг выхода в Main Menu
+	cp      27              ; если нажата ESC
+	ret     z
+	cp      13              ; или ВК, то
+	ret     z
+	res     7,(hl)
+	res     0,(hl)          ; установить флаг перехода в редактор HEX
+	cp      9               ; если нажата TAB, то
+	ret     z
+	set     0,(hl)
+;
+S134:
+ea1m:   ld      hl,editasciiM
+	push    hl
+	cp      8               ; КЛ - вызов curleft
+S135:   jp      z,curleftAM
+	cp      4               ; КП - вызов curright
+S136:   jp      z,currightAM
+	cp      5               ; КВ - убить крайний справа символ строки
+S137:   jp      z,delMODEL
+	cp      18h
+S138:   jp      z,insMODEL      ; КН - увеличить строку
+	cp      20h             ; введенный код меньше 32 - возврат на ввод
+	ret     c
+S139:   call    getaddrdmaM     ; HL - адрес в MODEL
+	ld      (hl),a          ; В DMA занесен измененный байт
+S140:   call    prpointAM       ; Вывести сотворенное на экран
+S141:   ld      hl,modleng
+S142:   ld      a,(wpointM)     ; если ковырялись в красной зоне, то расширить
+				; зеленую зону
+	cp      (hl)
+	jr      c,ea2m
+	add     a,2             ; !   modleng = (max wpoint)+1+1
+	ld      (hl),a
+S143:   call    delMODEL        ; - 1
+ea2m:
+	jr      currightAM      ; Передвинуть курсор вправо
+prpointAM:                      ; Вывести ASCII - байт по указателю (wpointM)
+S144:   call    getaddrdmaM     ; HL - адрес в MODEL
+S145:   call    wrhexasciiM
+S146:   ld      hl,(curascii)
+S147:   jp      gotoxy          ; установить курсор
+;
+currightAM:                     ; увеличить адрес на 1
+S148:   ld      hl,wpointM
+	ld      a,(hl)
+	cp      0fh
+	ret     nc              ; выход: offset 0fh
+	inc     (hl)
+	ret
+;
+curleftAM:                      ; уменьшить адрес на 1
+S149:   ld      hl,wpointM
+	ld      a,(hl)
+	or      a
+	ret     z               ; выход: offset 00h
+	dec     (hl)
+	ret
+;
+modleng:   db     8
+MODEL:     db     'Black Cat inc 97' ; Собственно модель для поиска
+nibbleM:   db     0       ; редактируемый ниббл HEX - кода
+editmodции возмездия 'номер второй'. Сборы не отняли много времени и к вечеру того же дня, я вышел на воздух. В лесу уже было прохладно
