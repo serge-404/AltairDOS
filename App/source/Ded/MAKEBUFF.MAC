@@ -1,0 +1,393 @@
+
+; Создать каталог
+; Формат элемента: 14 байт =>  пробел_filename.ext_пробел
+
+makecat:call    initfcb         ; Сброс FCB
+
+	xor     a
+	ld      (filedir),a
+
+	ld      a,'?'
+	ld      hl,fcb+1
+	ld      (hl),a
+	ld      de,fcb+2
+	ld      bc,10
+	ldir                    ; Установка маски FCB
+
+	ld      de,DMA          ; Уст. DMA
+	call    setpdp
+
+	ld      hl,buff+14
+	ld      (buffpoint),hl  ; Уст. нач. адреса буфера
+				; имен файлов
+
+	call    sffcb           ; search first
+
+	ld      b,a
+	call    getalarm
+	call    nz,warning13    ; Вызов, если дисковая
+				; ошибка
+	ld      a,b
+
+	cp      4
+	ret     nc              ; no files
+
+	call    copyname        ; переслать имя в буфер
+
+catloop:
+	call    snfcb           ; search next
+
+	ld      b,a
+	call    getalarm
+	call    nz,warning13    ; Вызов, если дисковая
+				; ошибка
+	ld      a,b
+
+	cp      4
+	jp      nc,sort         ; описатель не найден,
+				; завершение процедуры
+				; переход на сортировку
+
+	call    copyname        ; переслать имя в буфер
+
+	jr      catloop
+
+copyname:
+	rlca                    ; *2
+	rlca                    ; *4
+	rlca                    ; *8
+	rlca                    ; *16
+	rlca                    ; *32
+	inc     a               ; Пропуск номера юзера
+	ld      hl,dma
+	ld      e,a
+	ld      d,0
+	add     hl,de           ; hl указывает на имя файла
+
+	push    hl
+	ld      hl,filedir
+	inc     (hl)
+	ld      a,(hl)
+	or      a
+	call    z,warning30     ; каталог слишком длинный
+	ld      de,(buffpoint)  ; de указывает на адрес в
+				; буфере
+	ld      hl,14
+	add     hl,de
+	ld      (buffpoint),hl
+	pop     hl
+
+	ld      a,' '
+	ld      (de),a
+	inc     de
+
+	ld      b,8
+	call    catloop0        ; пересылка имени
+
+	ld      a,'.'
+	ld      (de),a
+	inc     de
+
+	ld      b,3
+	call    catloop0        ; пересылка расширения
+
+	ld      a,' '
+	ld      (de),a
+	ret
+
+; Хитрый ldir
+catloop0:
+	ld      c,(hl)
+	ld      a,c
+
+	cp      20h
+	ld      c,'#'   ; Код < 20h - заменяется "#"
+	jr      c,cl0
+
+	cp      40h     ; Код > 20h , но < 40h
+			; не изменяется
+	ld      c,a
+	jr      c,cl0
+
+	and     5fh
+	ld      c,a
+
+cl0:    ld      a,c
+	ld      (de),a
+	inc     hl
+	inc     de
+	djnz    catloop0
+	ret
+
+; Выбор файла.
+; При успешном завершении работы в filname содержится имя
+; файла
+setfile:
+menufiles:
+	call    resact
+	call    makecat         ; Считать каталог
+	ld      a,(filedir)
+	dec     a
+	cp      -1
+	push    af
+	call    z,warning12
+	pop     af
+	jp      z,mainrepeat    ; Нет файлов - выход в гл.
+				; меню
+	ld      b,12            ; Окно по xx файлов
+	ld      c,0             ; "locked"
+	call    menu            ; меню выбора файла
+	ld      a,(i1)
+	cp      3               ; ^C
+	jr      z,menufiles
+	call    jam
+	inc     hl
+copyfln:
+	ld      de,filname      ; пересылка имени
+				; файла в filname
+	ld      bc,12
+	ldir
+	ret
+
+
+selfile:ld      hl,INDEX-1
+	call    allde1
+	ld      hl,buff-14
+	ld      de,14
+	call    arrsel
+	inc     hl
+	ret
+
+xsetfile:
+	call    filinit         ; Сброс FCB
+	call    ofcb            ; Попытка открыть файл
+
+	ld      b,a
+	call    getalarm
+	call    nz,warning9     ; bdos error in open file
+	ld      a,b
+
+	cp      0ffh
+	call    z,warning10     ; Файл не открыт
+
+	call    filinit         ; Сброс FCB
+	jp      getbuff         ; Создать список групп файла
+
+filinit:ld      hl,filname      ; Сброс FCB
+	jp      initfcb
+
+; П/п заполнения массива BUFF ( массив групп, занимаемых
+; файлом )
+; начало массива - адрес BUFF
+; Вход:  подготовленый FCB файла по адресу FCB
+; Выход: LBUFFPOINT - указывает на первый свободный элемент
+; массива групп
+;
+getbuff:call    zerosize        ; Проверка на файл -
+				; пустышку (с размером 0)
+	call    nc,warning11    ; size = 0
+
+	call    getquant0       ; Устанавливает:
+				; maxgroup = DSM (макс. но-
+				; мер группы) - 1
+				; blksiz   = размер группы
+				; в секторах
+
+	ld      hl,(maxgroup)
+	ld      de,255
+	call    cmpint
+	ld      b,0             ; флаг - р-р группы
+				; однобайтовый
+	cp      2
+	jr      z,gb0           ; переход, если DSM < 255
+	inc     b               ; флаг - р-р группы
+				; двухбайтовый
+gb0:    ld      a,b
+	ld      (flsize),a      ; Если DSM < 255, то размер
+				; группы однобайтовый,
+				; иначе размер группы двух-
+				; байтовый
+	ld      de,dma
+	call    setpdp          ; Установить DMA
+
+	ld      hl,buff
+	ld      (lbuffpoint),hl ; Установкка начального зна
+				; чения переменной
+
+	xor     a
+dloop:  ld      (exfcb),a       ; set extent number
+
+	call    sffcb           ; search first
+	ld      b,a
+	call    getalarm
+	call    nz,warning8     ; Вызов, если дисковая
+				; ошибка
+	ld      a,b
+	cp      0ffh
+	jr      z,exgbuff       ; описатель не найден, за-
+				; вершение процедуры
+	rlca                    ; *2
+	rlca                    ; *4
+	rlca                    ; *8
+	rlca                    ; *16
+	rlca                    ; *32
+
+	add     a,15
+	ld      e,a
+	ld      d,0
+	ld      hl,dma
+	add     hl,de
+	ld      a,(hl)          ; a = Число секторов ,
+				; занятых экстентом
+	or      a
+	jp      z,zeroext       ; Пустой экстент
+	inc     hl              ; hl - адрес списка групп
+				; экстента
+				; M: = a/blksiz - число
+				; групп в экстенте
+				; blksiz в пределах от 8
+				; до 128.
+				; соотв. р-р группы
+				; 1024 - 16384
+	ld      bc,(blksiz)     ; c = blksiz, b = 0
+	ld      b,0
+dldiv:  cp      c
+	jr      c,exdldiv
+	inc     b
+	sub     c
+	jr      dldiv
+				; В b число целых групп, в
+				; A число сект. в
+exdldiv:ld      e,a
+	ld      d,0
+	ld      (lastgrsec),de  ; последней группе
+	or      a
+	jr      z,nodlinc
+	inc     b               ; В b число всех групп в
+				; экстенте
+
+nodlinc:ld      ix,(lbuffpoint) ; de - адрес в буфере
+	ld      a,(flsize)
+	or      a
+	jr      nz,movegr1
+
+movegr0:ld      a,(hl)          ; для DSM < 255
+	inc     hl
+	ld      (ix),a
+	inc     ix
+	ld      (ix),0
+	inc     ix
+	djnz    movegr0
+	jr      exmovegr
+
+movegr1:ld      a,(hl)          ; для DSM >= 255
+	inc     hl
+	ld      (ix),a
+	inc     ix
+	ld      a,(hl)
+	inc     hl
+	ld      (ix),a
+	inc     ix
+	djnz    movegr1
+
+exmovegr:ld     (lbuffpoint),ix
+
+	ld      hl,(lbuffpoint)
+	ld      de,buff+16384
+	call    cmpint
+	cp      1               ; hl > de
+	call    z,warning28     ; ошибка, в файле более
+				; 8192(!) групп.
+zeroext:
+	ld      a,(exfcb)
+	inc     a
+	jp      dloop
+
+exgbuff:scf                     ; Выход, создание массива
+				; завершено
+	ret
+; Проверка размера файла
+; Вход: fcb
+; Выход: CY=1 - если размер файла не равен 0, иначе CY=0
+zerosize:
+	ld      de,fcb
+	call    filesize
+	call    getalarm
+	call    nz,warning7     ; Вызов, если дисковая
+				; ошибка
+	ld      hl,(fcb+21h)
+	ld      a,h
+	or      l
+	scf
+	ret     nz
+	ccf
+	ret
+
+; п/п wrFile
+; Вход: hl - координаты курсора
+wrfile:
+	call    gotoxy
+	call    writest         ; вывод 'File:'
+	db      'File:',0
+	ret
+
+; п/п   wrDU
+; Вход: hl - координаты курсора
+;       a = d0 0/1 - нет/есть  инверсии
+;       a = d1 0/1 - не выводить/выводить filname
+;       a = d2 0/1 - work/load
+
+wrDU:   push    af
+	push    af
+	push    af
+	call    gotoxy          ; вывод ' D:\13\ '
+	pop     af
+
+	push    af
+	bit     0,a             ; ключ инверсии
+	call    nz,inv
+	call    wr20h
+	pop     af
+
+	push    af
+	bit     2,a
+	ld      a,(workdisk)
+	jr      z,wrDU1
+	ld      a,(loaddisk)
+wrDU1:  add     a,41h
+	call    conouta
+	call    writest
+	db      ':\',0
+	pop     af
+
+	bit     2,a
+	ld      a,(workuser)
+	jr      z,wrDU0
+	ld      a,(loaduser)
+wrDU0:
+	cp      10
+	jr      c,onenumb
+	push    af
+	ld      a,'1'
+	call    conouta
+	pop     af
+	sub     10
+onenumb:add     a,30h
+	call    conouta         ; вывод номера юзера
+	ld      c,'\'
+	call    conout          ; вывод '\'
+	pop     af
+	bit     1,a             ; ключ вывода filname
+	jr      z,enddu
+	ld      hl,filname
+	ld      a,12
+	call    wstrng
+enddu:  call    wr20h
+	pop     af
+	bit     0,a             ; ключ инверсии
+	call    nz,norm
+	ret
+
+
+
+ ╤ ╥ ╦ ╧ ╨  COLD    

@@ -1,0 +1,1256 @@
+
+readlist:
+	call    wrTS
+readlist0:
+	call    readsector      ; считать сектор в dma
+	jp      listdma         ; вывести dma на экран
+
+; Вход: hl - указатель на буфер с десятичным числом ( до 65535 )
+; Буфер располагается по адресу hl+2 ( стандарт ф-ции 10 BDOS ),
+; hl+0  - макс. длина буфера
+; hl+1  - факт. кол-во символов
+
+; Выход: hl - соответствующее ему 16-ричное  число ( 2 байта ), CY = 1 - ok
+; CY = 0 - error ( too big )
+dechex: push    hl
+	pop     ix
+
+	inc     ix
+	xor     a
+	cp      (ix)
+	scf
+	ld      hl,0    ; В hl результат в случае ввода по умолчанию
+	ret     z       ; Ввод по умолчанию 0
+
+	ld      e,a
+	ld      b,(ix)  ; В рег. b число введенных символов
+	inc     ix
+	ld      a,b
+	cp      5
+	jr      nz,symhex
+
+symhexext:
+	ld      a,(ix)
+	sub     30h
+	jp      c,dherror  ; код < "0"
+	cp      0ah
+	ret     nc         ; Выход, код не попадает в пределы "0".."9", CY = 0
+	ld      e,a
+	inc     ix
+	dec     b
+
+symhex: ld      a,(ix)
+	sub     30h
+	jp      c,dherror  ; код < "0"
+	cp      0ah
+	ret     nc         ; Выход, код не попадает в пределы "0".."9", CY = 0
+symhex0:ld      c,a
+	add     hl,hl
+	add     hl,hl
+	add     hl,hl
+	add     hl,hl
+	ld      a,l
+	and     0f0h       ; Сбросить биты D3..D0 рег. l
+	or      c
+	ld      l,a
+	inc     ix
+	djnz    symhex
+; В e,hl находится десятичное 1-5 разрядное число.
+; преобразование ведется для диапазона чисел 0 - 65535
+	ld      a,e
+	ex      de,hl
+	ld      hl,0
+	ld      (summa),hl
+
+	or      a
+	jr      z,nibbl3
+
+	ld      bc,10000
+	call    summator
+nibbl3:
+	ld      a,d
+	and     0f0h
+	jr      z,nibbl2
+	rrca
+	rrca
+	rrca
+	rrca
+	and     0fh
+	ld      bc,1000
+	call    summator
+nibbl2: ld      a,d
+	and     0fh
+	jr      z,nibbl1
+	ld      bc,100
+	call    summator
+nibbl1: ld      a,e
+	and     0f0h
+	jr      z,nibbl0
+	rrca
+	rrca
+	rrca
+	rrca
+	and     0fh
+	ld      bc,10
+	call    summator
+nibbl0: ld      a,e
+	and     0fh
+	ld      bc,1
+	jr      nz,nibbll
+	inc     a
+	dec     bc
+nibbll: call    summator
+	scf
+	ret
+
+summator:
+	ld      hl,0
+summloop:
+	add     hl,bc
+	dec     a
+	jr      nz,summloop
+	ld      bc,(summa)
+	add     hl,bc
+	ld      (summa),hl
+	ret     nc
+	pop     hl
+dherror:xor     a          ; Выход по ошибке, CY = 0
+	ret
+
+; п/п получения номера группы ( в HL )
+; если реальный номер группы , то CY=1 ,иначе CY=0
+getgroup:
+	ld      hl,(wpoint+2)   ; Tp
+	ld      (tvrem),hl
+	ld      de,(sysquant)   ; syst. trk. qty.
+	call    cmpint
+	ccf
+	ret     nc              ; выход, если системные дорожки
+	ld      hl,(wpoint+0)
+	ld      (summa),hl
+
+ggcycl0:ld      hl,(tvrem)
+	ld      a,h
+	or      l
+	jr      z,gg0
+	dec     hl
+	ld      (tvrem),hl
+	ld      hl,(summa)
+	ld      de,(secquant)
+	add     hl,de
+	ld      (summa),hl
+	jr      ggcycl0
+
+gg0:    ld      hl,(summa)
+	ld      de,(syssec)
+	sbc     hl,de
+
+	ld      bc,0    ; номер группы
+	ld      de,(blksiz)
+ggcycl1:call    cmpint
+	jr      z,gg1
+	jr      c,gg1
+	sbc     hl,de
+	inc     bc
+	jr      ggcycl1
+gg1:    ld      (group),bc
+	ld      l,c
+	ld      h,b
+	scf
+	ret
+
+; Вывод на консоль из рег. А без порчи регистров
+rconouta:
+	push    af
+	push    bc
+	push    de
+	push    hl
+	call    conouta
+	pop     hl
+	pop     de
+	pop     bc
+	pop     af
+	ret
+;
+; п/п ввода строки с клавиатуры .
+; Вход  : DE=адрес буфера
+;         В=длина буфера ввода
+;         С=позиция точки
+;         HL=позиция на зкране
+;         A= (or) byte for codes 20h-29h
+
+
+modi:
+	ld      (modibyte),a
+	ld      (pushhl),bc
+	ld      (pushde),de
+	call    gotoxy
+	ld      de,(pushde)
+	ld      b,0             ; рег. В - номер позиции в буфере
+
+modirp1:push    bc
+	push    de
+	call    inkey
+	cp      20h
+	jr      c,modix0
+	cp      2ah
+	jr      nc,modix0
+	ld      b,a
+	ld      a,(modibyte)
+	or      b
+modix0:
+	ld      (modikey),a
+	pop     de
+	pop     bc
+	cp      27
+	ret     z
+	cp      13
+	ret     z
+	ld      hl,modirp1
+	push    hl
+	cp      7fh
+	jr      z,backspace
+	cp      8
+	jr      z,goleft
+	cp      4
+	jr      z,goright
+	cp      20h
+	ret     c
+	ld      l,b
+	ld      h,0
+	add     hl,de
+	ld      (hl),a
+	call    rconouta
+	ld      a,(pushhl+1)
+	cp      b
+	jr      z,left1
+	inc     b
+	ld      a,(pushhl)              ;c
+	cp      b
+	ret     nz
+	inc     b
+	jr      right1
+;
+backspace:
+	ld      a,b
+	or      a
+	ret     z
+	call    goleft
+	ld      l,b
+	ld      h,0
+	add     hl,de
+	ld      a,' '
+	ld      (hl),a
+	call    rconouta
+	jr      left1
+goleft: ld      a,b
+	or      a
+	ret     z
+	dec     b
+	ld      a,(pushhl)              ;c
+	cp      b
+	jr      nz,left1
+	dec     b
+	call    left1
+left1:  ld      a,8
+left2:  jp      rconouta
+goright:
+	ld      a,(pushhl+1)
+	cp      b
+	ret     z
+	inc     b
+	ld      a,(pushhl)              ;c
+	cp      b
+	jr      nz,right1
+	inc     b
+	call    right1
+right1: ld      a,24
+	jr      left2
+
+;
+; п/п ввода строки с клавиатуры .
+; Вход  : A=длина буфера ввода
+;         hl=позиция на зкране
+
+; Выход: HL - указатель на начало буфера
+; буфер: hl+0  максимальная длина
+;        hl+1  реальная длина
+;        hl+2 ... де+n  буфер
+inputstr:
+	push    hl
+	push    af
+
+	push    af
+	call    gotoxy
+	call    cm2
+	ld      de,white*256+black
+	call    setcl
+	pop     af
+	push    af
+	ld      b,a
+	ld      c,20h   ; Символ " "
+	call    space0
+	call    cm3
+	ld      de,white*256+green
+	call    setcl
+	pop     af
+
+	ld      hl,krbuf
+	ld      (hl),a  ; установить макс. длину строки в буфере
+	ld      b,a
+	inc     hl
+	ld      (hl),0  ; установить реальную длину строки в буфере = 0
+	inc     hl
+
+bufcle: ld      (hl),20h ; заполнение буфера пробелами
+	inc     hl
+	djnz    bufcle
+
+	pop     af
+	pop     hl
+
+	ld      de,krbuf+2
+	ld      b,a
+	dec     b
+	ld      c,41
+	ld      a,10h
+	call    modi    ; ввод строки
+
+	ld      hl,krbuf
+	ld      b,(hl)  ; в рег. b макс. длина строки
+	inc     hl
+
+	push    hl      ; указатель на real lng
+	ld      e,b
+	ld      d,0
+	add     hl,de   ; hl указывает на хвост буфера
+seacycl:ld      a,(hl)
+	cp      20h
+	jr      nz,seaint
+	dec     hl
+	djnz    seacycl
+seaint: pop     hl
+	ld      (hl),b  ; Установка уазателя реальной длины введ. строки
+
+	dec     hl
+	ret
+
+;    БЛОК ПАРАМЕТРОВ ДИСКА ИМЕЕТ СЛЕДУЮЩИЙ ФОРМАТ :
+; +0   +2    +3    +4     +5    +7   +9    + 10   +11  +13
+;------------------------------------------------------------
+; SPT I BSH I BLM I EXM I DSM I DRM I AL0 I AL1 I CKS I OFF I
+; 16B I  8B I  8B I  8B I 16B I 16B I  8B I  8B I 16B I 16B I
+;------------------------------------------------------------
+; Получить размер группы             ( blksiz )    integer ( в секторах )
+;          число секторов на дорожке ( secquant )  integer
+;          число дорожек на диске    ( trkquant )  integer
+;          число системных дорожек   ( sysquant )  integer
+;          размер каталога           ( catsiz )    integer
+
+getquant0:
+	call    getdph          ; Получить указатель на блок параметров диска
+	push    hl
+	pop     ix              ; ix = dph
+
+	ld      l,(ix+5)
+	ld      h,(ix+6)
+	ld      (maxgroup),hl   ; максимальный номер группы на диске ( integer )
+	inc     hl
+	ld      (igds),hl       ; igds = dsm + 1 = емкость data области+каталог
+
+
+	ld      b,(ix+2)
+	dec     b
+	dec     b
+	ld      hl,4
+gds0:   add     hl,hl
+	djnz    gds0
+	ld      (blksiz),hl     ; В blksiz размер группы / 128 ( integer )
+	ret
+
+getquant:
+	call    getquant0
+	dec     hl
+	ld      c,l
+	ld      b,h
+	ld      hl,(igds)       ; hl = dsm + 1
+	push    hl
+	pop     de
+gds1:   add     hl,de
+	dec     bc
+	ld      a,b
+	or      c
+	jr      nz,gds1
+	ld      (dsize),hl  ; размер диска  dsize = ( dsm + 1 ) * blksiz - Ok!
+			    ; dsize - размер диска в секторах без сист. дорожек
+	call    getaddr     ; получить адрес размещения векторов занятости диска
+	push    hl
+	push    hl
+	ld      hl,(igds)
+	ld      b,3
+gds2:   srl     h
+	rr      l
+	djnz    gds2
+	pop     de
+	add     hl,de
+	ex      de,hl
+	ld      hl,0
+	ld      (dused),hl
+	pop     hl
+
+; Выход:hl=de=> a=0 z=1
+;       hl>de=> a=1 z=0 cy=0
+;       hl<de=> a=2 z=0 cy=1
+
+gds3:   call    cmpint
+	cp      1
+	jr      z,contcomp
+	push    hl
+	push    de
+	ld      a,(hl)
+	call    bits
+	ld      l,a
+	ld      e,a
+	ld      h,0
+	ld      d,h
+	ld      bc,(blksiz)
+	dec     bc
+gds4:   add     hl,de
+	dec     bc
+	ld      a,b
+	or      c
+	jr      nz,gds4
+	ex      de,hl
+	ld      hl,(dused)      ; Занято на диске
+	add     hl,de
+	ld      (dused),hl
+	pop     de
+	pop     hl
+	inc     hl
+	jr      gds3
+
+contcomp:
+	ld      l,(ix+0)
+	ld      h,(ix+1)
+	ld      (secquant),hl   ; получить количество секторов на дорожке
+				; ( integer )
+				; для 800к = 40
+
+	ld      l,(ix+13)       ; hl = число системных дорожек
+	ld      h,(ix+14)
+	ld      (sysquant),hl
+
+	ld      de,0
+			   ; de = число сист. дорожек * число сект. на дорожку
+	call    cmpint
+	jr      z,compt3        ; переход, если нет сист. дорожек
+
+	ld      c,l
+	ld      b,h             ; bc = число системных дорожек
+
+	ld      hl,(secquant)   ; hl = число секторов на дорожке
+	push    hl
+	pop     de
+	ld      hl,0
+compt2: add     hl,de
+	dec     bc
+	ld      a,b
+	or      c
+	jr      nz,compt2
+	ex      de,hl
+
+compt3: ld      (syssec),de     ; de = SPT*OFF - число секторов под систему
+	ld      hl,(dsize)
+	add     hl,de           ; hl = bls*(dsm+1)/128+OFF*SPT - общее число
+				;     > data + cat <  >system<
+				; секторов на диске
+	ex      de,hl
+	xor     a
+	ld      (corrbyte),a    ; corrbyte := 0
+	ld      hl,(secquant)
+	ld      (seclast),hl    ; seclast := secquant
+	ex      de,hl           ; de := secquant, hl := allsectors
+	ld      bc,0            ; trkquant := 0
+compt4: call    cmpint          ;
+	jr      z,compt5
+	jr      c,compt6
+	and     a
+	sbc     hl,de
+	inc     bc
+	jr      compt4
+compt5: inc     bc
+	jr      compt7
+compt6: ld      a,1
+	ld      (corrbyte),a
+	ld      (seclast),hl    ; число секторов на посл. дорожке
+compt7:
+	ld      (trkquant),bc   ; число дорожек на диске
+	ld      a,(corrbyte)
+	or      a
+	jr      nz,compt8
+	dec     bc
+compt8: ld      (trklast),bc    ; последняя дорожка диска
+
+; число секторов под каталог bits(al0,al1)*blksiz
+	ld      a,(ix+9)
+	call    bits
+	push    af
+	ld      a,(ix+10)       ; hl = alx
+	call    bits
+	ld      b,a
+	pop     af
+	add     a,b             ; a = число битов в alx
+	ld      (catblock),a    ; число блоков под каталог
+	ld      b,a
+	ld      de,(blksiz)     ; т.к. blksiz - размер группы в секторах
+	ld      hl,0
+	or      a
+	jr      z,nodir
+compdir:add     hl,de
+	djnz    compdir
+nodir:  ld      (catsiz),hl
+	ret
+
+; П/п listDMA
+; выводит содержимое DMA на экран
+listdma:ld      a,1
+	ld      (list),a
+	call    frdump          ; уст. окно для вывода дампа
+	call    wroffset        ; вывести оффсеты и шапку
+	ld      hl,dma          ; уст. начальный адрес для вывода
+	ld      b,80h           ; Число байт для вывода
+listloop:
+	call    wrhexascii
+	inc     hl
+	djnz    listloop
+	xor     a
+	ld      (list),a
+	ret
+; Вывод оффсетов и шапки
+wroffset:call   home
+	call    wrdsk2
+	call    offwritest
+	db      4,0,'0 1  2 3  4 5  6 7  8 9  A B  C D  E F 0123456789ABCDEF',0
+	ld      bc,800h
+	ld      hl,103h
+wroffsetcycl:
+	push    hl
+	push    bc
+	call    gotoxy
+	pop     bc
+	push    bc
+	ld      a,c
+	call    wrhex
+	ld      c,':'
+	call    conout
+	pop     bc
+	ld      a,16
+	add     a,c
+	ld      c,a
+	pop     hl
+	inc     l
+	djnz    wroffsetcycl
+	ret
+
+; Вывод байта в dump в HEX и ASCII виде.  Вход: hl - offset
+hextable:  db   4,6,9,11,14,16,19,21,24,26,29,31,34,36,39,41
+asciitable:db   44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59
+wrhexascii:
+	push    bc
+
+	call    prpos
+	call    prhex
+	call    prascii
+
+	pop     bc
+	ret
+
+prpos:
+	push    hl
+	ld      d,0
+	ld      a,l
+	sub     80h
+	push    af
+	rrca
+	rrca
+	rrca
+	rrca                    ; старший полубайт
+	and     0fh
+	add     a,3             ; Положение курсора по Y
+	ld      c,a
+	pop     af
+	and     0fh             ; младший полубайт
+	ld      e,a
+	ld      hl,hextable
+	add     hl,de
+	ld      b,(hl)
+	ld      (curhex),bc     ; положение курсора для вывода HEX
+	ld      de,16
+	add     hl,de
+	ld      b,(hl)
+	ld      (curascii),bc   ; положение курсора для вывода ASCII
+	pop     hl
+	ret
+prhex:
+	push    hl
+	push    hl
+	ld      hl,(curhex)
+	call    gotoxy
+	pop     hl
+	call    ctrlon
+
+	ld      a,(hl)
+	call    wrhex           ; вывод HEX
+	pop     hl
+	ret
+
+prascii:
+	push    hl
+	push    hl
+	ld      hl,(curascii)
+	call    gotoxy
+	pop     hl
+
+	ld      a,(hl)
+	cp      20h
+	push    af
+	call    c,wrlitle
+	pop     af
+	call    nc,conouta      ; вывод ASCII
+
+	pop     hl
+	jp      ctrloff
+
+;**** п/п Bits ****   рег. A / рег. A
+bits:   ld      bc,801h
+	ex      af,af'
+	xor     a
+	ex      af,af'
+bits1:  push    af
+	and     c
+	jr      nz,bits0
+bits2:  sla     c
+	pop     af
+	djnz    bits1
+	ex      af,af'
+	ret
+bits0:  ex      af,af'
+	inc     a
+	ex      af,af'
+	jr      bits2
+
+initfcb:ld      ix,fcb;Адрес имени в hl
+	ld      b,24h
+
+initf0: ld      (ix),0
+	inc     ix
+	djnz    initf0
+
+	ld      ix,fcb+1
+	ld      b,11
+inif1:  ld      a,(hl)
+	cp      40h
+	jr      c,inif2
+	ld      c,a
+	and     5fh
+inif2:  inc     hl
+	cp      '.'
+	jr      z,inif1
+	ld      d,a
+	ld      a,c
+	cp      178
+	jr      z,inif1
+	ld      a,d
+	ld      (ix),a
+	inc     ix
+	djnz    inif1
+	ret
+
+
+; ==== Выход в ДОС =====
+mainquit:
+	JR      EXAMEN
+;        ld      hl,winquit+2
+;        jp      objectwin
+
+;wquitstr:call   offwritest
+;        db      6,0,   ' Quit ',0
+;        call    offwritest
+;        db      2,2,'Are you sure ?',0
+;        ret
+
+;wquitcase:pop   hl
+;        pop     hl
+;        pop     hl
+;        jp      nz,closew
+
+; Ф-ция выход в ДОС
+examen: ld      sp,stacknc
+	call    reccur
+	call    closal
+	call    cm0f0w6         ; монохром, окно 80х25, шрифт 6
+	call    clrscr          ; очистить экран
+	call    recvectors      ; восстановить вектора ошибок BDOS
+
+	ld      a,(sysdisk)
+	ld      (workdisk),a
+	ld      a,(sysuser)
+	ld      (workuser),a
+	ld      a,(syssnd)
+	ld      (syssound),a
+	call    resact
+	call    askdsk
+	ld      (4),a           ; Указать ССР текущий диск
+
+	ld      sp,100h
+	jp      bios+3          ; warm start
+
+; === Конец блока "Выход в ДОС" ===
+
+; === Конфигурация ===
+mainconf: ld    a,(soundds)
+	ld      (lastsn),a
+	ld      a,(delay)
+	ld      (lastdel),a
+	ld      a,(sortmode)
+	ld      (lastsm),a
+	ld      hl,winconf+2
+	jp      objectwin
+
+byte0:  db      0
+byte1:  db      1
+wcnfproc:call   offwritest      ; шапка
+	db      5,0,' Configuration ',0
+	ld      hl,0104h
+	call    gotoxy
+	ld      b,24
+	call    specline0
+	call    offwritest
+	db      6,3,' Sorting mode ',0
+
+wcnfpro:
+	ld      hl,1602h
+	ld      de,lastsn
+	call    cell            ; sound
+
+	push    hl
+	inc     h
+	call    gotoxy
+	call    inv
+	ld      a,(lastdel)
+	daa
+	call    wrbcd           ; keyboard delay
+	call    norm
+	pop     hl
+	inc     hl
+	inc     hl
+
+	ld      a,(lastsm)
+	or      a
+	ld      de,byte1
+	jr      z,wcnfp0
+	dec     de
+wcnfp0: call    cell
+	ld      a,(lastsm)
+	dec     a
+	ld      de,byte1
+	jr      z,wcnfp1
+	dec     de
+wcnfp1: call    cell
+	ld      a,(lastsm)
+	cp      3
+	ld      de,byte1
+	jr      z,wcnfp2
+	dec     de
+wcnfp2: jp      cell
+
+wcnfcase:jr     nz,wcnf0
+
+	ld      hl,lastsn       ; toggle sound
+	call    replace
+	jr      wcnfpro
+
+wcnf0:  dec     a
+	jr      nz,wcnf2
+
+	ld      hl,lastdel      ; keyboard delay
+	ld      a,(hl)
+	inc     a
+	and     0fh
+	jr      nz,wcnf1
+	inc     a
+wcnf1:  ld      (hl),a
+	jr      wcnfpro
+
+wcnf2:  ld      hl,lastsm
+	dec     a
+	jr      nz,wcnf3
+	ld      (hl),0
+	jr      wcnfpro
+
+wcnf3:  dec     a
+	jr      nz,wcnf4
+	ld      (hl),1
+	jr      wcnfpro
+
+wcnf4:  dec     a
+	jr      nz,wcnf5
+	ld      (hl),3
+	jr      wcnfpro
+
+wcnf5:  dec     a
+	jr      nz,wcnf6     ; cansel
+
+	ld      a,(lastsn)   ; ok
+	ld      (soundds),a
+	ld      a,(lastdel)
+	ld      (delay),a
+	ld      a,(lastsm)
+	ld      (sortmode),a
+
+standexit:                      ; Стандартный выход из меню
+wcnf6:  pop     hl
+	pop     hl
+	pop     hl
+	jp      closew
+; === Конец ф-ции конфигурация ===
+
+cell:   push    hl
+	push    de
+	push    bc
+
+	push    de
+	call    gotoxy
+	ld      c,'('
+	call    conout
+	pop     hl
+	call    storsp
+	ld      c,')'
+	call    conout
+
+	pop     bc
+	pop     de
+	pop     hl
+	inc     de
+	inc     l
+	ret
+
+replace:
+	ld      a,(hl)
+	xor     1
+	ld      (hl),a
+	ret
+
+wrhex:  push    af
+	rrca
+	rrca
+	rrca
+	rrca
+	and     0fh
+	call    wrhex0
+	pop     af
+	and     0fh
+wrhex0: cp      0ah
+	jr      c,wrhex1
+	add     a,7
+wrhex1: add     a,30h
+	jp      rconouta
+
+storsp: ld      a,(hl)
+	or      a
+	jp      z,wr20h
+	jp      wr2ah
+
+cmpint: push    hl
+	push    de
+	push    bc
+	ld      bc,cmpint2
+	push    bc
+	push    hl     ;Вход:hl,de  Выход:hl=de=>a=0,hl>de=>a=1,hl<de=>a=2
+	pop     bc
+	and     a
+	sbc     hl,de
+	ld      a,h
+	or      l
+	ret     z       ;a=0,z=1
+	push    bc
+	pop     hl
+	ld      a,h
+	cp      d
+	jr      nz,cmpint0
+	ld      a,l
+	cp      e
+cmpint0:ld      a,1
+	ret     nc      ;a=1,fc=0
+	ld      a,2
+	ret             ;a=2,fc=1
+cmpint2:pop     bc
+	pop     de
+	pop     hl
+	ret
+
+getwindpos:
+	ld      hl,buffw-6      ;Восстановить картинку под окном из буфера
+	ld      de,6
+	jr      arrsel
+
+allde1: ld      de,1
+	jr      arrsel
+
+allde128:
+	ld      de,128
+	jr      arrsel
+
+allde12:ld      de,12
+
+arrsel: inc     a               ;Вход hl,de,a. Выход hl
+arrsl0: add     hl,de
+	dec     a
+	jr      nz,arrsl0
+	ld      a,(hl)
+	or      a
+	ret
+
+allde2: ld      de,2
+	jr      arrsel
+
+setless:ld      c,27
+	call    conout
+	ld      c,'@'
+	jr      wrsym
+
+wrlitle:push    af
+	call    setless
+	pop     af
+	jr      conouta
+
+wr2ah:  ld      a,7
+	jr      wrlitle
+wr20h:  ld      c,' '
+wrsym:  push    hl
+	call    conout
+	pop     hl
+	ret
+clrscr: ld      c,0ch              ;cls
+	jr      wrsym              ;вывод байта на экран
+
+wrdsk:  ld      a,(workdisk)
+	add     a,41h
+conouta:ld      c,a
+wrdsk3: jr      wrsym
+
+wrdsk2: call    wrdsk
+wrdsk4: ld      c,':'
+	jr      wrdsk3
+
+wrst12: ld      a,12    ;Вход hl
+wst:    or      a       ;взамен wstrng , вход: hl , a
+	ret     z
+	ld      b,a
+
+ws12:   push    hl
+	ld      a,(hl)
+	cp      20h
+	call    c,setless
+	pop     hl
+	ld      a,(hl)
+	push    bc
+	call    conouta
+	pop     bc
+	inc     hl
+	djnz    ws12
+	ret
+
+wri1:   ld      a,(i1)
+	jr      conouta
+
+fastrki1:ld      hl,0f3c3h
+	ld      (hl),0c9h
+	push    hl
+	ld      hl,asm
+	push    hl
+	ld      (hl),1
+	call    rki1
+	pop     hl
+	dec     (hl)
+	pop     hl
+
+selsound:
+	push    af
+	push    bc
+	ld      a,(soundds)
+	or      a
+	ld      b,0c9h
+	jr      z,fast0
+	ld      b,0c3h
+fast0:  ld      (hl),b
+	pop     bc
+	pop     af
+	ret
+
+;***** Вызовы BDOS *********************************
+nfff:   call    bdscall
+	jr      fferror
+nzzz:   call    bdscall
+nzerror:or      a
+	jr      z,fferror
+	ld      a,0ffh
+fferror:call    erranl
+	ld      b,0
+	jr      z,fferr0;no Bdos error
+	dec     b
+fferr0: or      b
+	cp      0ffh
+	ld      (IOdata),a
+	ret     z
+	xor     a
+	ld      (IOdata),a
+	ret
+;IOdata:=0 <= Нет ошибок BDOS и результ. операции <> 0ffh, иначе IOdata:=0ffh
+iofcb:  call    initfcb
+ofcb:   ld      de,fcb
+open:   ld      c,0fh   ;Открыть файл
+	jr      nfff
+cfcb:   ld      de,fcb
+close:  ld      c,10h   ;Закрыть файл
+	jr      nfff
+efcb:   ld      de,fcb
+erase:  ld      c,13h   ;Стереть файл
+	jr      nfff
+rbfcb:  ld      de,fcb
+readbl: ld      c,14h   ;Чтение последовательное из файла
+	jr      nzzz
+wbfcb:  ld      de,fcb
+writebl:ld      c,15h   ;Запись последовательноя в файл
+	jr      nzzz
+rbpfcb: ld      de,fcb
+rblock: ld      c,33    ; Чтение произвольное из файла
+	jr      nzzz
+wblock: ld      c,34    ; Запись произвольная в файл
+	jr      nzzz
+rwfcb:  ld      de,fcb
+rewrite:ld      c,16h   ;Создание заголовка файла
+	jr      nfff
+rename: ld      c,17h
+	jr      nfff
+setatt: ld      c,30    ;Установить атрибуты файла
+	jr      nfff
+resdsk: ld      c,0dh   ;Сброс диска
+	jr      bdscall
+setdsk: ld      e,a     ;номер диска в рег. A (0..3)
+	ld      c,0eh
+	jr      bdscall
+setusr: ld      e,a     ;номер области в рег. A
+	ld      c,20h
+	jr      bdscall
+filesize:ld     c,23h
+	jr      bdscall
+seek:   ld      c,24h
+bdscall:ld      (bdsstc),sp
+	ld      sp,stacknc0
+	call    bdos
+	ld      sp,(bdsstc)
+	ex      af,af'
+	xor     a
+	ld      (IOdata),a
+	ex      af,af'
+	ret
+
+getaddr:ld      c,27
+	jr      bdscall
+
+sffcb:  ld      de,fcb  ; Поиск первого соотв. описателя
+	ld      c,17
+	jr      bdscall
+
+snfcb:  ld      de,fcb  ; Поиск next соотв. описателя
+	ld      c,18
+	jr      bdscall
+
+getdph: ld      c,31
+	jr      callbds
+askdsk: ld      c,19h   ;акт. диск в рег. A
+	jr      callbds
+askusr: ld      c,20h   ;акт. область в рег. A
+	ld      e,0ffh
+	jr      callbds
+setpdp: ld      c,1ah
+callbds:jp      bdos
+
+erranl: push    hl
+	push    af
+	ld      hl,IOdata
+	ld      a,(hl)
+	ld      h,a
+	xor     a
+	cp      h
+	pop     hl
+	ld      a,h
+	pop     hl
+	ret
+
+; *** Курсор домой ***
+home:   ld      hl,101h
+	jp      gotoxy
+
+; *** Вектора, подменяющие вектора ошибок bdos ***
+DeVectors:defw  syser0
+	defw    syser1
+	defw    syser2
+	defw    syser3
+
+; *** П/п Восстановл. стандартных векторов ошибок BDOS ***
+RecVectors:
+	ld      hl,SysVectors
+	ld      de,(jumpbd)
+	inc     de
+	inc     de
+	inc     de
+LDIR8:  ld      bc,8
+	ldir
+	ret
+
+space:  ld      b,a
+	ld      c,' '
+space0: push    bc
+	call    conout
+	pop     bc
+	djnz    space0
+	ret
+space12:ld      a,12
+	jr      space
+
+
+readkey:jp      inkey
+
+rki1:   call    readkey
+	ld      (i1),a
+	ret
+
+getver: ld      c,12
+	call    bdos
+	add     hl,hl
+	ret
+
+
+; получить ошибку
+; выход: Z=1 - ok, Z=0 - error
+getalarm:ld     a,(alarm)
+	or      a
+	ret
+
+; Уст. диска / юзера
+; вход: переменные workdisk, workuser
+; исп.: alarm
+
+lresact:ld      a,(loaddisk)
+	ld      l,a
+	ld      a,(loaduser)
+	ld      h,a
+	jr      resactx
+
+sresact:ld      a,(savedisk)
+	ld      l,a
+	ld      a,(saveuser)
+	ld      h,a
+	jr      resactx
+
+resact: ld      a,(workdisk)
+	ld      l,a
+	ld      a,(workuser)
+	ld      h,a
+
+resactx:ld      (resds0),hl
+	xor     a           ; сброс ошибки
+	ld      (alarm),a
+	call    resdsk      ; ф-ция 13 BDOS
+	call    getalarm
+	call    nz,warning0
+resact0:ld      a,(resds0)
+	call    setdsk      ; уст. диск
+	call    getalarm
+	call    nz,warning1
+resact1:ld      a,(resds1)
+	jp      setusr      ; уст. юзер
+
+; === блок "выбор диска" ===
+;       { модуль DISKSELECT }
+
+wdselstr:
+	db      8,0,' Disk ',0
+
+mainseld:ld      a,(workdisk)
+	ld      (lastd),a
+	ld      (windsel),a
+	ld      hl,windsel+2
+	jp      objectwin
+
+wdselcase:
+	pop     hl
+	pop     hl
+	pop     hl
+	ld      (workdisk),a
+dskseli:call    resdsk
+	call    erranl
+	jr      nz,dskselerr
+	ld      a,(workdisk)
+	call    setdsk
+	call    erranl
+	jp      z,closew
+dskselerr:
+	ld      a,(lastd)
+	ld      (workdisk),a
+	jr      dskseli
+; === Конец блока "выбор диска" ===
+
+; === блок "выбор юзера" ====
+
+wuselstr:
+	db      3,0,' User ',0
+
+mainselu:ld      a,(workuser)
+	ld      (winusel+1),a
+	ld      hl,winusel+2
+	jp      objectwin
+
+wuselcase:
+	ld      (workuser),a
+	call    setusr
+
+	jp      standexit
+; === Конец блока "выбор юзера" ===
+
+; === блок "Editing" ===
+
+wmeditstr:
+	db      5,0,' Editing ',0
+
+wmeditcase:
+	ld      (editfunc),a
+	cp      3
+	call    z,setfile
+xweditcase:
+	ld      a,(editfunc)
+	cp      3
+	call    z,xsetfile
+
+	call    closal
+	call    resscr
+
+	ld      sp,stacknc
+	ld      hl,mainrepeat
+	push    hl
+	jp      editproc
+
+mainedit:ld     hl,winmedit+2
+	jp      objectwin
+; === конец блока "Editing" ====
+ 
+	call    replace
+	jr      wcnfpro
+
+wcnf0:  dec     a
+	jr      nz,wcnf2
+
+	ld      hl,lastdel      ; keyboard delay
+	ld 

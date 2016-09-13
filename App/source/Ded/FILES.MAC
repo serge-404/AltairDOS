@@ -1,0 +1,522 @@
+; Запись файла. Буфер 16 Кбайт с адреса buff
+svfile:
+	ld      hl,exitfiles
+	push    hl
+	ld      (svstack),sp
+
+	IF      DEMO
+	JP      INFO
+
+	ELSE
+	call    xsetmarkers
+	ld      a,1             ; Уст. признака начала операции Save
+	ld      (flbegin),a
+
+svloop:
+	call    sourceins       ; Телега, если одинаковые диски
+	call    resact          ; уст. диск/юзер источника ( workdisk, user )
+	call    resgrpoint      ; Уст. указателя по буферу на начало буфера
+	xor     a
+	ld      (rcount),a      ; Сброс счетчика чтения - 0 считанных секторов.
+	call    setDMA
+	call    frcont          ; Окно UP меню
+; Цикл чтения из блока
+svrloop:
+	call    monink
+	cp      27
+	jr      nz,skipsvr
+	call    escmenu         ; нажата ESC
+	push    af
+	call    frcont
+	pop     af
+	ret     nc                ; переход на рестарт редактора
+skipsvr:
+	call    wrTS            ; Вывести Tp, Sp
+	call    readsector
+	ret     nc              ; Выход, дисковая ошибка !
+	call    mvDMAbp         ; Переслать DMA в буфер
+
+	call    inccount        ; Увеличить указатель по буферу и счетчик
+	ld      hl,rcount
+	inc     (hl)
+	call    downfunc
+	ld      a,1
+	ld      (endblock),a
+	jr      nc,skipmvbuff   ; Выход, попытка выхода за конец блока
+	xor     a
+	ld      (endblock),a    ; иначе находимся в пределах блока
+
+	ld      a,(rcount)      ; Проверить место в буфере
+	cp      128
+	jr      c,svrloop
+
+skipmvbuff:
+	ld      a,(rcount)
+	ld      (wcount),a      ; Уст. счетчик числа записей для write
+
+	call    destinins       ; Телега, если одинаковые диски
+	call    sresact         ; уст. диск/юзер файла ( savedisk, user )
+	call    openfile        ; открыть файл и уст. позицию прямого
+				; доступа к файлу.
+
+	call    resgrpoint      ; Сбросить указатель по буферу
+	call    setDMA
+
+svwloop:
+	call    monink
+	ld      (esccod),a
+	cp      27
+	jr      nz,skipsvw
+	call    escmenu         ; нажата ESC
+	push    af
+	call    frcont
+	pop     af
+	ret     nc                ; переход на рестарт редактора
+skipsvw:
+	call    mvbpDMA         ; Переслать запись из буфера в DMA
+
+	call    seekrec
+
+	ld      de,fcb          ; записать в файл сектор из DMA
+	call    wblock          ; Прямая запись в файл
+	or      a
+	call    nz,warning15
+	call    getalarm
+	call    nz,warning23
+	ld      hl,wcount       ; уменьшить счетчик записей в буфере
+	dec     (hl)
+	jr      z,svw0          ; Буфер пуст - переход
+
+	call    inccount        ; Увеличить указатель по буферу
+	jr      svwloop
+svw0:                           ; Проверить конец блока (флаг)
+	call    cfcb            ; Закрыть $$$.TMP
+	cp      0ffh
+	call    z,warning24
+	call    getalarm
+	call    nz,warning21
+
+	ld      a,(endblock)
+	or      a
+	jp      z,svloop        ; Переход на чтение след. куска блока
+
+	call    closefile       ; Закрыть файл-приемник
+	call    sourceins       ; Телега, если одинаковые диски
+	JR      EXITFILES
+
+	ENDIF
+
+exitfiles:
+	ld      sp,stacknc
+	ld      hl,mainrepeat
+	push    hl
+	call    closal
+	call    resact          ; сбросить систему, уст. диск/юзер
+	call    getquant        ; настроиться по DPB
+	ld      a,(editfunc)
+	cp      3
+	call    z,xsetfile
+	ld      hl,(wpoint+0)
+	push    hl
+	ld      hl,(wpoint+2)
+	push    hl
+	ld      a,(editfunc)
+	cp      3
+	call    nz,range        ; уст. границы редактирования
+	pop     hl
+	ld      (wpoint+2),hl
+	pop     hl
+	ld      (wpoint+0),hl
+
+	ld      hl,exitfl0
+	push    hl
+
+	ld      a,(editfunc)
+	cp      3
+	ret     nz
+
+; п/п получения номера группы ( в HL )
+; если реальный номер группы , то CY=1 ,иначе CY=0
+	call    getgroup
+	jp      nc,rfile           ; Ошибка, уст. на начало файла
+
+; Искать указанную группу в списке групп файла
+; Сохраняет hl, в hl номер группы. Выход: CY=1 - есть группа, CY=0 - нет группы
+; Уст. указатель buffpoint на позицию с указанной группой.
+	call    searchgr
+	jp      nc,rfile           ; Ошибка, уст. на начало файла
+	pop     hl
+
+	call    rrfile             ; Уст. границы
+
+exitfl0:
+	xor     a
+	ld      (setbeg),a
+	ld      (setend),a
+
+	call    cmppos
+	push    af
+	call    nc,warning
+	pop     af
+	call    nc,setpoint
+	call    frdump
+	jp      statlines       ; Перезапуск с учетом режима редактирования
+
+;-------------------------------------------------------------------------------
+setmarkers:
+	ld      hl,bbeg
+	ld      de,wbeg
+	jp      ldir4
+
+setDMA: ld      de,DMA
+	jp      setpdp
+
+mvbpDMA:                        ; Переслать из буфера в DMA
+	ld      hl,(buffpoint)
+	ld      de,dma
+ldir128:
+	ld      bc,128
+	ldir
+	ret
+mvDMAbp:                        ; Переслать DMA в буфер
+	ld      hl,dma
+	ld      de,(buffpoint)
+	jr      ldir128
+
+sourceins:                      ; Телега про источник, если одинаковые диски
+	ld      hl,sourcems
+	jr      insert
+destinins:                      ; Телега про приемник, если одинаковые диски
+	ld      hl,destinms
+
+insert: call    eqvdisksave     ; Оп. save - проверка на одинаковые диски
+	ret     nc              ; Диски разные - выход
+
+	push    hl              ; Если совпадают, то вывести окно " repl. disk "
+	ld      hl,0d0ch
+	ld      bc,31eh
+	ld      de,magenta*256+blue
+	call    window
+	call    setw
+
+	call    offwritest
+	db      2,1,'Set ',0
+	pop     hl
+	call    write
+	call    writest
+	db      'PUT disk to drive ',0
+
+	call    wrdsk2
+	call    rki1
+	jp      closew
+
+inccount:                       ; Увеличить указатель по буферу
+	ld      hl,(buffpoint)
+	ld      de,128
+	add     hl,de
+	ld      (buffpoint),hl
+	ret
+
+eqvdisksave:                    ; Оп. save - проверка на одинаковые диски
+	ld      a,(fcase)
+	cp      4
+	ld      a,(savedisk)
+	jr      z,eds0
+	ld      a,(loaddisk)
+eds0:
+	ld      b,a
+	ld      a,(workdisk)
+	cp      b
+	scf
+	ret     z               ; Выход, одинаковые диски, CY = 1
+	ccf
+	ret                     ; Иначе, CY = 0
+
+openfile:                               ; открыть файл - приемник и (или) уст.
+					; позицию прямого доступа к файлу
+	ld      a,(fcase)
+	cp      4
+	jr      z,openfile0             ; Переход, если Save
+
+	ld      hl,loadname
+	call    initfcb
+	call    ofcb
+	cp      0ffh
+	call    z,warning25x
+	call    getalarm
+	call    nz,warning20x
+	ret
+
+openfile0:
+	ld      a,(flbegin)             ; next
+	or      a
+	jr      nz,of0                  ; Если вызван не в первый раз, то open
+
+	ld      hl,vremname
+	call    initfcb
+	call    ofcb
+	cp      0ffh
+	call    z,warning25
+	call    getalarm
+	call    nz,warning20
+
+	ld      de,fcb
+	call    filesize
+	call    getalarm
+	call    nz,warning22            ; Установиться в хвост файла $$$.IMP
+	ld      hl,(fcb+21h)
+	ld      (seekbuff),hl
+	ret
+of0:                                    ; last
+	ld      hl,vremname
+	call    initfcb
+	call    efcb
+	call    getalarm
+	call    nz,warning18            ; Ошибка удаления $$$.TMP
+
+	ld      hl,vremname
+	call    initfcb
+	call    rwfcb                   ; Создать заголовок файла
+	cp      0ffh
+	call    z,warning14
+	call    getalarm
+	call    nz,warning27
+
+	xor     a                       ; Сбросить флаг начала операции Save
+	ld      (flbegin),a
+	LD      HL,0
+	LD      (SEEKBUFF),HL           ; Сбросить указатель записи прямого
+					; доступа
+	ret
+
+; Установка номера записи в файле.
+seekrec:ld      hl,(seekbuff)
+	ld      (fcb+21h),hl
+	push    hl
+	call    seekrec0
+	ld      de,fcb
+	call    seek
+	pop     hl
+	ld      (fcb+21h),hl
+	inc     hl
+	ld      (seekbuff),hl
+seekrec0:xor     a
+	ld      (fcb+23h),a
+	ret
+
+closefile:                      ; Закрыть файл-приемник, переименовать его
+	call    cfcb
+	cp      0ffh
+	call    z,warning16     ; Закрыли $$$.TMP
+
+	ld      hl,savename
+	call    initfcb
+	call    efcb
+	call    getalarm
+	call    nz,warning19    ; Ошибка удаления старого file.tmp
+
+	ld      hl,savename
+	call    initfcb
+	ld      hl,fcb
+	ld      de,vremDMA
+	ld      bc,16
+	push    de
+	push    bc
+	ldir
+	ld      hl,vremname
+	call    initfcb
+	pop     bc
+	pop     hl
+	ld      de,fcb+16
+	ldir
+	ld      de,fcb
+	call    rename
+	cp      0ffh
+	call    z,warning17
+	call    getalarm
+	call    nz,warning26
+	ret
+
+; Константы для операции Save и Load
+
+vremname: db    '$$$     .TMP'
+savename: db    'FILE    .TMP'  ; файл
+	  db    0               ; protect byte ( т.к. исп. ldir13 ), а длина
+				; стринга - 12 байт
+loadname: db    'FILE    .TMP'
+	  db    0
+
+sourcems: db    'IN',0
+destinms: db    'OUT',0
+
+
+; -----------------------------------------------------------------------------
+; Чтение файла и запись на диск. Буфер 16 Кбайт с адреса buff
+; -----------------------------------------------------------------------------
+ldfile:
+	ld      hl,exitfiles
+	push    hl
+	ld      (svstack),sp
+
+	IF      DEMO
+	JP      INFO
+
+	ELSE
+	call    setmarkers      ; wbeg := bbeg
+
+	ld      hl,bbeg
+	ld      de,wpoint
+	call    ldir4           ; wpoint := bbeg
+				; Уст. wpoint на начало блока
+
+	ld      hl,(trklast)
+	ld      (wlast+2),hl
+	ld      hl,(seclast)    ; wlast := ( last_disk_parametrs )
+	ld      (wlast+0),hl    ; Уст. конец редактир. обл. = конец диска
+
+	ld      hl,0
+	ld      (seekbuff),hl
+
+	xor     a
+	ld      (endblock),a    ; Сброс признака " конец файла ".
+; ***************************************************
+; * Чтение из файла в буфер                         *
+; * Если rcount < 128, то это последний кусок       *
+; ***************************************************
+lockwr:
+	xor     a
+	ld      (rcount),a      ; Сброс счетчика считанных. записей
+
+	call    sourceins       ; Телега, если одинаковые диски
+	call    lresact         ; уст. диск/юзер файла ( loaddisk, user )
+	call    openfile        ; открыть файл
+
+	call    resgrpoint      ; Сбросить указатель по буферу
+	call    setDMA
+
+ldrloop:                        ; Цикл чтения из файла в буфер
+	call    monink
+	cp      27
+	jr      nz,skipldr
+	call    escmenu         ; нажата ESC
+	push    af
+	call    frcont
+	pop     af
+	ret     nc              ; переход на рестарт редактора
+
+skipldr:
+	call    seekrec         ; уст. позицию прямого доступа к файл
+
+	ld      de,fcb          ; считать в DMA сектор из файла
+	call    rblock          ; Прямое чтение из файла
+
+	ld      b,a
+	call    getalarm
+	call    nz,warning23x   ; Дисковая ошибка - ошибка 23x
+	ld      a,b
+
+	or      a
+	jr      nz,ldr0         ; Файл кончился - переход
+
+	call    mvDMAbp         ; Переслать запись из DMA в буфер
+
+	ld      hl,rcount       ; увеличить счетчик записей в буфере
+	inc     (hl)
+
+	ld      a,(hl)
+	cp      128
+	jp      nc,ldloop       ; перейти на запись секторов, если буфер
+				; заполнен
+
+	call    inccount        ; Увеличить указатель по буферу
+	jr      ldrloop
+ldr0:
+	ld      a,1
+	ld      (endblock),a    ; Уст. флаг конца файла
+
+; ***************************************************
+; * Запись на диск                                  *
+; * Разгружается буфер buff, число записей в wcount *
+; * Если rcount < 128, то это последний кусок       *
+; * тогда endblock = 1                              *
+; ***************************************************
+ldloop:
+	ld      a,(rcount)
+	ld      (wcount),a      ; Уст. счетчик записи по rcount
+	call    destinins       ; Телега, если одинаковые диски
+	call    resact          ; уст. диск/юзер приемника ( disk, user )
+	ld      a,(wcount)
+	or      a
+	ret     z               ; Защита от пустого файла
+	call    resgrpoint      ; Уст. указателя по буферу на начало буфера
+	call    setDMA
+	call    frcont          ; Окно UP меню
+
+; Цикл записи на диск
+ldwloop:
+	call    monink
+	cp      27
+	jr      nz,skipldw
+	call    escmenu         ; нажата ESC
+	push    af
+	call    frcont
+	pop     af
+	ret     nc              ; переход на рестарт редактора
+skipldw:
+	call    wrTS            ; Вывести Tp, Sp
+
+	call    mvbpDMA         ; Переслать из буфера в DMA
+
+	call    writesector
+	ret     nc              ; Выход, дисковая ошибка !  (Запись сектора)
+
+	call    inccount        ; Увеличить указатель по буферу
+
+	ld      hl,wcount
+	dec     (hl)
+	jr      nz,ldw0
+
+	ld      a,(endblock)
+	or      a
+	ret     nz
+	call    downfunc        ; Установиться на след. сектор диска
+	call    nc,warning29    ; Конец диска
+
+	jp      lockwr          ; Буфер пуст - переход на считывание из файла
+
+ldw0:
+	call    downfunc        ; Установиться на след. сектор диска
+	call    nc,warning29    ; Конец диска
+
+	jr      ldwloop
+
+	ENDIF
+
+xsetmarkers:
+	call    setmarkers
+
+	ld      hl,bend
+	ld      de,wlast
+	call    ldir4
+
+	ld      hl,bbeg
+	ld      de,wpoint
+	jp      ldir5           ; Уст. границы редактирования как границы блока
+
+
+;-------------------------------------------------------------------------------
+warning29:                     ; Файл не влезает на диск - прерывание записи
+	JP      WARNING15
+
+warning23x:
+	jp      warning23
+
+warning25x:
+	jp      warning25
+
+warning20x:
+	jp      warning20
+
+
+
+   READKEYд─  ю!ф  GETALAR

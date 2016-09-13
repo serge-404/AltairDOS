@@ -1,0 +1,1120 @@
+;*****************************
+;       Модуль B1N.MAC       *
+;     DRIVER VVM             *
+;     write,conout,inkey     *
+;     calls vvm,clrscr,setcur*
+;         dosft,setcl        *
+;*****************************
+cm0f0w6:call    cm0             ; Монохром
+f0w6:   call    wset6           ; Окно 80х25
+	jr      fillwin0        ; Уст. шрифт 6
+
+
+; П/п установить окно во весь экран
+fx:     call    wset6
+	call    fillwin0
+	jp      wset8
+
+reswinesc:db    1bh,'W',csetw,0,0,25,80
+fillwin:call    cm3             ; 16 - цветный скоростной режим
+fillwin0:ld     hl,reswinesc
+	ld      a,7
+	jp      wstrng          ; Установить окно во весь
+				; экран
+fullwin:call    fillwin0
+	ld      hl,reswinesc
+	ld      de,Winms
+	ld      bc,7
+	ldir
+	ret
+
+
+setcm0: db      1bh,'C',0 ;монохром
+setcm2: db      1bh,'C',2 ;16-цветн. обычный
+setcm3: db      1bh,'C',3 ;16-цветн. скоростной
+setcolor:db     1bh,'P',0 ;установка цвета
+setins: db      1bh,'L',0 ;вставить строку
+setdel: db      1bh,'M',0 ;удалить строку
+
+wset8:  ld      a,8
+	jr      wsetall
+wset6:  ld      a,6
+wsetall:ld      (wsiz),a
+wset:   ld      a,(wsiz)
+	ld      (setxms+2),a
+	call    writest
+setxms: db      1bh,'Q',0,0;выбор 6/8 бит - толщина шрифта
+	ret
+
+
+norm:   push    hl              ;Выкл. инв.
+	push    bc
+	call    writest
+normms: db      1bh,'7',0       ;выкл. инверсию
+	jr      setmod
+inv:    push    hl              ;Вкл. инв.
+	push    bc
+	call    writest
+invms:  db      1bh,'6',0 ;вкл. инверсию
+setmod: pop     bc
+	pop     hl
+	ret
+
+hidcur: push    af
+	call    writest         ;Погасить курсор
+sethid: db      1bh,';',0       ;выкл. курсор
+	pop     af
+	ret
+reccur: push    af
+	call    writest         ;Восст. курсор
+setrec: db      1bh,':',0       ;вкл.  курсор
+	pop     af
+	ret
+;
+offwrite:
+	call    offset
+write:  ld      a,(hl)
+	inc     hl
+	or      a
+	ret     z
+	call    conouta
+	jr      write
+
+writest:pop     hl
+	call    write
+	jp      (hl)
+
+offwritest:
+	pop     hl
+	call    offwrite
+	jp      (hl)
+
+cm0:    ld      hl,setcm0        ;Вкл. монохром
+	jr      cmx
+cm2:    ld      hl,setcm2        ;16 - цветн. режим
+	jr      cmx
+cm3:    ld      hl,setcm3        ;16 - цветн. режим (без вывода цвета)
+
+cmx:    ld      a,3
+wstrng: or      a                   ;write line, длина в рег. A
+	ret     z
+wstrng0:push    af
+	ld      a,(hl)
+	call    conouta
+	inc     hl
+	pop     af
+	dec     a
+	jr      nz,wstrng0
+	ret
+; ------------------------- i n k e y --------------------
+; 18.06.96 ИСПРАВЛЕН ДЛЯ ДРАЙВЕРА 480CVN V2.1 OR HIGNER
+; (С ПРЕРЫВАНИЯМИ) И ДОС R11/I (С ПОДДЕРЖКОЙ ПРЕРЫВАНИЙ).
+
+keytab: db      8,19h,18h,1ah     ; коды курсора ROM-BIOS
+instab: db      8,5,4,18h         ; коды курсора CP/M
+spectab:db      0,1,2,3,6,10      ; таблица запрета подмены
+				  ; клавиш
+INKEY:
+	ld      a,(delay)
+	ld      b,a
+	ld      hl,1
+inkset: add     hl,hl     ; hl = 2^(delay-1)
+	djnz    inkset
+inkloop:push    hl
+;        call    constat   ; для курсора  18.06.96
+	pop     hl
+	dec     hl
+	ld      a,h
+	or      l
+	jr      nz,inkloop
+
+	call    monink    ; опрос курсорных и спец. клавиш
+			  ; (через ROM-BIOS)
+
+	cp      0ffh      ; 1)     нет нажатия
+	jr      z,inkey   ; переход на счетчик хранителя
+
+	ld      hl,asm    ; 2)     fastcursor
+	bit     0,(hl)
+
+	jr      z,ink2    ; не fastcursor - переход
+
+	ld      ix,keytab ; перекодировка в стандарт CP/M
+	ld      b,4       ; размер таблицы перекодировки
+inkc:   cp      (ix)
+	jr      z,ink0    ; если перекодировано, то переход
+	inc     ix
+	djnz    inkc
+
+ink2:   ld      hl,spectab; 3)      crasy keys
+	ld      b,6
+inkc1:  cp      (hl)
+	ret     z         ; переход, если crasy keys
+	inc     hl
+	djnz    inkc1
+
+	ld      hl,0f3c3h
+	call    selsound
+	ld      e,0ffh
+	ld      c,6
+	call    bdos
+
+	or      a
+	ret     nz
+
+ink1: ;  call    constat        ; 18.06.96
+	jr      inkey
+
+ink0:   ld      a,(ix+4)
+	ret
+
+; Получить позицию кусора
+getcurpos:
+	call    writest
+getposms:db     1bh,'N',0       ;получить позицию курсора
+	call    rkbd
+	call    rkbd
+	call    rkbd
+	ld      (setposms+2),a
+	call    rkbd
+	ld      (setposms+3),a
+	ret
+
+gotoch: push    hl
+	call    dosft
+	pop     hl
+	ld      h,a
+
+gotoxy: ld      bc,1f1fh
+	add     hl,bc
+	ld      (gotoxyms+2),hl
+	call    writest
+gotoxyms:
+	db      1bh,'Y',0,0,0
+	ret
+; Восстановить позицию курсора
+setcurpos:
+	call    writest
+setposms:db     1bh,'Y',0,0,0    ;установить курсор
+	ret
+
+setpar:                     ; h  l  c   b     d    e
+                            ; X, Y, DX, DY, TEXT, BACK
+	ld      a,h
+	dec     a
+	ld      (memx),a
+	ld      a,l
+	dec     a
+	ld      (memy),a
+	ld      a,c
+	ld      (memdx),a
+	ld      a,b
+	ld      (memdy),a
+	call    setcl
+	jp      fillwin      ; установлены параметры окна в
+			     ; мем..., однако окно определя-
+			     ; ется во весь экран.
+setcl:  ld      a,d          ; SETCOLOR: text=d, back=e
+	ld      (ltc),a
+	ld      a,e
+	ld      (lbc),a
+	rlca
+	rlca
+	rlca
+	rlca
+	or      d
+	ld      (setcolor+2),a
+	ld      hl,setcolor
+	ld      a,3
+setcl1: jp      wstrng          ;установка текущего цвета искейп-кодом
+
+setw:   ld      a,csetw         ;Установка окна по текущим: memx,memy,memdx,memdy
+	ld      b,7
+
+wrescw: ld      (Winms+2),a     ;a - mode, b - lng
+	ld      a,b
+	ld      hl,Winms
+	jr      setcl1
+
+dosft:  ret
+;             √└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└╥
+;             ╨             "Window-VVM"                ╨
+;             ╨                07.12.95                 ╨
+;             ⌠└└└└└└└└└└└└ version 5.00 └└└└└└└└└└└└└└└╫
+csetw    equ     0        ; Коды оконных команд (esc,'W',code,....)
+cgetpar  equ     1
+cgetwsize equ    2
+csavew   equ     3
+crestw   equ     4
+rkbd     equ     bios+9
+
+; получение размера окна: s = dy * 10 * dx * 2
+; (только для 8-го шрифта)
+getwsize:
+	ld      hl,(Winms+5)
+	ld      b,l     ; b - dy
+	ld      e,h     ; e - dx
+	ld      d,0
+	ld      hl,0
+qwscycl:add     hl,de
+	djnz    qwscycl ; hl = dx * dy
+	add     hl,hl   ; * 2
+	add     hl,hl   ; * 4
+	ld      e,l
+	ld      d,h
+	add     hl,hl   ; * 8
+	add     hl,hl   ; * 16
+	add     hl,de   ; * 4 + * 16 =  * 20
+	ret
+
+;        ld      a,cgetwsize     ;Получение размера окна в hl
+;        ld      b,3
+;        call    wrescw
+;        call    rkbd
+;        ld      l,a
+;        push    hl
+;        call    rkbd
+;        pop     hl
+;        ld      h,a
+;        ret
+
+restw:  ld      b,crestw   ;Восст. окно, вход: hl - адрес в буфере
+	jr      srw
+
+savew:  ld      b,csavew   ;Сохр. окно,  вход: hl - адрес в буфере
+
+srw:    ex      de,hl
+	ld      hl,(Winms+3)
+	push    hl
+	ld      hl,(Winms+5)
+	push    hl
+	ex      de,hl
+	ld      (Winms+3),hl
+	ld      a,(Pwind)
+	ld      (Winms+5),a
+	ld      a,b
+	ld      b,6
+	call    wrescw
+	pop     hl
+	ld      (Winms+5),hl
+	pop     hl
+	ld      (Winms+3),hl
+	ret
+
+;             √└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└╥
+;             ╨            Параметры окна               ╨
+;             ╨    HL - координаты левого верхнего      ╨
+;             ╨         угла обьекта                    ╨
+;             ╨    B  - размер по вертикали             ╨
+;             ╨    C  - размер по горизонтали           ╨
+;             ╨    DE - цвет окна                       ╨
+;             ⌠└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└╫
+window:         ; h l c  b   d   e
+		;(X,Y,DX,DY,TEXT,BACK:BYTE);
+		;d7 = 0/1 = нет/есть рамка
+		;d6 = 0/1 = одинарная/двойная рамка
+		;d0 = 0/1 = нет/есть тень
+	ld      a,11000001b
+newwindow:
+	ld      (winmode),a
+	call    setpar
+
+;             √└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└╥
+;             ╨         П/п "открыть окно"              ╨
+;             ⌠└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└╫
+opend:  call    cm2     ; 16 - цветный режим
+	ld      hl,Winms+5
+	inc     (hl)
+	inc     hl
+	inc     (hl)    ; inc dy,dx - учитываются размеры
+			; тени
+	push    hl
+	ld      a,(winmode)
+	bit     6,a
+	call    nz,qb0     ;Запомнить данные в буфере
+	pop     hl
+	dec     (hl)
+	dec     hl
+	dec     (hl)    ;dec dy,dx
+	dec     hl
+	inc     (hl)
+	dec     hl
+	inc     (hl)    ;inc y,x
+	push    hl
+	ld      a,(ltc)
+	ld      d,a
+	ld      a,(lbc)
+	ld      e,a
+	push    de
+	ld      de,white*256+black
+	call    setcl   ;установка цвета тени
+	call    setw    ;окно для тени
+	ld      a,(winmode)
+	bit     0,a
+	call    nz,clrscr  ;тень
+	pop     de
+	call    setcl
+	pop     hl
+	dec     (hl)
+	inc     hl
+	dec     (hl)    ;dec y,x
+
+	ld      a,(winmode)
+	and     10000000b
+	jr      nz,framed
+	call    setw
+	call    clrscr
+	jr      qb01
+
+;             √└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└╥
+;             ╨     П/п инициализации драйвера          ╨
+;             ⌠└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└╫
+initw:  ld      hl,Bwind           ;Установка служебных переменных
+	ld      (buffw),hl
+        xor     a
+        ld      (ctw),a
+	jr      qb01
+
+;             √└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└╥
+;             ╨             П/п  qbuffd                 ╨
+;             ⌠└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└╫
+qbuffd:
+qb0:
+	call    setw
+	ld      hl,ctw          ;Запомнить данные в буфер
+	ld      a,(hl)
+	inc     (hl)
+	call    getwindpos
+	ld      e,(hl)
+	inc     hl
+	ld      d,(hl)
+	inc     hl
+	push    de              ;де - адрес свободного куска буфера окон
+
+	ex      de,hl
+	call    moveinWinms
+
+	pop     hl
+	push    de              ; de -адрес хвоста стекового
+				; буфера
+	push    hl
+	call    savew
+	CALL    SETW
+	call    getwsize
+	pop     de
+	add     hl,de
+	ex      de,hl
+	pop     hl
+	ld      (hl),e
+	inc     hl
+	ld      (hl),d
+qb01:   jp      fillwin ;окно записано в буфер, устанавливается окно во весь
+			; экран
+
+;             √└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└╥
+;             ╨         П/п "закрыть окно"              ╨
+;             ⌠└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└╫
+closew: ld      hl,ctw
+	ld      a,(hl)
+	or      a
+	ret     z               ;Попытка закрыть несуществующее окно - возврат
+	dec     a
+	ld      (hl),a
+	call    getwindpos
+	ld      e,(hl)
+	inc     hl
+	ld      d,(hl)
+	inc     hl
+	push    de              ;de - адрес освобождающегося куска буфера окон
+
+	call    movetoWinms
+	call    setw            ;Установка окнa по данным стекового буфера
+	pop     hl
+	call    restw           ;Восстановить окно
+	jr      qb01
+
+;рисование рамки из псевдографики
+;исп. 137 141...141 187
+;     186           186
+;     136 141...141 188
+;левый верхний угол [memx]+1,[memy]+1
+;размер по вертикали [memdy], по горизонтали [memdx]
+
+framed: call    setw    ;окно для рамки
+haryrama:
+	call    clrscr
+	call    fillwin
+	ld      a,(memy)
+	inc     a
+	ld      l,a
+	ld      a,(memx)
+	inc     a
+	ld      h,a     ;hl - координаты левого верхнего угла рамы
+	push    hl
+;рисование верхней балки рамы   вход: хл - лев. верхний угол
+	call    gotoxy
+	ld      c,137
+	call    conout
+	call    updnline
+	ld      c,187
+	call    conout
+	pop     hl
+	inc     l
+	ld      a,(memdy)
+	sub     2
+	ld      b,a     ;Число информац. строк
+rama0:  push    hl
+	push    bc
+
+	push   hl
+	call    gotoxy
+	ld      c,186
+	call    conout
+	pop     hl
+
+	ld      a,(memdx)
+	dec     a
+	add     a,h
+	ld      h,a
+	call    gotoxy
+	ld      c,186
+	call    conout
+
+	pop     bc
+	pop     hl
+	inc     l
+	djnz    rama0
+;рисование нижней балки рамы   вход: хл - лев. верхний угол
+	call    gotoxy
+	ld      c,136
+	call    conout
+	call    updnline
+	ld      c,188
+	jp      conout
+
+updnline:ld      a,(memdx)
+	dec     a
+	dec     a
+	ld      b,a
+upline0:ld      c,141
+	jp      space0
+moveinWinms:
+	ld      hl,Winms+3
+	jr      ldir4
+movetoWinms:
+	ld      de,Winms+3
+ldir4:  ld      bc,4
+	ldir
+	ret
+;             √└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└╥
+;             ╨         П/п "закрыть все окна "         ╨
+;             ⌠└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└╫
+closal: ld      a,(ctw)
+	or      a
+	ret     z
+	call    closew
+	jr      closal
+;             √└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└╥
+;             ╨         П/п "сдвиг вверх/вниз "         ╨
+;             ⌠└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└└╫
+sd1:    xor     a
+	jr      sx0
+su1:    ld      a,1
+sx0:    or      a
+	push    af
+	call    setw
+	ld      hl,0101h
+	call    gotoxy
+	pop     af
+	ld      hl,fillwin
+	push    hl
+	ld      hl,write
+	push    hl
+	ld      hl,setins       ;вставить строку
+	ret     z
+	ld      hl,setdel       ;удалить строку
+	ret
+;
+wrprotect:
+	ld      a,(hl)
+	inc     hl
+	xor     01101111b
+	ret     z
+	call    conouta
+	jr      wrprotect
+;
+offset: ld      d,(hl)          ;вход: hl - начало элемента
+	inc     d
+	inc     hl
+	ld      e,(hl)
+	inc     e
+	push    hl
+	ex      de,hl
+	call    gotoxy          ;offset текста в окне
+	pop     hl
+	inc     hl
+	ret
+;
+cmenu:  call    arrsel
+	push    hl
+	ld      a,e
+	push    af
+	call    wrelem
+	call    norm
+	call    rki1buff
+	pop     af
+	pop     hl
+;
+wrelem: sub     2
+	bit     2,(ix)
+	push    af
+	call    offset          ;вход: hl - начало, a - размер  элемента
+	pop     af
+	jp      z,wstrng
+wrelem1:ld      b,a
+wrel1:  ld      a,(hl)
+	or      a
+	ret     z
+	push    bc
+	push    hl
+	ld      c,a
+	and     10100000b
+	jr      nz,wrel2
+	ld      a,c
+	cp      91
+	jr      nc,wrel2
+	push    bc
+	call    cm2
+	ld      a,(ltc)
+	add     a,7
+	and     0fh
+	ld      d,a
+	ld      a,(lbc)
+	ld      e,a
+	call    setcl
+	pop     bc
+	call    conout
+	ld      a,(ltc)
+	sub     7
+	and     0fh
+	ld      d,a
+	ld      a,(lbc)
+	ld      e,a
+	call    setcl
+	call    cm3
+	jr      wrel3
+wrel2:  call    conout
+wrel3:  pop     hl
+	inc     hl
+	pop     bc
+	djnz    wrel1
+	ret
+;
+rki1buff:
+	ld      hl,i1buff
+	ld      b,4
+ri1b1:  ld      a,(hl)
+	or      a
+	jr      nz,ri1b2
+	inc     hl
+	djnz    ri1b1
+	call    fillwin0
+	call    rki1
+	jp      setw
+ri1b2:  ld      (i1),a
+	ld      (hl),0
+	ret
+;
+lstelem:push    ix
+	push    bc
+	push    hl
+	push    af
+	call    wrelem
+	pop     af
+	ld      e,a
+	ld      d,0
+	pop     hl
+	add     hl,de
+	pop     bc
+	pop     ix
+	djnz    lstelem
+	ret
+
+; п/п оконного меню . Вход : hl - адрес таблицы описания меню
+; [hl-1] - vpoint
+; [hl-2] - hpoint
+objectwin:
+	push    hl
+	pop     ix
+	call    initaddr        ; инициализация  haddr  и  vaddr  +  wset8
+	push    ix
+	call    newwindow       ;рисование рамки. Рег. A - дополнительный
+	call    setw            ;(в сравнении с вызовом п/п window)
+	pop     ix
+	push    ix
+	ld      l,(ix+4)
+	dec     l
+	dec     l
+	ld      h,1
+	ld      b,(ix+3)
+	dec     b
+	dec     b
+	ld      c,(ix)
+	push    bc
+	call    gotoxy
+	pop     bc
+	bit     1,c
+	call    nz,specline0    ;отчеркивание гор. меню
+	pop     ix
+	push    ix
+	ld      l,(ix+7)
+	ld      h,(ix+8)        ;hl = адрес строки или процедуры шапки
+	bit     4,(ix)          ;печать строки или вызов процедуры (шапка)
+	jr      nz,obwin1
+	ld      de,obwin2
+	push    de
+	jp      (hl)            ;вызов п/п рисования шапки этого окна
+obwin1: call    offwrite        ;печать строки шапки
+obwin2: pop     ix
+	ld      a,(ix+9)
+	or      a
+	jr      z,listhor       ;если нет верт. меню
+	ld      b,a             ;b-количество пунктов верт.меню
+	ld      a,(ix+10)       ;a= длина (размер) элемента
+	ld      hl,(vaddr)
+	call    lstelem
+listhor:ld      a,(ix+11)
+	or      a
+	jr      z,vermenu       ;если нет гор. меню
+	ld      b,a             ;b-количество пунктов гор. меню
+	ld      a,(ix+12)       ;a= длина (размер) элемента
+	ld      hl,(haddr)
+	call    lstelem
+vermenu:ld      a,(ix+9)
+	or      a
+	jp      z,hormenu
+vmenu1: push    ix
+	call    inv
+	pop     ix
+	push    ix
+	ld      hl,(vaddr)
+	ld      e,(ix+10)
+	xor     a
+	ld      d,a
+	sbc     hl,de
+	ld      a,(ix-1)  ; vpoint
+	call    cmenu
+	pop     ix
+	ld      hl,vmenu1
+	push    hl
+	ld      a,(i1)
+	cp      13
+	jr      z,venter
+	cp      8
+	jr      z,vleft
+	cp      4
+	jr      z,vright
+	cp      5
+	jr      z,vup
+	cp      24
+	jr      z,vdown
+	cp      27
+	jr      z,hvesc
+	jp      melse
+;
+vleft:  ld      a,(ix+11)
+	or      a
+	jr      z,hvesc
+	xor     a
+	ld      (ix-1),a  ; vpoint
+	ret
+vright: ld      a,(ix+11)
+	or      a
+	jr      z,hvesc
+tohor:  pop     hl
+	jr      hormenu
+vup:    ld      a,(ix-1)  ; vpoint
+	or      a
+	ret     z
+	dec     a
+	ld      (ix-1),a  ; vpoint
+	ret
+vdown:  ld      b,(ix+9)
+	ld      a,(ix-1)  ; vpoint
+	inc     a
+	cp      b
+	jr      nc,vdown1
+	ld      (ix-1),a  ; vpoint
+	ret
+vdown1: ld      a,(ix+11)
+	or      a
+	ret     z
+	jr      tohor
+hvesc:  pop     hl
+	call    closew
+	jp      fillwin
+venter: ld      a,(ix-1)  ; vpoint
+	jp      vmelse
+henter: ld      a,(ix-2)  ; hpoint
+	jr      hmelse
+;
+hormenu:push    ix
+	call    inv
+	pop     ix
+	push    ix
+	ld      hl,(haddr)
+	ld      e,(ix+12)
+	xor     a
+	ld      d,a
+	sbc     hl,de
+	ld      a,(ix-2)  ; hpoint
+	call    cmenu
+	pop     ix
+	ld      hl,hormenu
+	push    hl
+	ld      a,(i1)
+	cp      5
+	jp      z,hup
+	cp      24
+	jr      z,hdown
+	cp      27
+	jr      z,hvesc
+	cp      13
+	jr      z,henter
+	cp      8
+	jp      z,hleft
+	cp      4
+	jp      z,hright
+melse:  bit     2,(ix)
+	ret     z
+	cp      40h
+	ret     c
+	and     5fh     ;полученное значение ищем
+	cp      '['
+	ret     nc
+	ld      b,63
+	ld      hl,k
+search: cp      (hl)
+	jr      z,melse4
+	inc     hl
+	djnz    search
+	ret
+melse4: ld      a,63
+	sub     b
+	ld      b,(ix+9)
+	cp      b
+	jr      c,melse1
+	sub     b
+	ld      (ix-2),a  ; hpoint
+hmelse: ld      hl,(haddr)
+	ld      e,(ix+12)
+	call    invptr
+	ld      b,(ix+9)
+	add     a,b
+	jr      melse2
+melse1: ld      (ix-1),a   ; vpoint
+vmelse: ld      hl,(vaddr)
+	ld      e,(ix+10)
+	call    invptr
+melse2: pop     bc
+	push    ix
+	push    af
+	ld      hl,return
+	push    hl
+	ld      l,(ix+13)
+	ld      h,(ix+14)
+	or      a               ;уст. признаки
+	jp      (hl)
+;
+hdown:  ld      a,(ix+11)
+	dec     a
+	ld      (ix-2),a  ; hpoint
+	ret
+hup:    ld      a,(ix+9)
+	or      a
+	ret     z
+	pop     hl
+	jp      vermenu
+hleft:  ld      a,(ix-2)  ; hpoint
+	or      a
+	jr      z,hup
+	dec     a
+	ld      (ix-2),a  ; hpoint
+	ret
+hright: ld      b,(ix+11)
+	ld      a,(ix-2)  ; hpoint
+	inc     a
+	cp      b
+	ret     nc
+	ld      (ix-2),a  ; hpoint
+	ret
+;
+return: pop     af              ; a = номер ранее вызывавшейся функции
+	pop     hl
+	push    hl
+	pop     ix              ; hl = ix = адрес начала таблицы окна
+	ld      b,(ix+9)
+	ld      c,a
+	sub     b
+	jr      c,return1
+	ld      (ix-2),a       ; hpoint пред. вызов - из горизонтального меню
+	ld      de,hormenu
+	jr      return2
+return1:ld      a,c             ; предыдущий вызов - из вертикального меню
+	ld      (ix-1),a        ; vpoint
+	ld      de,vermenu
+return2:push    de              ; адрес перехода по стеку
+	call    initaddr
+	push    ix
+	call    setpar
+	call    setw
+	pop     ix
+	ret
+;
+initaddr:
+	ld      de,15
+	add     hl,de           ;hl-начало массива верт. эл-тов
+	ld      (vaddr),hl
+	ld      d,0
+	ld      e,(ix+10)
+	ld      a,(ix+9)
+	or      a
+	jr      z,object2
+	sbc     hl,de
+	call    arrsel
+object2:ld      (haddr),hl
+	push    hl
+	ld      hl,k
+	ld      (hl),0
+	ld      de,k+1
+	ld      bc,63
+	ldir
+	pop     hl
+	ld      d,0
+	ld      e,(ix+12)
+	ld      a,(ix+11)
+	or      a
+	jr      z,object3
+	sbc     hl,de
+	call    arrsel
+object3:ld      de,(vaddr)
+	ex      de,hl
+	ld      bc,k
+object4:ld      a,(hl)
+	cp      40h
+	jr      c,object5
+	cp      '['
+	jr      nc,object5
+	ld      (bc),a
+	inc     bc
+object5:inc     hl
+	push    hl
+	sbc     hl,de
+	pop     hl
+	jr      c,object4
+	push    ix
+	call    wset8
+	pop     ix
+	ld      a,(ix+1)
+	ld      h,a
+	ld      l,(ix+2)
+	bit     3,(ix)
+	call    nz,dosft
+	ld      a,(ix)
+	ld      c,(ix+3)
+	ld      b,(ix+4)
+	ld      d,(ix+5)
+	ld      e,(ix+6)
+	ret
+
+;
+invptr: push    af
+	push    ix
+	or      a
+	ld      d,0
+	sbc     hl,de
+	call    arrsel
+	ld      a,e
+	push    af
+	push    hl
+	call    inv
+	pop     hl
+	pop     af
+	call    wrelem
+	call    norm
+	pop     ix
+	pop     af
+	ret
+
+writeumn:                      ;вход : рег. B  , (i) - global
+	ld      l,b
+	ld      h,15            ; !1
+	call    gotoxy
+	call    jam
+	ld      a,14
+	jp      wstrng
+
+jam:    ld      a,(i14)
+	ld      e,a
+	ld      d,0
+	ld      hl,INDEX+1
+	add     hl,de
+	ld      a,(hl)
+
+	ld      hl,buff-14
+	ld      de,14
+	jp      arrsel
+
+;
+; п/п меню с прокруткой. Вход : A,B . Данные - начиная с buff+14.
+;
+menu:   ld      (i4),a
+	cp      b               ;16
+	jr      c,umn10
+	dec     b
+	ld      a,b
+umn10:  ld      (i5),a
+	add     a,5
+	ld      b,a
+	ld      a,c
+	ld      (locked),a
+	ld      hl,0e07h        ;!2
+	ld      c,16
+	ld      de,white*256+black
+	push    bc
+	call    window
+	pop     bc
+	ld      hl,0f09h        ;!3
+	dec     c
+	dec     c
+	dec     b
+	dec     b
+	dec     b
+	dec     b
+	call    setpar
+	call    cm2
+	ld      de,black*256+white
+	call    setcl
+	ld      a,(locked)
+	or      a
+	ld      a,0
+	jr      z,umnlock
+	set     2,a             ; ключ "вывод loaduser,disk"
+umnlock:
+	ld      hl,1207h
+	call    wrDU            ; вывод ' D:\13\ '
+	call    cm3
+	ld      hl,i14
+	ld      (hl),0
+	ld      a,(i5)
+umn2:   push    af
+	push    hl
+	ld      a,9             ;!4
+	add     a,(hl)
+	ld      b,a
+	call    writeumn
+	pop     hl
+	pop     af
+	inc     (hl)
+	cp      (hl)
+	jr      nc,umn2
+	ld      (hl),0          ; ld    (i14),0
+	ld      a,9             ;!5
+	ld      (yy),a
+repumn: call    inv
+	ld      hl,yy
+	ld      b,(hl)
+	push    bc
+	call    writeumn
+	call    norm
+
+	call    monink
+	ld      b,5
+	cp      8               ; к.л.
+	jr      z,nodel
+	ld      b,24
+	cp      18h             ; к.п.
+	jr      nz,yesdel
+nodel:  ld      a,b
+	ld      (i1),a
+	jr      alldel
+yesdel: call    rki1
+alldel: pop     bc
+	call    writeumn
+	ld      a,(i1)
+	cp      5
+	jr      z,umn3
+	cp      24
+	jr      z,umn4
+
+	cp      13
+	jr      z,umn6          ; закрыть окно и перейти по стеку
+	cp      27
+	jr      z,umnesc
+	cp      3
+	jr      nz,jumprep
+	jr      umn6
+umnesc:
+	ld      a,(locked)
+	or      a
+	jp      nz,closew
+	jp      mainrepeat
+
+umn3:   call    lockdir
+	jr      nc,jumprep
+	ld      a,(i14)
+	or      a
+	jr      z,jumprep
+	ld      hl,i14
+	dec     (hl)
+	ld      hl,yy
+	ld      a,9             ;!6
+	cp      (hl)
+	jr      nc,umn30
+	dec     (hl)
+	jr      jumprep
+umn30:  push    hl
+	call    sd1
+	pop     hl
+	ld      b,(hl)
+	call    writeumn
+	jr      jumprep
+
+umn4:   call    lockdir
+	jr      nc,jumprep
+	ld      hl,i14
+	ld      a,(i4)
+	dec     a
+	cp      (hl)
+	jr      c,jumprep
+	inc     (hl)
+	ld      hl,yy
+	ld      a,(i5)
+	add     a,8             ;!7
+	cp      (hl)
+	jr      c,umn40
+	inc     (hl)
+	jr      jumprep
+umn40:  push    hl
+	call    su1
+	pop     hl
+	ld      b,(hl)
+	call    writeumn
+jumprep:jp      repumn
+umn6:   jp      closew
+
+; Возвращает NC, если 1 файл: C - если > 1 файла.
+lockdir:ld      a,1
+	ld      hl,filedir
+	cp      (hl)
+	ret
+
+Winms:  db      1bh,'W'
+Winmod: ds      1       ;esc - code 'W' / select
+memy:   ds      1       ;y
+memx:   ds      1       ;x
+memdy:  ds      1       ;dy
+memdx:  ds      1       ;dx
+
+
+ ╨    HL - координаты левого верхне

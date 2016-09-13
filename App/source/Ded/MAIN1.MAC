@@ -1,0 +1,317 @@
+; Искать указанную группу в списке групп файла
+; Сохраняет hl, в hl номер группы. Выход: CY=1 - есть группа, CY=0 - нет группы
+; Уст. указатель buffpoint на позицию с указанной группой.
+searchgr:push   hl
+	push    hl
+	pop     bc
+	ld      hl,buff
+	ld      de,(lbuffpoint)
+sealp0: call    cmpint
+	jr      z,notfound
+	ld      a,(hl)
+	cp      c
+	jr      nz,nextpoint0
+	inc     hl
+	ld      a,(hl)
+	cp      b
+	jr      nz,nextpoint1
+	dec     hl
+	ld      (buffpoint),hl     ; Уст. указатель buffpoint на позицию
+				   ; с указанной группой.
+	scf             ; found --> CY=1
+notfound:               ; else  --> CY=0
+	push    af
+	ld      hl,(buffpoint)
+	ld      de,buff
+	and     a
+	sbc     hl,de
+	and     a
+	rr      h
+	rr      l               ; Получить в hl позиц. номер группы в файле
+	ld      (fileposgr),hl
+	pop     af
+	pop     hl
+	ret
+nextpoint0:
+	inc     hl
+nextpoint1:
+	inc     hl
+	jr      sealp0
+; Установить указатель текущей группы файла на первую группу в списке
+resgrpoint:
+	ld      hl,buff        ; Адрес буфера
+	ld      (buffpoint),hl ; Указатель на текущ. группу файла в буфере
+	ret
+
+; получить текущий номер группы из файла в HL
+; last group => CY = 0, else CY = 1
+getgrpoint:
+	ld      ix,(buffpoint)  ; получить указатель на тек. группу
+	ld      l,(ix+0)
+	ld      h,(ix+1)
+
+analizelg:
+	push    hl
+	ld      hl,(buffpoint)
+	inc     hl
+	inc     hl
+	ld      de,(lbuffpoint)
+	call    cmpint
+	pop     hl
+	ret     z               ; buffpoint = lbuffpoint - 2 , CY = 0
+	scf                     ; buffpoint < lbuffpoint - 2 , CY = 1
+	ret
+
+
+; увеличить текущий номер группы: выход hl, CY
+; установить wpoint=wbeg, а wlast - на конец группы
+incgrpoint:
+	ld      hl,(buffpoint)  ; указатель текущий
+	inc     hl
+	inc     hl
+	ld      de,(lbuffpoint) ; указатель на конец буфера
+	call    cmpint
+	ret     z               ; конец буфера, buffpoint=lbuffpoint, CY=0
+	ld      (buffpoint),hl
+	ld      e,(hl)
+	inc     hl
+	ld      d,(hl)
+	ex      de,hl           ; взять номер группы из буфера
+	call    rrfile
+
+	ld      hl,(wbeg+0)
+	ld      (wpoint+0),hl
+	ld      hl,(wbeg+2)
+	ld      (wpoint+2),hl
+
+	scf
+	ret
+
+
+; уменьшить текущий номер группы: выход hl, CY
+; установить wpoint=wlast, а wbeg в начало группы
+decgrpoint:
+	ld      hl,(buffpoint)
+	ld      de,buff
+	call    cmpint
+	ret     z
+	dec     hl
+	dec     hl
+	ld      (buffpoint),hl
+	ld      e,(hl)
+	inc     hl
+	ld      d,(hl)
+	ex      de,hl
+	call    rrfile
+
+	ld      hl,(wlast+0)
+	ld      (wpoint+0),hl
+	ld      hl,(wlast+2)
+	ld      (wpoint+2),hl
+	scf
+	ret
+
+; установить границы редактирования
+range:
+	ld      a,(editfunc)
+	or      a
+	jp      z,rall          ; режим " весь диск "
+	dec     a
+	jp      z,rboot         ; " boot "
+	dec     a
+	jp      z,rcat          ; " catalog "
+	jp      rfile           ; " file "
+; ---- Функция " Редактировать весь диск " -----        0
+; ---- Функция " Редактировать boot - sector " -----    1  \
+; ---- Функция " Редактировать каталог " -----          2    >----> "editfunc"
+; ---- Функция " Редактировать файл " -----             3  /
+editproc:
+	call    diskreset       ; сбросить систему, уст. диск/юзер
+				; настроиться по dph
+				; установить границы редактирования
+	call    setpoint        ; установить указатель wpoint
+	call    frdump          ; очистить окно для
+	call    clrscr          ; вывода дампа
+	jp      statlines       ; выход в меню редактирования
+; --------------------------------------------------------------
+; Установка границ редактирования для режима all disk
+rall:   ld      hl,0
+	ld      (wbeg+2),hl     ; trackBeg  = 0
+	inc     hl
+	ld      (wbeg+0),hl     ; sectorBeg = 1
+
+	ld      hl,(trklast)    ; последняя дорожка диска
+	ld      (wlast+2),hl    ; trackEnd  = trklast
+
+	ld      hl,(seclast)    ; номер последнего сектора на последней дорожке
+	ld      (wlast+0),hl    ; sectorEnd = seclast
+	ret
+; -----------------------------------------------------------------
+; Установка границ редактирования для режима catalog
+rcat:
+	ld      hl,(wpoint+0)
+	push    hl
+	ld      hl,(wpoint+2)
+	push    hl
+
+	ld      hl,(sysquant)   ; число системных дорожек
+	ld      (wbeg+2),hl     ; trackBeg = начало каталога
+	ld      hl,1
+	ld      (wbeg+0),hl     ; sectorBeg = 1
+
+	ld      a,(catblock)
+	or      a
+	call    z,warning2      ; ошибка, нет места под каталог
+
+	ld      l,a
+	ld      h,0
+	push    hl
+	call    gettsgroup      ; Уст. Tp, Sp по номеру группы
+	pop     hl
+	dec     hl
+	ld      (maxgroup),hl
+	ld      hl,(wpoint+2)
+	ld      (wlast+2),hl    ; trackLast
+
+	ld      hl,(wpoint+0)   ; Sp
+	dec     hl
+	ld      (wlast+0),hl    ; sectorLast
+	ld      a,h
+	or      l
+	jr      nz,exrcat       ; выход, если Sp <> 1
+
+	ld      hl,(secquant)   ; число секторов/дорожка
+	ld      (wlast+0),hl
+
+	ld      hl,(wlast+2)
+	dec     hl
+	ld      (wlast+2),hl    ; dec trackLast
+
+exrcat: pop     hl
+	ld      (wpoint+2),hl
+	pop     hl
+	ld      (wpoint+0),hl
+	ret
+; -----------------------------------------------------------------
+; Установка границ редактирования режима " boot-sector "
+rboot:
+	ld      hl,(sysquant)   ; число системных дорожек
+	ld      a,h
+	or      l
+	call    z,warning5      ; no boot-sector - error !
+
+	ld      hl,0
+	ld      (wbeg+2),hl     ; trackBeg = 0
+	ld      (wlast+2),hl    ; trackLast = 0
+	ld      hl,1
+	ld      (wbeg+0),hl     ; sectorBeg = 1
+	inc     hl
+	ld      (wlast+0),hl    ; sectorLast = 2
+	ret
+; -----------------------------------------------------------------
+; Установка границ редактирования режима " file " -> границы для первого блока
+rfile:  call    resgrpoint      ; уст. указатель на первый блок
+; Установка границ редактирования режима " file " -> границы для любого блока
+rrfile:
+	ld      hl,(wpoint+0)
+	push    hl
+	ld      hl,(wpoint+2)
+	push    hl
+
+	call    getgrpoint      ; получить текущий номер группы из файла в HL
+	push    af              ; CY=0 - last group, CY=1 - no last grup
+	call    gettsgroup      ; Получить Tp, Sp по номеру группы
+	ld      hl,(wpoint+2)   ; Tp
+	ld      (wbeg+2),hl     ; Tbeg
+	ld      hl,(wpoint+0)   ; Sp
+	ld      (wbeg+0),hl     ; Sbeg
+				; Установлена левая граница редактирования
+	ld      de,(blksiz)
+	pop     af
+	jr      c,nolg          ; Переход, если не последняя группа файла
+	ld      de,(lastgrsec)  ; Вычисление кол-ва секторов в случае last gr.
+	ld      a,d
+	or      e
+	jr      nz,nolg
+	ld      de,(blksiz)
+
+nolg:   dec     de
+	add     hl,de
+	push    hl
+	ld      hl,(wpoint+2)   ; Tp
+	ld      de,(trklast)    ; last track on disk
+	call    cmpint
+	ld      de,(seclast)    ; last sector on last track
+	jr      z,rfile0
+	ld      de,(secquant)
+rfile0:
+	pop     hl              ; M := de
+	call    cmpint
+	cp      1
+	push    af
+	jr      nz,rfile1
+	sbc     hl,de
+rfile1: ld      (wlast+0),hl    ; Slast
+	ld      hl,(wpoint+2)
+	pop     af
+	jr      nz,rfile2
+	inc     hl
+rfile2: ld      (wlast+2),hl   ; Tlast Установлена правая граница
+			       ; редактирования
+	jp      exrcat
+
+; -----------------------------------------------------------------
+; Установка указателя  wpoint в начало редактируемой области
+setpoint:
+	ld      a,(editfunc)
+	cp      3
+	jr      z,setpnfile     ; переход, если режим "file"
+	ld      hl,(wbeg+2)     ; установка wpoint на нижнюю
+				; границу редактирования
+	ld      (wpoint+2),hl   ; trackPoint = trkBeg
+	ld      hl,(wbeg+0)
+	ld      (wpoint+0),hl   ; sectorPoint = sectorBeg
+	xor     a
+	ld      (wpoint+4),a    ; offset = 00H
+	ret
+setpnfile:
+	call    getgrpoint      ; получить текущий номер группы из файла в HL
+	call    gettsgroup      ; Установить Tp, Sp по номеру группы
+	xor    a
+	ld     (wpoint+4),a     ; offset = 00H
+	ret
+
+; Проверка попадания указателя wpoint в границы редактирования
+cmppos: ld      hl,(wbeg+2)     ; track beg
+	ld      de,(wpoint+2)   ; track point
+	call    cmpint
+	jr      z,ycs1          ; track point = track begin
+	ret     nc              ; Tpoint < Tbeg, CY = 0
+	ex      de,hl
+	ld      de,(wlast+2)
+	call    cmpint
+	ret     nz              ; Tpoint < Tend, CY=1, else CY=0
+ycs2:   ld      hl,(wpoint+0)
+	ld      de,(wlast+0)
+ycs3:   call    cmpint
+	ret     nz              ; ok, CY =1, else CY = 0
+	scf
+	ret                     ; ok, CY = 1
+ycs1:   ld      hl,(wbeg+0)
+	ld      de,(wpoint+0)
+	jr      ycs3
+
+statlines:
+	call    wset6
+	call    fullwin
+	call    wset8                           ; окно - весь экран
+
+	call    readlist0
+
+	ld      hl,wincont+2
+	jp      objectwin
+
+ окно блок - меню редактора DMA
+frblock:
+	ld      hl,1408h
+	ld      de,cyan*256+bla

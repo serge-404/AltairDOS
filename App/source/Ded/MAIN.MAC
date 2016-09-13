@@ -1,0 +1,686 @@
+;*****************************
+;     DISK    EDITOR         *
+;*****************************
+DEMO    EQU     0
+
+INCLUDE STARTUP  ; настройка на BDOS/BIOS
+INCLUDE MAINMENU ; главное меню
+INCLUDE B1N      ; window
+INCLUDE BCD      ; bcd
+INCLUDE PEREM    ; var
+INCLUDE BSUB     ; П/П
+INCLUDE BSUB1    ; П/П
+INCLUDE MAKEBUFF ; П/П
+INCLUDE SEARCH   ; П/П
+INCLUDE MAIN1    ; П/П
+INCLUDE MAIN2    ; П/П
+INCLUDE MAIN3    ; П/П
+INCLUDE FILES    ; П/П
+INCLUDE ERRORS   ; Обработка ошибок
+INCLUDE WINDOW   ; меню и окна
+INCLUDE SORT
+
+;              1         2
+;    1 3 5 7 9 1 3 5 7 9 1
+;    !===== Files =======! 11    1
+;    ! mark Begin point  ! 12
+;    ! track:     65535  !       3
+;    ! sector:    32768  ! 14
+;    ! group:    system  !       5
+;    !   -------------   ! 16
+;    ! marK last  point  !       7
+;    ; track:            ! 18
+;    ; sector:           !       9
+;    ! group:            ! 20
+;    !   -------------   !       11
+;    ! Fill block:       ! 22
+;    ! Save file:        !
+;    ! Load file:        ! 24    13
+;    !===================!       14
+
+; Выход: CY = 1 - блок есть, CY = 0 - блока нет
+getblstat:
+	ld      a,(setbeg)
+	ld      b,a
+	ld      a,(setend)
+	and     b
+	ret     z               ; Блока нет - выход.
+	scf
+	ret
+
+
+; Fill блока
+fillblk:
+	call    getblstat
+	ret     nc              ; Блока нет - выход.
+	call    frfiles         ; Окно меню Files
+	call    reccur
+	ld      hl,0f0ch
+	call    inputbyte       ; Ввод 16-ричного байта
+	call    hidcur
+	ld      (fillcod),a
+	ld      a,(modikey)
+	cp      27
+	jr      nz,okfill       ; ESC - прерывание ф-ции, иначе
+	call    cm2
+	call    xsetcol
+	call    offwritest
+	db      14,11,27,36h,'  ',27,37h,0
+	jp      cm3
+				; В fillcod код байта для Fill
+okfill:
+	ld      hl,exitfiles
+	push    hl
+	ld      (svstack),sp
+	call    xsetmarkers     ; Уст. wbeg,wpoint,wlast по bbeg, bend
+	call    setDMA
+	call    frcont          ; Окно UP меню
+
+	ld      hl,DMA          ; Заполнение DMA кодом fillcod
+	ld      de,DMA+1
+	ld      a,(fillcod)
+	ld      (hl),a
+	ld      bc,127
+	ldir
+loopfill:
+	call    monink
+	cp      27
+	jr      nz,skipfill
+	call    escmenu         ; нажата ESC
+	push    af
+	call    frcont
+	pop     af
+	ret     nc              ; переход на рестарт редактора
+skipfill:
+	call    wrTS            ; Вывести Tp, Sp
+	call    writesector
+	ret     nc              ; Выход, дисковая ошибка !
+
+	call    downfunc
+	jr      c,loopfill      ; Цикл, блок не кончился
+
+	ret
+;-------------------------------------------
+
+files:  ld      hl,wfiles+2
+	jp      objectwin
+
+wfilesproc:
+	ld      de,vremDMA      ; запомнить wbeg, wpoint, wlast
+	call    push13uni       ; в буфер с адреса vremDMA
+	call    wfilesp
+	ld      hl,vremDMA      ; восст. wbeg, wpoint, wlast
+	call    pop13uni        ; из буфера с адреса vremDMA
+
+xsetcol:
+	ld      de,white*256+lightblue
+	jp      setcl
+
+wfilesp:
+	call    offwritest
+	db      6,0,' Files ',0
+	ld      hl,0106h
+	call    specline
+	ld      hl,010bh
+	call    specline
+
+	ld      a,(setbeg)      ; Признак установки Begin point
+	or      a
+	jr      z,wfproc0
+				; вывод Track, Sector
+	call    cm2
+	ld      de,yellow*256+lightblue
+	call    setcl
+
+	call    offwritest
+	db      2,2,'track: ',0  ; вывод Track begin
+	ld      hl,0d03h
+	call    gotoxy
+	ld      hl,(bbeg+2)
+	call    wrquant
+
+	call    offwritest
+	db      2,3,'sector: ',0
+	ld      hl,0d04h
+	call    gotoxy
+	ld      hl,(bbeg+0)
+	call    wrquant
+
+	call    offwritest
+	db      2,4,'group: ',0
+	ld      hl,bbeg
+	call    mtwp
+	call    getgroup
+	jr      c,wfp0
+	call    offwritest
+	db      12,4,'system',0
+	jr      wfp00
+wfp0:
+	ld      hl,0d05h
+	call    gotoxy
+	ld      hl,(group)
+	call    wrquant
+wfp00:  call    cm3
+
+wfproc0:ld      a,(setend)     ; Признак установки Last point
+	or      a
+	ret     z
+				; вывод Track, Sector
+	call    cm2
+	ld      de,yellow*256+lightblue
+	call    setcl
+
+	call    offwritest
+	db      2,7,'track: ',0  ; вывод Track begin
+	ld      hl,0d08h
+	call    gotoxy
+	ld      hl,(bend+2)
+	call    wrquant
+
+	call    offwritest
+	db      2,8,'sector: ',0
+	ld      hl,0d09h
+	call    gotoxy
+	ld      hl,(bend+0)
+	call    wrquant
+
+	call    offwritest
+	db      2,9,'group: ',0
+	ld      hl,bend
+	call    mtwp
+	ld      hl,0d0ah
+	call    gotoxy
+	call    getgroup
+	jr      c,wfp1
+	call    offwritest
+	db      12,9,'system',0
+	jr      wfp10
+wfp1:   ld      hl,(group)
+	call    wrquant
+wfp10:  jp      cm3
+
+wfilescase:
+	ld      (fcase),a       ; Записать номер ф-ции меню  " Files "
+	jr      nz,wfc1
+; Отметка начала блока для save / загрузочного "адреса" для load
+	ld      a,(setend)
+	or      a
+	jr      z,wfc0          ; Если конец блока не установлен, то доп. любое
+				; значение bbeg
+	ld      hl,(wpoint+2)   ; Tp
+	ld      de,(bend+2)     ; Tend
+	call    cmpint
+	cp      2
+	jr      z,wfc0
+	cp      1
+	jp      z,warning
+	ld      hl,(wpoint+0)
+	ld      de,(bend+0)
+	call    cmpint
+	cp      1
+	jp      z,warning
+wfc0:
+	ld      hl,wpoint
+	ld      de,bbeg
+	call    ldir5
+	ld      a,1
+	ld      (setbeg),a
+	jp      wfilesproc
+
+wfc1:   cp      1
+; Отметка конца блока для save
+	jr      nz,wfc2ins
+
+	ld      hl,warning
+	push    hl
+
+	ld      a,(setbeg)
+	or      a
+	jr      z,wfc11
+
+	ld      hl,(wpoint+2)   ; Tp
+	ld      de,(bbeg+2)     ; Tbbeg
+	call    cmpint
+	cp      2
+	ret     z               ; Выход, Tp < Tbbeg
+	cp      1
+	jr      z,wfc11         ; Переход, Tp > Tbbeg
+				; Иначе, Tp = Tbbeg, проверить Sp > = Sbbeg
+	ld      hl,(wpoint+0)
+	ld      de,(bbeg+0)
+	call    cmpint
+	cp      2               ; Выход, Sp < Sbbeg
+	ret     z
+
+wfc11:  pop     hl
+	ld      hl,wpoint
+	ld      de,bend
+	call    ldir5
+	ld      a,1
+	ld      (setend),a
+	jp      wfilesproc
+
+wfc2ins:cp      2
+	jr      nz,wfc2
+	jp      fillblk
+
+wfc2:   cp      3
+	jr      nz,wfc3
+
+	ld      a,(setbeg)
+	ld      b,a
+	ld      a,(setend)
+	or      b
+	ret     z
+
+	xor     a               ; Unmark block
+	ld      (setbeg),a
+	ld      (setend),a
+
+	pop     hl              ; Переоткрыть окно " files "
+	pop     hl
+	pop     hl
+	call    closew
+
+	jp      files
+
+wfc3:   cp      4
+	jr      nz,wfc4
+	call    getblstat
+	ret     nc              ; Блока нет - выход.
+	jp      savefile        ; Запись блока в файл.
+
+wfc4:   cp      5
+	jr      nz,wfc5
+	ld      a,(setbeg)
+	or      a
+	ret     z               ; Нач. "адреса" блока нет - выход.
+	jp      loadfile        ; Чтение файла и запись его в блок иа диске.
+
+wfc5:   ; Сброс диска -  " левый " пункт.
+	jp      exitfiles
+
+; Сброс диска
+diskreset:
+	call    resact          ; сбросить систему, уст. диск/юзер
+	call    getquant        ; настроиться по DPB
+	jp      range           ; уст. границы редактирования
+
+; Линия отчеркивыния с ушами по краям
+specline:
+	call    gotoxy
+	ld      b,18
+specline0:
+	push    bc
+	ld      c,87h
+	call    conout
+	pop     bc
+	ld      c,84h
+	call    space0
+	ld      c,0b6h
+	jp      conout
+
+; -----------------------------------------------------------------------------
+;         1         2         3                            3
+; 3 5 7 9 1 3 5 7 9 1 3 5 7 9 12
+;          !--[1222]---- Group ---------------!
+;          ! ************ ******************* !
+;          !  << [Back]  123456  [Forward] >> !
+;          !----------------------------------!
+
+; Гр. меню выбора группы
+selgrmenu:
+	call    hidcur
+	ld      hl,(lbuffpoint)
+	ld      de,buff
+	and     a
+	sbc     hl,de
+	rr      h
+	rr      l               ; Получить в hl кол-во групп в файле
+	dec     hl
+	ld      (filegr),hl
+	ld      hl,grmenu+2
+	jp      objectwin
+
+wgrmenuproc:
+	call    offwritest
+	db      14,0,' Group ',0
+	call    offwritest      ; Вывести "<<"
+	db      3,2,0a0h,0a0h,0
+	call    offwritest      ; Вывести ">>"
+	db      32,2,0a1h,0a1h,0
+	call    offwritest
+	db      3,0,'[',0
+	ld      hl,(filegr)
+	inc     hl
+	call    wrquant
+	ld      c,']'
+	call    conout
+wgrmenuwrk:
+	ld      hl,0f03h
+	call    gotoxy
+	call    getgroup
+	call    searchgr        ; Уст. перем. fileposgr на позицию в буфере
+				; групп файла, соотв. текущей группе файла
+	call    wrquant
+
+	ld      de,(fileposgr)
+	ld      bc,(filegr)
+	ld      hl,302h
+	jp      modyline        ; Вывести полоску и указатель на полоске
+
+wgrmenucase:
+	jr      nz,wgrc0
+; уменьшить текущий номер группы: выход hl, CY
+; установить wpoint=wlast, а wbeg в начало группы
+	call    decgrpoint
+	ret     nc
+	ld      hl,wbeg
+	call    mtwp            ; Установить wpoint=wbeg
+	jr      wgrmenuwrk      ; Отобразить сотворенное
+wgrc0:
+; увеличить текущий номер группы: выход hl, CY
+; установить wpoint=wbeg, а wlast - на конец группы
+	call    incgrpoint
+	ret     nc
+	jr      wgrmenuwrk      ; Отобразить сотворенное
+
+; Вывод полоски с указателем
+; Вход: hl - координаты x,y
+;       de - указатель ( 0 .. )
+;       bc - шкала     ( 0 .. )
+modyline:
+	ld      (modyhl),hl
+	ld      (modybc),bc
+	ex      de,hl
+	ld      a,h
+	or      l
+	ld      bc,0
+	jr      z,mly2
+
+	push    hl
+	ld      b,5
+mly0:   sla     l       ;hl:=32*hl
+	rl      h
+	djnz    mly0
+	pop     bc
+	and     a
+	sbc     hl,bc   ; hl:=31*hl
+
+	ld      de,(modybc)
+	ld      a,d
+	or      e
+	ld      bc,0
+	jr      z,mly2
+modlny0:call    cmpint
+	cp      2
+	jr      z,mly2
+	inc     bc
+	or      a
+	jr      z,mly2
+	and     a
+	sbc     hl,de
+	jr      modlny0
+mly2:
+	push    bc
+	ld      hl,(modyhl)
+	call    gotoxy
+	ld      b,32
+	ld      c,176
+	call    space0
+	pop     bc
+	ld      l,2
+	ld      a,c
+	add     a,3
+	ld      h,a
+	call    gotoxy
+	ld      c,177
+	jp      conout
+;-------------------------------------------------------------------------------
+; Запись непрерывного участка дискового пространства в файл.
+; Начало участка - bbeg ( 5 байт )
+; Конец  участка ( last sector ) - bend ( 5 байт )
+; ------ или ------ ( селектор fcase = 4 / 5 )
+; Чтение чтение заданного файла и запись его на диск в виде непрерывного
+; массива.
+savefile:
+loadfile:
+	XOR     A
+	LD      (STOPBYTE),A
+
+	ld      hl,wsavemenu+2
+	CALL    objectwin
+	LD      A,(STOPBYTE)
+	OR      A
+	RET     Z
+	JP      EXITFILES
+
+; !======= Save ========! 1
+; !  Disk           -F- ! 2
+; !  User        xxxx13 ! 3
+; !  File  12345678.123 ! 4
+; !---------------------! 5
+; !  [Ok]     [Cansel]  ! 6
+; !=====================! 7
+;          1         2 2
+; 1234567890123456789013
+
+wsavem:
+	call    frsave
+wsavemproc:
+	ld      a,(fcase)
+	cp      4
+	ld      hl,wsm1
+	push    hl
+	jr      nz,wsm0
+	call    offwritest
+	db      8,0,' Save ',0
+	ret
+wsm0:   call    offwritest
+	db      8,0,' Load ',0
+	ret
+wsm1:
+	ld      hl,1402h
+	call    gotoxy
+
+	ld      a,(fcase)
+	cp      4
+	ld      a,(savedisk)
+	jr      z,wsm2
+	ld      a,(loaddisk)
+wsm2:
+	add     a,41h
+	call    conouta
+	ld      hl,0f03h
+	call    gotoxy
+
+	ld      a,(fcase)
+	cp      4
+	ld      hl,(saveuser)
+	jr      z,wsm3
+	ld      hl,(loaduser)
+wsm3:
+	ld      h,0
+	call    wrquant
+	ld      de,white*256+black
+	call    setcl
+	ld      hl,0a04h
+	call    gotoxy
+	call    cm2
+	ld      a,(fcase)
+	cp      4
+	ld      hl,savename
+	jr      z,wsm4
+	ld      hl,loadname
+wsm4:
+	ld      a,12
+	call    wstrng
+	ld      de,white*256+lightcyan
+	call    setcl
+	jp      cm3
+
+wsavemcase:
+	jr      nz,wsvc1        ; " Disk "
+	ld      hl,workdisk
+	ld      a,(hl)
+	push    af
+	ld      a,(fcase)
+	cp      4
+	ld      a,(savedisk)
+	jr      z,wsm5
+	ld      a,(loaddisk)
+wsm5:
+	ld      (hl),a
+	push    hl
+	call    mainseld
+	pop     hl
+	ld      a,(fcase)
+	cp      4
+	ld      a,(hl)
+	jr      nz,wsm6
+	ld      (savedisk),a
+	jr      wsm7
+wsm6:   ld      (loaddisk),a
+wsm7:
+	pop     af
+	ld      (hl),a
+	jp      wsavem
+
+wsvc1:  cp      1
+	jr      nz,wsvc2        ; " User "
+	ld      hl,workuser
+	ld      a,(hl)
+	push    af
+	ld      a,(fcase)
+	cp      4
+	ld      a,(saveuser)
+	jr      z,wsm8
+	ld      a,(loaduser)
+wsm8:
+	ld      (hl),a
+	push    hl
+	call    mainselu
+	pop     hl
+	ld      a,(fcase)
+	cp      4
+	ld      a,(hl)
+	jr      nz,wsm9
+	ld      (saveuser),a
+	jr      wsm10
+wsm9:   ld      (loaduser),a
+wsm10:
+	pop     af
+	ld      (hl),a
+	jp      wsavem
+
+wsvc2:  cp      2
+	jr      nz,wsvc3        ; " File "
+	ld      a,(fcase)
+	cp      5
+	jp      z,wsm11         ; переход, если LOAD
+
+	call    reccur
+	ld      hl,savename
+
+	ld      de,vremDMA
+	call    ldir13
+	ld      de,vremDMA
+	ld      bc,0b08h
+	ld      hl,0a04h
+	xor     a
+; п/п ввода строки с клавиатуры .
+; Вход  : DE=адрес буфера
+;         В=длина буфера ввода
+;         С=позиция точки
+;         HL=позиция на зкране
+;         A= (or) byte for codes 20h-29h
+	call    modi
+	call    hidcur
+	ld      hl,wsavem
+	push    hl
+	ld      a,(modikey)
+	cp      27
+	ret     z
+	ld      hl,vremDMA
+	ld      de,savename
+	jp      ldir13
+
+wsvc3:  cp      3
+	jp      nz,standexit    ; " ok "
+	call    push13
+	ld      a,(fcase)
+	cp      4
+	jr      nz,wsm13
+	call    svfile          ; Запись файла
+	jr      wsm14           ; ---- или -----
+wsm13:  jp      ldfile          ; Чтение файла
+wsm14:                          ; потом рестарт редактора
+	call    pop13
+	LD      A,(STOPBYTE)
+	OR      A
+	jp      Z,standexit       ; "cansel"
+	JP      EXITFILES
+
+; Выбор файла.
+; При успешном завершении работы в loadname содержится имя файла
+wsm11:
+	LD      A,1
+	LD      (STOPBYTE),A
+
+	call    sourceins       ; Телега про диск - источник (откуда счит. файл)
+	call    lresact
+	call    makecat         ; Считать каталог
+	ld      a,(filedir)
+	dec     a
+	cp      -1
+	jp      z,warning12     ; Выход - нет файлов
+	ld      b,7             ; Окно по xx файлов
+	ld      c,1             ; "locked"
+	call    menu            ; меню выбора файла
+	ld      a,(i1)
+	cp      3               ; ^C
+	jr      z,wsm11
+	cp      27              ; ^[
+	ret     z
+
+;        ld      hl,buff-14
+;        ld      a,(i14)
+;        ld      de,14
+;        call    arrsel
+;        add     hl,de
+	call    jam
+	inc     hl
+	ld      de,loadname     ; пересылка имени файла в loadname
+	ld      bc,12
+	ldir
+	jp      wsavem          ; обновить окно " load/save "
+
+	IF      DEMO
+INFO:   LD      HL,INFOMENU+2
+	JP      OBJECTWIN
+INFOmenu:
+	db      0
+	db      0
+	db      11100101b
+	db      9,11,41,4
+	db      white,red
+	dw      wINFOproc
+	db      0       ; v
+	db      0
+	db      1       ; h
+	db      6
+	dw      standexit
+	db      17,2,'[Ok]'
+
+wINFOproc:
+	call    offwritest
+	db      2,1,'Sorry, this version is non-commercial',0
+	ret
+
+	ENDIF
+
+	end     begin
+
+
+
+                                                                                                          

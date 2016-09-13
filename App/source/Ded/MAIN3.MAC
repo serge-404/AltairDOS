@@ -1,0 +1,388 @@
+wcontproc:
+	xor     a
+	ld      (setbeg),a
+	ld      (setend),a     ; Unmark block
+
+	call    wrTS           ; вывод Track, Sector
+
+	call    offwritest
+	db      32,1,'Tracks:',0
+	ld      hl,3002h
+	call    gotoxy
+	ld      a,(corrbyte)    ; учитывает число секторов на last track
+	ld      d,0
+	ld      e,a
+	ld      hl,(trkquant)
+	add     hl,de           ; если число секторов на last track <>secquant,
+				; то increm. число дорожек при выводе
+	call    wrquant
+
+	call    offwritest
+	db      32,2,'Sectors/track:',0
+	ld      hl,3003h
+	call    gotoxy
+	ld      hl,(secquant)
+	call    wrquant
+
+	call    offwritest
+	db      32,3,'on last track:',0
+	ld      hl,3004h
+	call    gotoxy
+	ld      hl,(seclast)
+	call    wrquant
+
+	call    offwritest
+	db      32,4,'Sectors/group:',0
+	ld      hl,3005h
+	call    gotoxy
+	ld      hl,(blksiz)
+	call    wrquant
+
+	call    offwritest
+	db      32,5,'Group size:',0
+	ld      hl,2e06h
+	call    gotoxy
+	ld      hl,(blksiz)
+	call    wrsize
+
+	call    offwritest
+	db      32,6,'System tracks:',0
+	ld      hl,3007h
+	call    gotoxy
+	ld      hl,(sysquant)
+	call    wrquant
+
+	call    offwritest
+	db      32,7,'Catalog size:',0
+	ld      hl,2e08h
+	call    gotoxy
+	ld      hl,(catsiz)
+	call    wrsize
+
+	call    offwritest
+	db      3,4,'Disk size:',0
+	ld      hl,1205h
+	call    gotoxy
+	ld      hl,(dsize)
+	call    wrsize
+
+	call    offwritest
+	db      3,5,'Disk used:',0
+	ld      hl,1206h
+	call    gotoxy
+	ld      hl,(dused)
+	call    wrsize
+
+	call    offwritest
+	db      3,6,'Disk free:',0
+	ld      hl,1207h
+	call    gotoxy
+	and     a
+	ld      hl,(dsize)
+	ld      de,(dused)
+	sbc     hl,de
+	call    wrsize
+
+	ld      a,(editfunc)
+	cp      3
+	ret     nz              ; Если не режим file, то не выводить
+				; содержимое filname
+	ld      hl,408h
+	call    wrfile
+
+	ld      a,00000011b     ; вывести инверсно + filname
+	ld      hl,908h         ; координаты надписи
+	jp      wrDU            ; вывод ' D:\U\ '
+
+wcontcase:
+;wcontedit:
+	jr      nz,wcontup      ; [edit]
+	call    hlpstr          ; Вывести help - строку
+	call    listdma         ; вывести DMA
+	call    editorDMA       ; редактирование DMA, запись на диск,
+				; затем возврат в меню редактирования.
+	jp      reshlpstr       ; Стереть help - строку
+
+wcontup:
+	cp      1               ; [up] - переход на сектор младше, затем
+				; возврат в меню редактирования
+	jr      nz,wcontdown
+	call    upfunc          ; п/п up
+				; если UP некуда, то CY=0, иначе CY=1
+	jp      c,readlist      ; иначе считать и вывести сектор
+	ld      a,(editfunc)
+	cp      3
+	ret     nz              ; проверка на режим file
+; для режима file указатели wbeg, wlast уст. в пределах текущей группы
+; попытка взять предыдущ. группу из файла
+	call    decgrpoint
+				; получен предыдущ. группа из файла, уст. wbeg,
+				; wlast, wpoint=wlast - CY=1, иначе CY=0
+	ret     nc
+	jp      readlist        ; считать и вывести сектор
+
+wcontdown:
+	cp      2               ; [down] - переход на сектор старше, затем
+				; возврат в меню редактирования
+	jr      nz,wcontfiles
+	call    downfunc        ; п/п down
+				; если DOWN некуда, то CY=0, иначе CY=1
+	jp      c,readlist      ; иначе считать и вывести сектор
+	ld      a,(editfunc)
+	cp      3
+	ret     nz              ; проверка на режим file
+; для режима file указатели wbeg, wlast уст. в пределах текущей группы
+; попытка взять след. группу из файла
+	call    incgrpoint
+				; получен след. группа из файла, уст.
+				; wpoint=wbeg, wlast, - CY=1, иначе CY=0
+	ret     nc
+	jp      readlist       ; считать и вывести сектор
+
+wcontfiles:
+	cp      3               ; [files] - работа с файлами
+				; потом возврат в меню редактирования
+	jp      z,files
+wcontselect:
+	cp      4               ; [select] track, sector, or group - выбор
+				; дорожки, сектора, или группы,
+				; затем возврат в меню редактирования
+	jp      nz,wcontsearch
+
+	call    push13
+
+	ld      a,1
+	ld      (fstart),a      ; уст. флаг фальстарта (отс. ввода)
+
+	ld      hl,wselect+2
+	call    objectwin
+
+	ld      a,(fstart)      ; анализ флага фальстарта
+	or      a
+	jr      nz,falssel      ; exit
+
+	call    frcont
+	jp      readlist
+
+falssel:CALL    POP13
+	LD      A,(EDITFUNC)
+	CP      3
+	RET     NZ
+	CALL    GETGROUP
+	JP      SEARCHGR
+
+pop13:
+	ld      hl,vrempoint    ; Восстановить wbeg, wlast, wpoint
+pop13uni:
+	ld      de,wbeg
+ldir13: ld      bc,13
+	ldir
+	ret
+push13:
+	ld      de,vrempoint    ; Запомнить wbeg, wlast, wpoint
+push13uni:
+	ld      hl,wbeg
+	jr      ldir13
+
+				  ; --- 9
+wselectproc:                      ; o c 10 9
+	call    offwritest        ;  --  11
+	db      5,0,' Change ',0
+	call    offwritest
+	db      0,3,8ch,0
+	ld      bc,128dh
+	call    space0
+	ld      c,0b9h
+	call    conout
+	call    offwritest
+	db      7,6,'or',0
+	ret
+
+wselectcase:
+	cp      2
+	jr      nc,wselectok    ; Переход, код команды > 2
+
+	or      a               ; Перейти к началу редактируемого участка
+	jr      nz,wselectgoend
+wselectgobeg:
+				; Перейти к началу редактируемого участка
+	ld      a,(editfunc)
+	cp      3
+	jr      nz,wsgb0
+
+	call    resgrpoint      ; Уст. на первую группу файла
+	call    getgrpoint
+	call    gettsgroup
+	jr      nc,wscansel     ; Нет такой группы на диске - дохлый каталог
+	call    rrfile          ; уст. границы
+
+wsgb0:
+	ld      hl,wbeg
+	jr      wsgbe
+wselectgoend:
+
+	ld      a,(editfunc)
+	cp      3
+	jr      nz,wsge0
+
+	ld      hl,(lbuffpoint)
+	dec     hl
+	dec     hl
+	ld      (buffpoint),hl  ; Уст. на последнюю группу файла
+	call    getgrpoint
+	ld      de,(maxgroup)
+	call    cmpint
+	cp      1
+	jr      z,wscansel      ; Нет такой группы на диске - дохлый каталог
+	call    rrfile          ; уст. границы
+wsge0:
+	ld      hl,wlast
+wsgbe:  call    mtwp
+	xor     a
+	ld      (fstart),a
+
+	pop     hl
+	pop     hl
+	pop     hl
+	call    closew
+	call    frcont
+	jp      readlist
+
+mtwp:   ld      de,wpoint
+ldir5:  ld      bc,5
+	ldir
+	ret
+
+wselectok:
+	cp      5                ; код 5
+	jr      nz,wselectcansel
+wsok:
+	xor     a
+	ld      (fstart),a
+	jr      wscansel
+
+wselectcansel:                  ; код 6
+	cp      6
+	jr      nz,wselecttrack
+
+wscansel:
+	jp      standexit
+
+wselecttrack:
+	call    reccur
+	ld      hl,hidcur
+	push    hl
+
+	cp       2      ; код 2
+	jr       nz,wselectsector
+
+; уст. номера дорожки
+	ld      a,(editfunc)
+	cp      3
+	ret     z               ; Не работает в режиме file
+
+sterror:
+	ld      hl,0d05h        ; позиция ввода
+	ld      a,5             ; макс. длина вводимой строки
+	call    inputstr
+	ld      a,(modikey)
+	cp      27
+	ret     z
+
+	call    dechex          ; переработка строки с ASCII десятичным числом
+				; в HEX - число в рег. HL
+	jr      nc,sterror      ; error - too big ( > 65535 )
+
+	ld      (wpoint+2),hl
+
+	call    cmppos
+	jr      nc,sterror
+
+	jp      reopen
+
+wselectsector:
+	cp      3               ; код 3
+	jr      nz,wselectgroup
+
+; уст. номера сектора
+	ld      a,(editfunc)
+	cp      3
+	ret     z               ; Не работает в режиме file
+
+sserror:
+	ld      hl,0d06h        ; позиция ввода
+	ld      a,5             ; макс. длина вводимой строки
+	call    inputstr
+	ld      a,(modikey)
+	cp      27
+	ret     z
+
+	call    dechex          ; переработка строки с ASCII десятичным числом
+				; в HEX - число в рег. HL
+	jr      nc,sserror      ; error - too big ( > 65535 )
+
+	ld      (wpoint+0),hl
+	ld      a,h
+	or      l               ; Sp = 0 - error
+	jr      z,sserror
+
+	ld      hl,(wpoint+2)   ; Tp
+	ld      de,(wlast+2)    ; Tmax
+	call    cmpint
+	ld      hl,(wpoint+0)
+	dec     hl
+	jr      nz,yss          ; Tp<>Tmax
+	ld      de,(wlast+0)
+	call    cmpint
+	jr      nc,sserror
+	jp      reopen
+
+yss:    ld      de,(secquant)
+	call    cmpint
+	jr      nc,sserror
+	jp      reopen
+
+wselectgroup:                   ; код 4
+	ld      a,(editfunc)
+	cp      1
+	ret     z               ; не работает в режиме boot-sector
+	cp      3
+	jp      z,selgrmenu     ; в режиме file выбор группы графический
+gserror:
+
+	ld      hl,0d08h        ; позиция ввода
+	ld      a,5             ; макс. длина вводимой строки
+	call    inputstr
+	ld      a,(modikey)
+	cp      27
+	ret     z
+
+	call    dechex          ; переработка строки с ASCII десятичным числом
+				; в HEX - число в рег. HL
+
+	ld      a,(editfunc)
+	cp      3
+	jr      nz,gscont       ; если режим file, то
+	call    searchgr        ; поиск группы в файле
+	jr      nc,gserror      ; ошибка, нет такой группы в файле
+
+gscont: call    gettsgroup
+	jr      nc,gserror      ; нет группы с таким номером на диске
+	ld      a,(editfunc)
+	cp      3
+	jp      nz,reopen
+	call    rrfile          ; все степени проверки - ок, тогда в режиме
+				; file уст. границы редактирования
+;       jp      reopen
+
+; процедура переоткрытия окна "select"
+reopen:
+	pop     hl
+	pop     hl
+	pop     hl
+	pop     hl              ; hidcur
+	call    hidcur
+	call    closew
+	ld      hl,wselect+2
+	jp      objectwin
+

@@ -1,0 +1,459 @@
+			   ; массив установок для поиска, размер 5 байт
+allsp:  db      1
+forw:   db      0
+backw:  db      0
+ignr:   db      1
+igna:   db      1
+
+; П/п *** поиск фрагмента ***
+wcontsearch:                    ; поиск
+	call    listmodel       ; вывод модели для поиска
+
+	ld      hl,winsearch+2
+	call    objectwin       ; меню "Options"
+				; В эту точку передается управление,
+				; если в меню "Options" дали ESC.
+
+wsc70:  call    frcont          ; Восстановить окно UP меню
+	ld      a,(editfunc)
+	cp      3
+	jr      nz,wsc71
+	call    wrTS            ; Вывести Tp, Sp
+	call    getgroup        ; получить группу по текущему wpoint
+	call    searchgr        ; найти ее в файле и уст. buffpoint
+	call    rrfile          ; уст. границы редактирования
+wsc71:
+;        call    readlist        ; Считать и вывести сектор
+	jp      resmodel        ; стереть модель
+				; Далее по стеку переход в UP меню
+
+wsc7:                           ; [ -OK- ]
+				; Управление передается при выборе пункта
+				; OK в меню "Options".
+				; восстановить стек
+	jp      standexit       ; закрыть окно - далее упр. передается на wsc70
+
+wsearchproc:
+	call    offwritest      ; шапка
+	db      6,0,' Options ',0
+	ld      hl,1202h
+	ld      de,allsp
+	ld      b,5
+wsp0:   call    cell            ; "кнопки"
+	djnz    wsp0
+	ret
+
+wsearchcase:
+	ld      hl,wsearchproc
+	push    hl
+	jr      nz,wsc1         ; option "all Space"
+	xor     a
+	ld      (forw),a
+	ld      (backw),a
+	inc     a
+	ld      (allsp),a
+	ret
+
+wsc1:   cp      1
+	jr      nz,wsc2         ; option "forward"
+	xor     a
+	ld      (allsp),a
+	ld      (backw),a
+	inc     a
+	ld      (forw),a
+	ret
+
+wsc2:   cp      2               ; option "backword"
+	jr      nz,wsc3
+	xor     a
+	ld      (allsp),a
+	ld      (forw),a
+	inc     a
+	ld      (backw),a
+	ret
+
+wsc3:   cp      3               ; option "ignore reg."
+	jr      nz,wsc4
+	ld      hl,ignr
+	jr      wsc40
+
+wsc4:   cp      4               ; option "ignore alph."
+	jr      nz,wsc5
+	ld      hl,igna
+wsc40:  jp      replace
+
+wsc5:   pop     hl
+	cp      5               ; edit model
+	jr      nz,wsc6
+	call    hlpmod          ; вывести help - строку редактора модели
+	call    edmodel         ; вывод модели для поиска и ее редактирование
+	jp      reshlpmod       ; стереть help - строку редактора модели
+				; потом возврат в меню "Options"
+; -----------------------------------------------------------------------------
+; Поиск - ESC в меню Options ->
+;         ESC в меню Search  -> возврат на последнюю найденную модель
+
+wsc6:
+	cp      6               ; [SEARCH]
+	jp      nz,wsc7         ; иначе переход на [OK]
+
+	call    convmod         ; преобразовать модель в соотв. с ignr, igna
+				; если длина = 0, то CY = 0 и возврат
+	ret     nc              ; в меню "Options"
+
+	ld      de,vremDMA      ; запомнить wbeg, wpoint, wlast
+	call    push13uni       ; в буфер с адреса vremDMA
+
+	call    setpointers     ; установить wpoint для поиска
+				; В случае дисковой ошибки CY = 0, переход
+	jp      nc,wsc7         ; на [OK] с текущими wpoint ...
+
+	ld      hl,0
+	ld      (repmodel),hl   ; Число повторов модели
+
+repsearch:                      ; ЦИКЛ ПОИСКА
+	call    cmpmodel
+				; вызов собственно процедуры поиска
+				; если ошибка или не найдено, то возв. CY=0
+				; wpoint сохраняется старый (из vremDMA+13)
+				; если найдено, то CY=1, wpoint уст. на хвост
+				; модели, ( или на начало ).
+	jr      nc,wsc63        ; не найдено, восст. посл. wpoint.
+; НАЙДЕНА МОДЕЛЬ НА ДИСКЕ
+	ld      de,vremDMA+13   ; запомнить wbeg, wpoint, wlast
+	call    push13uni       ; в буфер с адреса vremDMA+13
+	call    frdump          ;
+	call    listDMA         ;  вывести DMA
+	call    contmenu        ;  меню - продолжать поиск ?
+				;  если  ДА - то CY=1
+				;  если НЕТ - то CY=0
+	jr      c,repsearch     ; повтор поиска
+				; В эту точку передается управление, если
+				; дали [ok]
+	jr      wsc60
+wsc63:  ld      hl,vremDMA      ; восст. wbeg, wpoint, wlast ( в сост. перед
+	call    pop13uni        ;  [SEARCH] ), из буфера с адреса vremDMA
+	jr      wsc62
+wsc60:  call    notfn           ; восст. посл. wpoint.
+wsc62:  ld      a,(editfunc)
+	cp      3
+	jr      nz,wsc61
+	call    getgroup        ; получить группу по текущему wpoint
+	call    searchgr        ; найти ее в файле
+	call    rrfile          ; уст. границы редактирования
+wsc61:
+	call    frcont
+	jp      readlist        ; вывести DMA и возвратиться в меню "Options"
+
+setpointers:
+	ld      de,vremDMA+13   ; запомнить wbeg, wpoint, wlast
+	call    push13uni       ; в буфер с адреса vremDMA+13
+				; Уст. wpoint в соотв. с направлением поиска
+	ld      a,(editfunc)
+	cp      3
+	jr      nz,spt0         ; Режимы all,boot,catalog
+	ld      a,(allsp)       ; Режим file
+	or      a
+	jr      z,spt2
+	call    resgrpoint      ; Выйти на начало файла
+spt2:   call    rrfile          ; Уст. границы для текущей группы
+
+spt0:   ld      a,(allsp)
+	or      a
+	jr      z,spt1          ; Режимы all,boot,catalog ( forw,back )
+	call    setpoint        ; ( all space )
+
+spt1:   call    readsector      ; считать текущий сектор в DMA
+	ret     c
+; не найдено/ошибка  CY = 0
+notfn:
+	ld      hl,vremDMA+13   ; восстановить wbeg, wpoint, wlast
+	call    pop13uni        ; из буфера с адреса vremDMA+13
+	xor     a
+	ret
+
+; ПОИСК
+cmpmodel:
+	call    frcont
+	ld      d,0
+
+cmpmodel1:
+	ld      hl,vremleng     ; уст. hl - начало модели, b - длина модели
+	ld      b,(hl)          ;         - или хвост модели
+	ld      e,b
+	dec     e
+	ld      a,(backw)
+	or      a
+	jr      z,cmpmd0
+	add     hl,de
+cmpmd0:
+	inc     hl
+
+scanner:
+	push    hl
+	push    de
+	push    bc
+	call    getbytarea      ; Получить байт из области поиска по wpoint и
+				; offset
+				; Учитывает режим ( forw или back )
+				; При смене сектора отображать Tp, Sp на экране
+				; Выход: рег. А - байт CY=1 - ok, CY=0 - ложный
+				; байт (конец области поиска/ошибка)
+	pop     bc
+	pop     de
+	pop     hl
+	jp      nc,notfmenu     ; выход, если ложный байт
+
+	call    transbyte       ; преобразовать байт, полученный с диска
+
+	ld      c,a
+	ld      a,(backw)
+	or      a
+	ld      a,c
+	jr      nz,cmpmodback   ; переход, если поиск " сзаду наперед "
+
+	cp      (hl)            ; сравнить с байтом из модели
+	jr      z,cmpmodelx     ; переход, если совпадают
+
+	ld      hl,vremleng     ; уст. hl - начало модели, b - длина модели
+	ld      b,(hl)
+	inc     hl
+	cp      (hl)            ; Проверка на совпадение с первым байтом модели
+	jr      nz,cmpmodel1
+
+cmpmodelx:
+	inc     hl
+	djnz    scanner         ; цикл сравнения модели и диска
+	jr      cmpallok        ; О, чудо! модель и диск совпали !!!
+
+cmpmodback:                     ; поиск " сзаду наперед "
+				; hl - адрес в vremMODEL, a - байт с диска
+	cp      (hl)            ; сравнить с байтом из модели
+	jr      z,cmpmodelxx    ; переход, если совпадают
+
+	ld      hl,vremleng     ; уст. hl - начало модели, b - длина модели
+	ld      b,(hl)
+	inc     hl
+	add     hl,de           ; hl - адрес в vremMODEL, a - байт с диска
+	cp      (hl)            ; сравнить с  последним байтом из модели
+	jr      nz,cmpmodel1    ; переход, если не совпадают
+
+cmpmodelxx:
+	dec     hl
+	djnz    scanner         ; цикл сравнения модели и диска
+
+cmpallok:
+	scf                     ; О, чудо! модель и диск совпали !!!
+	ret                     ; Установка победного флага CY = 1, выход.
+
+; *** П/п getbytarea ***
+				; получить байт из области поиска по wpoint и
+				; offset
+				; Учитывает режим ( forw или back )
+				; При смене сектора отображать Tp, Sp на экране
+				; Выход: рег. А - байт CY=1 - ok, CY=0 - ложный
+				; байт (конец области поиска/ошибка)
+getbytarea:
+	ld      a,(backw)
+	or      a
+	jr      nz,gbaback
+; Поиск вперед
+	ld      hl,wpoint+4
+	ld      a,(hl)
+
+	cp      80h
+	jr      nc,readfw      ; переход, оffset 0..7fh
+
+	call    skipread
+
+	inc     (hl)
+	scf
+	ret
+
+readfw:
+	ld      (hl),0          ; иначе, offset = 0
+
+	call    downfunc        ; п/п down
+	jr      c,gba0          ; если DOWN некуда, то CY=0, иначе CY=1
+
+	ld      a,(editfunc)
+	cp      3
+	scf
+	ccf
+	ret     nz              ; проверка на режим file
+; для режима file указатели wbeg, wlast уст. в пределах текущей группы
+; попытка взять след. группу из файла
+	call    incgrpoint
+				; получен след. группа из файла, уст.
+				; wpoint=wbeg, wlast, - CY=1, иначе CY=0
+	ret     nc
+
+gba0:   call    readsector      ; иначе считать сектор
+	ret     nc
+
+	call    wrTS            ; вывод Tp, Sp
+	call    monink
+	ld      (esccod),a
+	cp      27
+	jr      nz,skipread
+	call    escmenu         ; нажата ESC
+	push    af
+	call    frcont
+	pop     af
+	ret     nc
+	xor     a
+	ld      (esccod),a
+skipread:
+	push    hl
+	ld      a,(wpoint+4)
+	ld      e,a
+	ld      d,0
+	ld      hl,DMA
+	add     hl,de
+	ld      a,(hl)
+	pop     hl
+	scf
+	ret
+
+gbaback:
+	ld      hl,wpoint+4
+	ld      a,(hl)
+
+	cp      -1
+	jr      z,readbc        ; переход, оffset 0..7fh
+
+	call    skipread
+
+	dec     (hl)
+	scf
+	ret
+
+readbc:
+	ld      (hl),7fh        ; иначе, offset = 7fh
+
+	call    upfunc          ; п/п up
+	jr      c,gba0          ; если UP некуда, то CY=0, иначе CY=1
+
+	ld      a,(editfunc)
+	cp      3
+	scf
+	ccf
+	ret     nz              ; проверка на режим file
+; для режима file указатели wbeg, wlast уст. в пределах текущей группы
+; попытка взять пред. группу из файла
+	call    decgrpoint
+				; получен пред. группа из файла, уст.
+				; wbeg, wpoint=wlast, - CY=1, иначе CY=0
+	ret     nc
+	jr      gba0
+contmenu:                       ;  меню - найдена модель, продолжать поиск ?
+				;  если ДА - то CY=1
+				;  если НЕТ - то CY=0
+	ld      hl,wscont+2
+	call    objectwin
+	jp      wsc60
+;         ESC в меню Search  -> возврат на последнюю найденную модель
+
+wscontproc:
+	call    offwritest
+	db      7,0,' Search ',0
+	call    offwritest
+	db      5,2,'Model found !',7,0
+	ld      hl,(repmodel)   ; Сколько раз встретилась модель
+	inc     hl
+	ld      (repmodel),hl
+wrincl:
+	call    offwritest
+	db      3,3,'Include:',0
+	ld      hl,(repmodel)
+	jp      wrquant         ; Вывести число повторов
+
+wscontcase:
+wsesccase:
+	pop     hl
+	pop     hl
+	pop     hl
+	pop     hl
+
+	push    af
+	call    closew
+	pop     af
+
+	scf             ; Ignore - продолжать поиск
+	ret     z
+
+	ccf             ; OK - прекратить поиск
+	ret
+
+escmenu:                        ;  меню - нажата ESC, продолжать поиск ?
+				;  если ДА - то CY=1
+				;  если НЕТ - то CY=0
+	ld      hl,wsesc+2      ;  если ESC, - то CY=1
+	call    objectwin
+	jr      escmenu
+
+wsescproc:
+;        call    offwritest
+;        db      7,0,' Search ',0
+	call    offwritest
+	db      2,2,'Processe interrupted',0
+	ret
+
+notfmenu:                       ;  меню - найдена модель, продолжать поиск ?
+				;  если ДА - то CY=1
+				;  если НЕТ - то CY=0
+	ld      a,(esccod)
+	cp      27
+	ret     z
+	ld      hl,wsnotf+2
+	call    objectwin
+	xor     a
+	ret                     ; not scf
+
+wsnotfproc:
+	call    offwritest
+	db      7,0,' Search ',0
+	call    offwritest
+	db      3,2,'Model NOT FOUND !',7,0
+	jp      wrincl
+
+; П/п получения рабочей модели
+; вход: модель+размер по адресу modleng
+;       переменные ignr,igna
+; выход: рабочая модель по адресу vremleng
+convmod:
+	ld      a,(modleng)
+	or      a
+	ret     z               ; Выход, длина модели = 0, CY = 0
+	ld      (vremleng),a
+	ld      b,a             ; иначе в B длина модели
+	ld      hl,MODEL
+	ld      de,vremMODEL
+convmcycl:
+	ld      a,(hl)
+	call    transbyte       ; преобразовать байт рег. А
+				; в соотв. с ignr,igna
+				; выход: рег. А
+	ld      (de),a
+	inc     hl
+	inc     de
+	djnz    convmcycl
+	scf
+	ret
+
+transbyte:                      ; преобразовать байт рег. А
+				; в соотв. с ignr,igna
+	cp      40h             ; выход: рег. А
+	ret     c               ; выход: код спец. символа или цифры
+	cp      80h
+	jr      c,trsbcont
+	cp      0c0h
+	ret     c               ; выход: код псевдографики
+trsbcont:
+	ld      c,a
+	ld      a,(ignr)        ; игнорировать регистры
+	or      a
+	jr      z,trsbcont0
+	res     5,c
+trsbcont0:
+	ld      a,(igna)        ; иг                                                                                                                                

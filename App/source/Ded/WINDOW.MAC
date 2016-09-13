@@ -1,0 +1,399 @@
+;        Кроме указанных здесь п/п, есть работа с цветом:
+
+;b1n    - П/П menu     ( цвет меню выбора файлов )
+
+;bsub   - П/П inputstr ( цвет, исп. так же в меню "Change" )
+
+;errors -              ( цвет, исп. в окнах при дисковой ошибке )
+
+;main2  - П/П hlpsub0  ( цвет строки подсказки редактора DMA )
+;       - П/П whaM     ( цвет активной части модели )
+;       - П/П ctrlon   ( цвет блока в редакторе DMA )
+
+;main   - П/П wfilesp  ( цвет TSG при mark Begin, mark Last )
+;       - П/П wsm4     ( цвет выбранного файла для Save/Load )
+
+; кроме этих, есть и др. вызовы работы с цветом, можно найти по вызову setcl.
+
+; Заставка "Welcome ..."
+mmw0:
+	ld      hl,0a0ah        ; л.в.у. = 10,10
+	ld      de,white*256+lightblue ; белые на light синем
+	ld      bc,0524h        ; размер
+	call    window          ; окно первой заставки
+	jp      setw
+
+; "Main menu"
+winmain:db      0               ; hpoint
+	db      0               ; vpoint
+	db      10110101b       ; тип окна
+	db      21,6,19,13      ; размеры
+	db      white,blue      ; цвет
+	dw      mainmess        ; интерьер окна
+	db      5               ; число пунктов верт. меню
+	db      19              ; их размер
+	db      0               ; -""-          гор. меню
+	db      0               ; -""-
+	dw      maincase
+	db      1,2,'  Edit           '
+	db      1,4,'  select Disk    '
+	db      1,6,'  select User    '
+	db      1,8,'  cOnfiguration  '
+	db      1,10,'  Quit to dos    '
+
+; Меню "Quit"
+winquit:db      1               ; hpoint
+	db      0               ; vpoint
+	db      11100101b
+	db      26,14,18,7
+	db      white,red
+	dw      wquitstr
+	db      0
+	db      0
+	db      2
+	db      7
+	dw      wquitcase
+	db      4,4,' Yes '
+	db      9,4,' No ',0
+
+; Меню "Configuration"
+winconf:db      0
+	db      0
+	db      11100111b
+	db      26,12,26,10
+	db      white,lightgreen
+	dw      wcnfproc
+	db      5
+	db      18
+	db      2
+	db      10
+	dw      wcnfcase
+	db      3,1,' Sound          '
+	db      3,2,' keyboard Delay '
+	db      3,4,' Name           '
+	db      3,5,' Extension      '
+	db      3,6,' Unsorted       '
+
+	db      3,8,'[ Ok ]',0,0
+	db      15,8,'[Cancel]'
+
+; Меню "Disk"
+windsel:db      0
+	db      0
+	db      11110101b
+	db      10,9,17h,5
+	db      red,white
+	dw      wdselstr
+	db      0
+	db      0
+	db      5
+	db      5
+	dw      wdselcase
+	db      2,2,' A '
+	db      6,2,' B '
+	db      10,2,' C '
+	db      14,2,' D '
+	db      18,2,' E '
+
+; Меню "User"
+winusel:db      0       ; hpoint
+	db      0       ; vpoint
+	db      11110001b
+	db      15,3,13,18
+	db      red,white
+	dw      wuselstr
+	db      16
+	db      13
+	db      0
+	db      0
+	dw      wuselcase
+	db      1,1,'  User  0  '
+	db      1,2,'  User  1  '
+	db      1,3,'  User  2  '
+	db      1,4,'  User  3  '
+	db      1,5,'  User  4  '
+	db      1,6,'  User  5  '
+	db      1,7,'  User  6  '
+	db      1,8,'  User  7  '
+	db      1,9,'  User  8  '
+	db      1,10,'  User  9  '
+	db      1,11,'  User 10  '
+	db      1,12,'  User 11  '
+	db      1,13,'  User 12  '
+	db      1,14,'  User 13  '
+	db      1,15,'  User 14  '
+	db      1,16,'  User 15  '
+
+; меню "Editing"
+winmedit:db     0       ; hpoint
+	db      0       ; vpoint
+	db      11110101b
+	db      29,10,19,11
+	db      black,lightgray
+	dw      wmeditstr
+	db      4       ; v
+	db      19
+	db      0       ; h
+	db      0
+	dw      wmeditcase
+	db      1,2,'  All disk       '
+	db      1,4,'  Boot - sector  '
+	db      1,6,'  Catalog        '
+	db      1,8,'  File           '
+
+; меню "Options" (search)
+winsearch:
+	db      0       ; hpoint
+	db      0       ; vpoint
+	db      11100111b
+	db      29,15,22,10
+	db      green,lightgray
+	dw      wsearchproc
+	db      6       ; v
+	db      16
+	db      2       ; h
+	db      10
+	dw      wsearchcase
+	db      1,1,' alL space    '
+	db      1,2,' Forward      '
+	db      1,3,' Backward     '
+	db      1,4,' ignore Reg.  '
+	db      1,5,' ignore Alph. '
+	db      1,6,' Edit model   '
+	db       2,8,'[Search]'
+	db      16,8,'[Ok]',0,0,0,0
+
+; меню "Model found"
+wscont:
+	db      0       ; hpoint
+	db      0       ; vpoint
+	db      11100111b
+	db      34,16,22,7
+	db      blue,yellow
+	dw      wscontproc
+	db      0       ; v
+	db      0
+	db      2       ; h
+	db      12
+	dw      wscontcase
+	db       2,5,'[Continue]'
+	db      16,5,'[OK]',0,0,0,0,0,0
+
+; меню "Processe aborted"
+wsesc:
+	db      0       ; hpoint
+	db      0       ; vpoint
+	db      11100111b
+	db      16,10,24,7
+	db      white,blue
+	dw      wsescproc
+	db      0       ; v
+	db      0
+	db      2       ; h
+	db      12
+	dw      wsesccase
+	db       2,5,'[Continue]'
+	db      16,5,'[Abort]',0,0,0
+
+; меню "Not found (search)"
+wsnotf:
+	db      0       ; hpoint
+	db      0       ; vpoint
+	db      11100111b
+	db      34,16,22,7
+	db      white,green
+	dw      wsnotfproc
+	db      0       ; v
+	db      0
+	db      1       ; h
+	db      6
+	dw      standexit
+	db      9,5,'[Ok]'
+
+; окно блок - меню редактора DMA
+frblock:
+	ld      hl,1408h
+	ld      de,cyan*256+black
+	ld      bc,0b0fh
+	jr      set2
+
+; окно под модель поиска
+frmodel:
+	ld      hl,010eh
+	ld      de,red*256+black
+	ld      bc,13ch
+	jr      set2
+
+; окно под дамп
+frdump: ld      hl,0103h
+	ld      de,white*256+blue
+	ld      bc,0a3fh
+	jr      set2
+
+; окно инфо
+frcont: ld      hl,040fh
+	ld      de,white*256+red
+	ld      bc,0b37h
+set2:   call    setpar
+	jp      setw
+
+; окно меню Save/Load
+frsave: ld      hl,1506h                        ; 21,6,23,7
+	ld      de,white*256+lightcyan
+	ld      bc,717h
+	jr      set2
+
+; окно Files
+frfiles:
+	ld      hl,1e08h                        ; 30,8,20,16
+	ld      de,white*256+lightblue
+	ld      bc,1014h
+	jr      set2
+
+; меню "block menu" редактора DMA
+winblock:
+	db      0       ; hpoint
+	db      0       ; vpoint
+	db      11100101b
+	db      20,8,15,12
+	db      cyan,black
+	dw      wblockproc
+	db      8       ; v
+	db      15
+	db      0       ; h
+	db      0
+	dw      wblockcase
+	db      1,2,' mark Begin  '
+	db      1,3,' marK last   '
+	db      1,4,' Unmark      '
+	db      1,5,' shift Right '
+	db      1,6,' shift Left  '
+	db      1,7,' Inverse     '
+	db      1,8,' Fill        '
+	db      1,9,' Xor         '
+
+; меню "Write"
+wwrite: db      0       ; hpoint
+	db      0       ; vpoint
+	db      11100101b
+	db      19,17,26,5
+	db      red,white
+	dw      wwriteproc
+	db      0       ; v
+	db      0
+	db      2       ; h
+	db      7
+	dw      wwritecase
+	db       6,3,'[Yes]'
+	db      16,3,'[No]',0
+
+; меню инфо
+wincont:db      0       ; hpoint
+	db      0       ; vpoint
+	db      10100110b
+	db      4,15,55,11
+	db      white,black
+	dw      wcontproc
+	db      0       ; v
+	db      0
+	db      6       ; h
+	db      10
+	dw      wcontcase
+	db       4,9,'[Edit]',0,0
+	db      12,9,'[Up]',0,0,0,0
+	db      18,9,'[Down]',0,0
+	db      26,9,'[Files]',0
+	db      35,9,'[Change]'
+	db      45,9,'[Search]'
+
+; меню "Change"
+wselect:db      0       ; hpoint
+	db      0       ; vpoint
+	db      11100111b
+	db      19,11,20,11
+	db      white,green
+	dw      wselectproc
+	db      5       ; v
+	db      20                ;         1      1
+	db      2       ; h       ; 2 4 6 8 0 2 4 67
+	db      10                ;        [Cansel]  !
+	dw      wselectcase       ;---  1
+		  ;  123456789012345678
+	db      1,1,' goto Begin       '    ; b   2  1
+	db      1,2,' goto End         '    ; e   3  2
+	db      1,4,' Track  '    ;---  4
+	ds      10,0
+	db      1,5,' Sector '    ; t   5  4
+	ds      10,0
+	db      1,7,' Group  '    ; s   6  5
+	ds      10,0
+	db      3,9,'[Ok]',0,0,0,0;  o  7
+	db      9,9,'[Cancel]'    ; g   8  7
+
+; меню "Read/Write error"
+wwarn:  db      0       ; hpoint
+	db      0       ; vpoint
+	db      11100111b
+	db      15,10,32,5
+	db      white,red
+	dw      wwarnproc
+	db      0       ; v
+	db      0
+	db      3       ; h
+	db      10
+	dw      wwarncase
+	db      3,3,'[Ignore]'
+	db      13,3,'[Retry]',0
+	db      22,3,'[Abort]',0
+
+; меню "Files"
+wfiles: db      0       ; hpoint
+	db      0       ; vpoint
+	db      11100101b
+	db      30,8,20,17
+	db      white,lightblue
+	dw      wfilesproc
+	db      7       ; v
+	db      20
+	db      0       ; h
+	db      0
+	dw      wfilescase
+	db      1,1,' mark Begin point '
+	db      1,6,' marK last  point '
+	db      1,11,' Fill block:      '
+	db      1,12,' Unmark block     '
+	db      1,13,' Save file        '
+	db      1,14,' Load file        '
+	db      1,15,' Reset disk       '
+
+; меню "Group"
+; Графическое меню выбора группы из файла
+grmenu:
+	db      0       ; hpoint
+	db      0       ; vpoint
+	db      11100101b
+	db      12,13,36,4
+	db      white,blue
+	dw      wgrmenuproc
+	db      0       ; v
+	db      0
+	db      2       ; h
+	db      8
+	dw      wgrmenucase
+	db      6,2,'[Back]'
+	db      25,2,'[Next]'
+
+; меню "Load/Save"
+wsavemenu:
+	db      0       ; hpoint
+	db      0       ; vpoint
+	db      11100111b
+	db      21,6,23,7
+	db      white,lightcyan
+	dw      wsavemproc
+	db      3       ; v
+	db      8
+	db      2       ; h
+	db      10
+	dw      wsavemcase
+	db      2,                                                                                                                                
