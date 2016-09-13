@@ -1,0 +1,242 @@
+
+Instruction       Length             Flags         
+                             C   Z  P/V  S   N   H
+                                                
+ADC  A,(HL)       7          X | X | V | X | 0 | X
+ADC  A,(Ix+d)     19         X | X | V | X | 0 | X
+ADC  A,r          4          X | X | V | X | 0 | X
+ADC  A,n          7          X | X | V | X | 0 | X
+ADC  HL,rr        15         X | X | V | X | 0 | ?
+                               |   |   |   |   |  
+ADD  A,(HL)       7          X | X | V | X | 0 | X
+ADD  A,(Ix+d)     19         X | X | V | X | 0 | X
+ADD  A,r          4          X | X | V | X | 0 | X
+ADD  A,n          7          X | X | V | X | 0 | X
+ADD  HL,rr        15         X |   |   |   | 0 | ?
+ADD  Ix,rr        15         X |   |   |   | 0 | ?
+ADD  Ix,Ix        15         X |   |   |   | 0 | ?
+                               |   |   |   |   |  
+AND  (HL)         7          0 | X | P | X | 0 | 1
+AND  (Ix+d)       19         0 | X | P | X | 0 | 1
+AND  r            4          0 | X | P | X | 0 | 1
+AND  n            7          0 | X | P | X | 0 | 1
+                               |   |   |   |   |  
+BIT  b,(HL)       12           | X | # | # | 0 | 1
+BIT  b,(Ix+d)     20           | X | # | # | 0 | 1
+BIT  b,r          8            | X | # | # | 0 | 1
+                               |   |   |   |   |  
+CALL nn           17           |   |   |   |   |  
+CALL cc,nn        10/17        |   |   |   |   |  
+                               |   |   |   |   |  
+CCF               4          X |   |   |   | 0 | #
+                               |   |   |   |   |  
+CP   (HL)         7          X | X | V | X | 1 | X
+CP   (Ix+d)       19         X | X | V | X | 1 | X
+CP   r            4          X | X | V | X | 1 | X
+CP   n            7          X | X | V | X | 1 | X
+CPD               16           | X | X | X | 1 | #
+CPDR              16/21        | X | X | X | 1 | #
+CPI               16           | X | X | X | 1 | #
+CPIR              16/21        | X | X | X | 1 | #
+                               |   |   |   |   |  
+CPL               4            |   |   |   | 1 | 1
+                               |   |   |   |   |  
+DAA               4          X | X | P | X |   | X
+                               |   |   |   |   |  
+DEC  (HL)         11           | X | V | X | 1 | X
+DEC  (Ix+d)       23           | X | V | X | 1 | X
+DEC  r            4            | X | V | X | 1 | X
+DEC  rr           6            |   |   |   |   |  
+DEC  Ix           10           |   |   |   |   |  
+                               |   |   |   |   |  
+DI                4            |   |   |   |   |  
+                               |   |   |   |   |  
+DJNZ e            8/13         |   |   |   |   |  
+                               |   |   |   |   |  
+EI                4            |   |   |   |   |  
+                               |   |   |   |   |  
+EX   (SP),HL      19           |   |   |   |   |  
+EX   (SP),Ix      23           |   |   |   |   |  
+EX   AF,AF'       4            |   |   |   |   |  
+EX   DE,HL        4            |   |   |   |   |  
+EXX               4            |   |   |   |   |  
+                               |   |   |   |   |  
+HALT              8            |   |   |   |   |  
+                               |   |   |   |   |  
+IM   0-2          8            |   |   |   |   |  
+                               |   |   |   |   |  
+IN   r,(C)        12           | X | P | X | 0 | 0
+IN   A,(n)        11           | X | P | X | 0 | 0
+                               |   |   |   |   |  
+INC  (HL)         11           | X | V | X | 0 | X
+INC  (Ix+d)       23           | X | V | X | 0 | X
+INC  r            4            | X | V | X | 0 | X
+INC  rr           6            |   |   |   |   |  
+INC  Ix           10           |   |   |   |   |  
+                               |   |   |   |   |  
+IND               16           | X | # | # | 1 | #
+INDR              16/21        | X | # | # | 1 | #
+INI               16           | X | # | # | 1 | #
+INIR              16/21        | X | # | # | 1 | #
+                               |   |   |   |   |  
+JP   nn           10           |   |   |   |   |  
+JP   (HL)         4            |   |   |   |   |  
+JP   (Ix)         8            |   |   |   |   |  
+JP   cc,nn        10           |   |   |   |   |  
+                               |   |   |   |   |  
+JR   e            12           |   |   |   |   |  
+JR   cc,e         7/12         |   |   |   |   |  
+                               |   |   |   |   |  
+LD   (rr),A       7            |   |   |   |   |  
+LD   (HL),r       7            |   |   |   |   |  
+LD   (HL),n       10           |   |   |   |   |  
+LD   (Ix+d),r     19           |   |   |   |   |  
+LD   (Ix+d),n     19           |   |   |   |   |  
+LD   (nn),A       13           |   |   |   |   |  
+LD   (nn),rr      20           |   |   |   |   |  
+LD   (nn),HL      16           |   |   |   |   |  
+LD   (nn),Ix      20           |   |   |   |   |  
+LD   (nn),SP      20           |   |   |   |   |  
+LD   A,(rr)       7            |   |   |   |   |  
+LD   r,(HL)       7            |   |   |   |   |  
+LD   r,(Ix+d)     19           |   |   |   |   |  
+LD   A,(nn)       13           |   |   |   |   |  
+LD   r,r          4            |   |   |   |   |  
+LD   r,n          7            |   |   |   |   |  
+LD   rr,(nn)      20           |   |   |   |   |  
+LD   HL,(nn)      16           |   |   |   |   |  
+LD   Ix,(nn)      20           |   |   |   |   |  
+LD   rr,nn        10           |   |   |   |   |  
+LD   Ix,nn        14           |   |   |   |   |  
+LD   SP,(nn)      20           |   |   |   |   |  
+LD   SP,HL        6            |   |   |   |   |  
+LD   SP,Ix        10           |   |   |   |   |  
+LD   SP,nn        10           |   |   |   |   |  
+LDD               16           | # | X | # | 0 | 0
+LDDR              16/21        | # | 0 | # | 0 | 0
+LDI               16           | # | X | # | 0 | 0
+LDIR              16/21        | # | X | # | 0 | 0
+                               |   |   |   |   |  
+NEG               8          X | X | V | X | 1 | X
+                               |   |   |   |   |  
+NOP               4            |   |   |   |   |  
+                               |   |   |   |   |  
+OR   (HL)         7          0 | X | P | X | 0 | 0
+OR   (Ix+d)       19         0 | X | P | X | 0 | 0
+OR   r            4          0 | X | P | X | 0 | 0
+OR   n            7          0 | X | P | X | 0 | 0
+                               |   |   |   |   |  
+OTDR              16/21        | 1 | # | # | 1 | #
+OTIR              16/21        | 1 | # | # | 1 | #
+OUT  (C),r        12           |   |   |   |   |  
+OUT  (n),A        11           |   |   |   |   |  
+OUTD              16           | X | # | # | 1 | #
+OUTI              16           | X | # | # | 1 | #
+                               |   |   |   |   |  
+POP  rr           10           |   |   |   |   |  
+POP  Ix           14           |   |   |   |   |  
+                               |   |   |   |   |  
+PUSH rr           11           |   |   |   |   |  
+PUSH Ix           15           |   |   |   |   |  
+                               |   |   |   |   |  
+RES  b,(HL)       15           |   |   |   |   |  
+RES  b,(Ix+d)     23           |   |   |   |   |  
+RES  b,r          8            |   |   |   |   |  
+                               |   |   |   |   |  
+RET               10           |   |   |   |   |  
+RET  cc           5/11         |   |   |   |   |  
+                               |   |   |   |   |  
+RETI              14           |   |   |   |   |  
+RETN              14           |   |   |   |   |  
+                               |   |   |   |   |  
+RL   (HL)         15         X | X | P | X | 0 | 0
+RL   (Ix+d)       23         X | X | P | X | 0 | 0
+RL   r            8          X | X | P | X | 0 | 0
+RLA               4          X |   |   |   | 0 | 0
+                               |   |   |   |   |  
+RLC  (HL)         15         X | X | P | X | 0 | 0
+RLC  (Ix+d)       23         X | X | P | X | 0 | 0
+RLC  r            8          X | X | P | X | 0 | 0
+RLCA              4          X | X | P | X | 0 | 0
+                               |   |   |   |   |  
+RLD               18           | X | P | X | 0 | 0
+                               |   |   |   |   |  
+RR   (HL)         15         X | X | P | X | 0 | 0
+RR   (Ix+d)       23         X | X | P | X | 0 | 0
+RR   r            8          X | X | P | X | 0 | 0
+RRA               4          X |   |   |   | 0 | 0
+                               |   |   |   |   |  
+RRC  (HL)         15         X | X | P | X | 0 | 0
+RRC  (Ix+d)       23         X | X | P | X | 0 | 0
+RRC  r            8          X | X | P | X | 0 | 0
+RRCA              4          X | X | P | X | 0 | 0
+                               |   |   |   |   |  
+RRD               18           |   |   |   |   |  
+                               |   |   |   |   |  
+RST  n            11         # | # | # | # | # | #
+                               |   |   |   |   |  
+SBC  A,n          7          X | X | V | X | 1 | X
+SBC  A,(HL)       7          X | X | V | X | 1 | X
+SBC  A,(Ix+d)     19         X | X | V | X | 1 | X
+SBC  A,r          4          X | X | V | X | 1 | X
+SBC  HL,rr        15         X | X | V | X | 1 | X
+                               |   |   |   |   |  
+SCF               4          1 |   |   |   | 0 | 0
+                               |   |   |   |   |  
+SET  b,(HL)       15           |   |   |   |   |  
+SET  b,(Ix+d)     23           |   |   |   |   |  
+SET  b,r          8            |   |   |   |   |  
+                               |   |   |   |   |  
+SLA  (HL)         15         X | X | P | X | 0 | 0
+SLA  (Ix+d)       23         X | X | P | X | 0 | 0
+SLA  r            8          X | X | P | X | 0 | 0
+                               |   |   |   |   |  
+SRA  (HL)         15         X | X | P | X | 0 | 0
+SRA  (Ix+d)       23         X | X | P | X | 0 | 0
+SRA  r            8          X | X | P | X | 0 | 0
+                               |   |   |   |   |  
+SLR  (HL)         15         X | X | P | X | 0 | 0
+SLR  (Ix+d)       23         X | X | P | X | 0 | 0
+SLR  r            8          X | X | P | X | 0 | 0
+                               |   |   |   |   |  
+SUB  (HL)         7          X | X | V | X | 1 | X
+SUB  (Ix+d)       19         X | X | V | X | 1 | X
+SUB  r            4          X | X | V | X | 1 | X
+SUB  n            7          X | X | V | X | 1 | X
+                               |   |   |   |   |  
+XOR  (HL)         7          0 | X | P | X | 0 | 0
+XOR  (Ix+d)       19         0 | X | P | X | 0 | 0
+XOR  r            4          0 | X | P | X | 0 | 0
+XOR  n            7          0 | X | P | X | 0 | 0
+
+
+
+Operands:
+r    = 8-bit register (A, B, C, D, E, H, I, L, R)
+rr   = 16-bit register (AF, BC, DE, HL, IX, IY, SP)
+Ix   = Either IX or IY
+n    = 8-bit number
+nn   = 16-bit number
+b    = Bit value (0-7)
+d    = Offset onto IX or IY
+e    = Offset destination address
+cc   = Condition (flag)
+
+Flags:
+C    = Carry flag (C, NC)
+Z    = Zero (Z, NZ)
+P/V  = Parity/oVerflow (PO, PE)
+S    = Sign (P, M)
+N    = additioN
+H    = Half carry
+
+1    = Flag is set
+0    = Flag is reset
+X    = Flag is (re)set according to the operation
+#    = Status is not important
+P    = The P/V flag indicates Parity
+V    = The P/V flag indicates oVerflow
+?    = Status is unknown (undefined)
+
+Length:
+The length field is in T-states. 1 T-state is 1/4,000,000 seconds (at 4MHz clock)
