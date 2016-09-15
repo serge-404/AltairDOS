@@ -631,6 +631,12 @@ COLDINIT:			; input: DE = IDE/SD port address
         LD      A,80H
         LD      (sysPFB),A
         OUT     (PFB),A
+	xor	a
+	dec	a		; A=0FFh
+	ld 	(BORDER0+9), a	; c=0/10h=master/slave, 1/3=SDcard, 0FFh=not used (free) - 1 IDE/SD slot (default boot slot)
+	ld 	(BORDER1+9), a	; c=0/10h=master/slave, 1/3=SDcard, 0FFh=not used (free) - 2 IDE/SD slot
+	ld 	(BORDER2+9), a	; c=0/10h=master/slave, 1/3=SDcard, 0FFh=not used (free) - 3 IDE/SD slot
+
 	ld	a, (12)		; a=drive_sign (D4..D0: 0=IDE8255_Master, 10h=IDE8255_Slave, 57h=IDEPRO_Master, 1=SDC, 3=SDHC, 4=ROM, 5=FDD)
 	ld	hl, ide_8255	; IDE: source,compiled base address
 	ld	bc, port_tbl	; IDE: hlat table address
@@ -850,9 +856,6 @@ coldsd2:
 	ld      (hl),TPAPAGE	; F3F9 = 2
 	INC	HL
 	LD      (HL),a		; F3FA = 0
-	dec	a		; A=0FFh
-	ld 	(BORDER1+9), a	; c=0/10h=master/slave, 1/3=SDcard, 0FFh=not used (free)
-	ld 	(BORDER2+9), a	; c=0/10h=master/slave, 1/3=SDcard, 0FFh=not used (free)
         JP	MMTEST          ; MEMORY TEST
 ;
 sd_tab1:

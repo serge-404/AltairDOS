@@ -7,6 +7,8 @@
 	dw	coldbeg
 	dw	READSEC
 	dw	readide
+	dw	_IFIDE2
+
 ;	dw	SELROM
 ;	dw	ySELROM
 ;	dw	GETROM
