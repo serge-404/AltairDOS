@@ -1,6 +1,7 @@
 ;
 ; for debug
 ;
+IF DEBUG
 	dw	0
 	dw	0
 	dw	COLDINIT
@@ -48,6 +49,6 @@
 ;	DW	ALV_E-ALV_C			; +38 total ALVs space for IDE/SD devices
 	dw	0
 	dw	0
-
+ENDIF
 
 
