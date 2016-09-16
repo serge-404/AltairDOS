@@ -1,4 +1,20 @@
 ;
+IF DEBUG
+DEBUGADDR  EQU	0FFh
+ENDIF
+DEBUGINIT MACRO x
+IF DEBUG
+	ld	hl,DEBUGADDR
+	ld	(hl),x
+ENDIF
+ENDM
+DEBUGTRACE MACRO y
+IF DEBUG
+	ld	hl,DEBUGADDR
+	inc	(hl)
+ENDIF
+ENDM
+;
 ;The IOBYTE lives at address 3 (in the Zero Page) and should be changed using 
 ;BDOS calls 7 and 8 (get/set IOBYTE). The value is bitmapped:
 ;
@@ -628,6 +644,7 @@ COLDST1:LD      HL, COLDINIT
         JP      BJMP
 ;
 COLDINIT:			; input: DE = IDE/SD port address
+	DEBUGINIT 0
         LD      A,80H
         LD      (sysPFB),A
         OUT     (PFB),A
@@ -636,7 +653,7 @@ COLDINIT:			; input: DE = IDE/SD port address
 	ld 	(BORDER0+9), a	; c=0/10h=master/slave, 1/3=SDcard, 0FFh=not used (free) - 1 IDE/SD slot (default boot slot)
 	ld 	(BORDER1+9), a	; c=0/10h=master/slave, 1/3=SDcard, 0FFh=not used (free) - 2 IDE/SD slot
 	ld 	(BORDER2+9), a	; c=0/10h=master/slave, 1/3=SDcard, 0FFh=not used (free) - 3 IDE/SD slot
-
+	DEBUGINIT 1
 	ld	a, (12)		; a=drive_sign (D4..D0: 0=IDE8255_Master, 10h=IDE8255_Slave, 57h=IDEPRO_Master, 1=SDC, 3=SDHC, 4=ROM, 5=FDD)
 	ld	hl, ide_8255	; IDE: source,compiled base address
 	ld	bc, port_tbl	; IDE: hlat table address
@@ -710,6 +727,7 @@ OR128:	ld	a,6			; Device=ROM
 sport1:
 	ld	de, DPB_C
 coldrom2:
+	DEBUGINIT 2
 	push	af
 	ld	hl, 10h
 	ld	bc, 15
@@ -733,7 +751,7 @@ mvcrc:  ld	a, (hl)
 ; this should usually be followed with a call to "ide_init".
 ;
 cold_ide:
-
+	DEBUGINIT 3
 IF IDEPRO
 	cp	47h
 	jr	z,LOOPEXT	; allready inited, so skip PRO_INIT
@@ -784,7 +802,9 @@ ENDIF
 ;
 ;-------------------- SD-card cold init ------------------------------
 ;
-cold_sd:call	sd_init
+cold_sd:
+	DEBUGINIT 4
+	call	sd_init
 	jr	z, coldsd2	; if card present & MSX scheme
 	ld	hl, sd_tab1	; 
 	ld	de, sd_tab0
@@ -804,6 +824,7 @@ coldsd1:ld	hl, sd_tab2	;
 	ld	bc, sd_tab3-sd_tab2
 	ldir			; both tests fail -> back to MSX scheme (default scheme)
 coldsd2:
+	DEBUGINIT 5
 ;
 ;---------------
 ;
@@ -824,6 +845,7 @@ coldsd2:
         inc     hl
         ld      (hl),B		; B=0.  откл. инверсию
         CALL    0F82DH		; распаковать фонт
+	DEBUGINIT 6
  	pop	hl		; HL=NTAB
         LD      DE,BPROC
         LD      BC,AVECEND-AVECBEG
@@ -838,6 +860,7 @@ coldsd2:
 	ld	c, mttyend-mttybeg
 	LDIR
 ;
+	DEBUGINIT 7
         CALL    FLUSH           ; SET RG.A=0
         LD      (TIMBUF),A
         LD      (BATVAR),A
@@ -856,6 +879,7 @@ coldsd2:
 	ld      (hl),TPAPAGE	; F3F9 = 2
 	INC	HL
 	LD      (HL),a		; F3FA = 0
+	DEBUGINIT 8
         JP	MMTEST          ; MEMORY TEST
 ;
 sd_tab1:
