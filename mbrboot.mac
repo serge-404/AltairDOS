@@ -309,6 +309,9 @@ endmenu:
 ;
 	.dephase
 ;
+	ds	510-bootbeg+begmenu-endmenu, 0
+	db	055h, 0AAh
+;
 	END
 ;
 
