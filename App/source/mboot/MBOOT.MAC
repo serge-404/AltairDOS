@@ -2,6 +2,8 @@
 ;
 	.Z80
 ;
+DEBUG   equ     0
+;
 mon_out	equ	0f809h
 mon_ink	equ	0f803h
 mon_key	equ	0F803h
@@ -96,7 +98,7 @@ CMD58  equ 040h + 58 ; READ_OCR
 ACMD41 equ 040h + 41 ; send host capacity support, init card
 ;
 buffer	equ	7000h	; IDE-sector (512 bytes) temporary buffer
-codesize equ	2192	; 1952	; 1712	; 1520	
+codesize equ	2208	; 1952	; 1712	; 1520
 DPBSize	equ	31	; DBP size
 ;
 	.phase	7400h-16
@@ -910,6 +912,7 @@ scheme:	call	mon_msg
 ;====================== IDE routines ====================
 ;
 BOOTIDEPRO:
+        ld      a,57h
 	ld	hl, ReadIdePro
 	call	aSetVector
 	LD 	A,06H     	; sbros (D2), prerywaniq zapre}eny (D1)
@@ -1047,8 +1050,8 @@ rdblk2: ld      a, c
         xor     a
         ld      (de), a                 ; deassert all control pins
         djnz    rdblk2
-moveblk_bh:
 	pop	bc			; b=0, c=drv_sign (57h,0,10h,1,3)
+moveblk_h:
 	pop	hl			; hl=buffer address at destination page
 ;
 ; Replace mon_ide="0F834h" for "call0" inside buffer and move block to destination (page 1)
@@ -1248,6 +1251,11 @@ ide_wr_8:
 ReadIdePRO:
 	call 	GetMInfo
 	push	de
+IF DEBUG
+        ld      b,30
+dummy1: call    delay10
+        djnz    dummy1
+ENDIF
 	call    PRO_wait_not_busy       ; make sure drive is ready
 	pop	de
         jr      z, prretff		; if a=0,Z=true
@@ -1258,11 +1266,19 @@ ReadIdePRO:
 ; wr_lba:
         ld      a, 0E0h			; 11100000b - LBA mode, Master, head 0 
 	or 	(hl)		; lba+3
-	ld	(hl),a
-	ld	bc,45Fh		; 4 registers beginning from 5Eh downto 5Bh
-wrlba1: dec	c
-	outd			; out (hl),c ; hl--; b--
-	jr	nz,wrlba1
+	out	(PRO_HEAD),a
+	dec	hl
+	ld	a,(hl)
+	out	(PRO_CYL_MSB),a
+	dec	hl
+	ld	a,(hl)
+	out	(PRO_CYL_LSB),a
+	dec	hl
+	ld	a,(hl)
+	out	(PRO_SECTOR),a
+	ld	a,1
+	out	(PRO_SEC_CNT),a
+        dec     hl
 	call    PRO_wait_not_busy       ; make sure drive is ready
 	pop	de
         jr      z, PRO_err
@@ -1282,18 +1298,16 @@ wrlba1: dec	c
         jr      c, PRO_err
 	push	hl		; hl=buffer address at destination page
 	ld	hl,buffer	; temporary buffer
-        ld      b, 0
-	ld	c, 57h		; d		; b=0, c=drv_sign (0,10h,1,3)
-	push	bc
-;
-CONRD0:	LD 	BC,PRO_DATAH	; B=0 dlq ob'ema 512 bajt
-CONRD:	inc	c
-	ini			; IN A,(DATAL)  ; LD (HL),A  ; INC HL;  
-	dec	c
-	inc	b
-	ini			; IN A,(DATAH)  ; LD (HL),A  ; INC HL ; dec b
-	jr 	nz,CONRD	;	DJNZ CONRD     ; ne wse
-	jp	moveblk_bh
+	ld	bc,0057h        ; b=0, c=drv_sign (0,10h,1,3)
+RDC0:	in	a,(PRO_DATAL)
+	ld	(hl),a
+	inc	hl
+	in	a,(PRO_DATAH)
+	ld	(hl),a
+	inc	hl
+	djnz	RDC0
+        xor     a
+	jp	moveblk_h
 ;
 PRO_err:in      a, (PRO_ERREG)
         or	a
