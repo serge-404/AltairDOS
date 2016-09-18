@@ -1,4 +1,5 @@
 			.Z80
+DEBUG	equ	0
 BOOTFDD	equ	1
 IDEPRO	equ	1
 			ASEG

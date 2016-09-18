@@ -154,7 +154,7 @@ WRIDE01:ldir
 ;	jp	MEI
 _wrhdd:	
 	pop	af
-	jr 	nz, wride0
+;	jr 	nz, wride0              ; 20160918 temporary!  previously idea was what LBAnum allready setted while buffering (readsec)
 ;
 x_wride:ld	e, ide_cmd_write
 	call	y_rdide			; e=ide_cmd_write -> only set LBA position, wait DRQ
