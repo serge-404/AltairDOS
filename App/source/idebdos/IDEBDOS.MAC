@@ -1,7 +1,7 @@
         .Z80
 ;
 DRIVER  equ     0       ; compile as AltairDos driver (with leading 128bytes signature block), COM-file otherwise
-DEBUG   equ     1       ; add debug info
+DEBUG   equ     0       ; add debug info
 IDEPRO  equ     1       ; 1=OrionPRO IDE/RTC ide ports, 0=8255 PPA ports
 ;
 TITLE   'IDE/SD RAW I/O driver - BDOS extension for CP/M'
@@ -311,8 +311,12 @@ BEGIN:
 	call	get_params	; process command line parameters
 	ld	de, HDRPORT
 	call	MSG
-beg8:	ld	de, ide_8255	; IDE: base address
 	ld	bc, port_tbl	; IDE: hlat table address
+IF IDEPRO
+	ld	de, 58h
+ELSE
+	ld	de, ide_8255	; IDE: base address
+ENDIF
 	ld	a, (MasterInfo)
 	and	1
 	jr	nz, beg9	; if SD mode
@@ -325,7 +329,7 @@ beg:	ld	hl, (pp_port)
 	ld	a, h
 	or	l
 	jr	nz, beg0	; if controller address allready sets by command line
-	ld	h, d
+beg7:	ld	h, d
 	ld	l, e
 	ld 	(pp_port), hl
 beg0:	ld	a, h
@@ -3574,7 +3578,6 @@ sdbuffer equ buffer+1024
 
 DEND:
 IF DEBUG
-        dw   beg8
         dw   initialize_ide
         dw   p_none
         dw   p_sd

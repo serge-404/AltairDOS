@@ -1,6 +1,6 @@
 	.Z80
 DEBUG   equ     0       ; add debug info to output binaries
-IDEPRO  equ     1       ; 1=OrionPRO IDE/RTC ide ports, 0=8255 PPA ports
+IDEPRO  equ     0       ; 1=OrionPRO IDE/RTC ide ports, 0=8255 PPA ports
 BOOTFDD	equ	1	; 1=Use FDD bootsector, 0=use IDE/SD/ROM bootsector
 VERBOSE equ	0	; 1=print some startup messages and perform complete memory test
 ;
