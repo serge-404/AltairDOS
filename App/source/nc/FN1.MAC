@@ -326,8 +326,8 @@ f172:   ld      a,' '
 ;
 
 f17:
-f18:    call    quanty
-	ret     z
+f18:    call    zquanty
+;	ret     z          ; 20160924
 	call    resact
 	ld      a,(key)
 	sub     17

@@ -108,8 +108,8 @@ c180:   add     hl,de
 
 ;******* list.mac *******
 
-list:   call    quantypk3
-	ret     z
+list:   call    zquantypk3     ; 20160924
+;	ret     z
 	ld      a,2
 	ld      l,a
 	call    dosft
@@ -428,7 +428,7 @@ PRSIZE1:RLC     C
         INC     IX
         JR      PRSIZE0
 PRSIZE2:ld	(dused), hl     
-	ex	de, hl		; DE=занято В ГРУППАХ
+	ex	de, hl		; DE=занто В ГРУППАХ
 	pop	hl
 	sbc	hl, de
 	ld	(dfree), hl	; свободно (в группах)

@@ -13,7 +13,8 @@ ide_cmd_id	equ 0ECh
 intinchl equ	1800h       	; 1 second delay at 5MHz
 ;
 parttab	equ	1BEh		; partitions table offset
-partcpm equ	052h		; cpm type partition
+partcpm equ	052h		; partition type: CP/M
+partuzix equ	021h		; partition type: UZIX
 bootadr	equ	0F200h		; bootloader working address	
 buffer1	equ	0EE00h		; initial 512b record buffer
 FORLBA	equ	3		; address inside bootsector where starting LBA placed
@@ -57,20 +58,21 @@ nextrec:xor	a
 	add	a, 0C2h			; 0BEh+4h - operating system indicator (052h=CPM)
 	ld	h, 1
 	ld	l, a			
-	ld	a, partcpm
-	cp	(hl)
+	ld	a,(hl)
+	cp	partcpm
+	jr	z, okrec
+	cp	partuzix
 	jr 	nz, nextrec		; not a CPM partition	
-	inc	hl
+okrec:	inc	hl
 	inc	hl
 	inc	hl
 	inc	hl		
 	push	hl			; (hl)=lba_beg
 	exx
 	pop	hl
-	ld	de, MasterInfo+5
-	NOP
 	NOP				; DO NOT MOVE NOPs: FOR ORION-PRO BOOTLOADER - (02Fh)=01="ld bc,.." - work page
 	ld	bc, 8
+	ld	de, MasterInfo+5
 	ldir				; get lba_beg, lba_size		
 	ld	hl, MasterInfo+8
 	ld	e, ide_cmd_read		; d=0 (Master)
@@ -158,8 +160,8 @@ upcase:	ld	a, (hl)
 upcase1:ld	(de),a			; uppercase, to_latin
 	inc	de
 	ret
-;
-unkn:	db	'CP/M 80 NO LABEL'
+;		
+unkn:	db	'CPM/UZIX NOLABEL'
 ;
 bootbeg:
 	.dephase
@@ -303,7 +305,8 @@ prmsg2: pop	hl
 ItemIndex:db	1			; selected menu item number (1..ItemCount)
 ItemCount:db	0
 timeout:db	5
-msgboot:db	1fh, 'SELECT BOOT PARTITION:',13,10
+msgboot:db	1fh, 'SELECT BOOT'
+msgpart:db	' PARTITION:',13,10
 msgboote:
 endmenu:
 ;

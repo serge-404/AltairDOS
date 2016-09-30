@@ -11,6 +11,8 @@ f0d:    call    resact0    ; Уст. диска и юзера
 	ld      a,(sysline)
 	or      a
 	jp      nz,dopcomm ; Переход, если SysLine <> 0
+        call    zquanty    ; 20160924
+;	ret     z          ; Нет файлов в активн. панели - выход
 ;
 ;  *  Пустая sysline, анализ расширения: bat, pk3, com  *
 ;

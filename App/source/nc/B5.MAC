@@ -456,8 +456,8 @@ invstat:call    inverse
 statln: ld      a,(minist)
 	dec     a
 	ret     nz
-	call    quantypk3
-	ret     z
+	call    zquantypk3              ; 20160924
+;	ret     z
 	ld      a,2
 	ld      l,22
 	call    gotoch

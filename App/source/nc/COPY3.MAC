@@ -251,8 +251,8 @@ comml3: inc     a
 	ld      (actpan),a
 	ret
 
-CopyFl: call    quanty
-	ret     z       ;Нет файлов в активн. панели - выход
+CopyFl: call    quanty        ; 20160924
+;	ret     z             ; Нет файлов в активн. панели - выход
 	ld      (StCopy),sp
 	call    wset8
 	xor     a

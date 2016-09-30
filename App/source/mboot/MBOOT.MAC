@@ -1414,7 +1414,7 @@ msgtitle:db	1Fh,0ah,'CP/M BOOT LOADER, V1.3.',0dh,0ah,0ah
 	 db	' 5. IDE PRO',9,'(IDE-RTC 56..5F)',0dh,0ah
 	 db	' 6. IDE MASTER',9,'(I8255 PPA F600)',0dh,0ah
 	 db	' 7. IDE SLAVE',9,'(I8255 PPA F600)',0dh,0ah
-	 db	0ah,'ENTER YOU CHOICE (1..6, DEFAULT=1): ',0
+	 db	0ah,'ENTER YOU CHOICE (1..7, DEFAULT=1): ',0
 msg_rdy: db	13,10,"DRIVE NOT READY",0
 msg_os48:db	13,10,"OSDOS 48K",0
 msg_os60:db	13,10,"OSDOS 60K",0

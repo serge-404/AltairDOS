@@ -597,8 +597,8 @@ grplmn1:call    modist
 	ld      a,(i4)
 
 select: ld      (selmode),a     ;Вход в рег. A
-	call    quantypk3
-	ret     z
+	call    zquantypk3
+;	ret     z               ; 20160924
 	ld      a,(selmode)
 	cp      14
 	jr      nz,sel0

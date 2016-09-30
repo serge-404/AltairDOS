@@ -190,12 +190,12 @@ wfl1case:
 	jp      grplmn
 f1case0:ld      hl,winlabel
 	jr      twin
-f1case2:call    quanty
-	ret     z
+f1case2:call    zquanty      ; 20160924
+;	ret     z
 	ld      hl,winprint
 	jr      twin
-f1case3:call    quanty
-	ret     z
+f1case3:call    zquanty      ; 20160924
+;	ret     z
 	call    catro
 	ld      (i14),a
 	call    catsys

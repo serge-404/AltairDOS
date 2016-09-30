@@ -508,11 +508,13 @@ reslsts:
 	jp      lstsys          ; архивного файла
 
 ;=============== Блокировка функций при режиме pk3 - view ======================
-quantypk3:
+zquantypk3:
 	call    getseepk3
 	ret     nz
-quanty: call    getquant
-	ret     z
+zquanty:call    getquant
+        pop     hl              ; 20160924
+	ret     z               ; break also caller function if Z (no files)
+        push    hl              ; restore return addrres on stack
 	call    getseepk3
 	dec     a
 	ret     nz

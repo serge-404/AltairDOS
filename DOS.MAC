@@ -1,8 +1,10 @@
-			.Z80
-DEBUG	equ	0
-BOOTFDD	equ	0
-IDEPRO	equ	1
-			ASEG
+	.Z80
+DEBUG   equ     0       ; add debug info to output binaries
+IDEPRO  equ     1       ; 1=OrionPRO IDE/RTC ide ports, 0=8255 PPA ports
+BOOTFDD	equ	0	; 1=Use FDD bootsector, 0=use IDE/SD/ROM bootsector
+VERBOSE equ	0	; 1=print some startup messages and perform complete memory test
+;
+	ASEG
 		;
 INCLUDE BOOT    ; BOOT - boot FDD (native) or boot IDE/SD (via Monitor F834h sobroutine)
 INCLUDE BDOS0   ; BDOS - Extended Memory Manager functions
@@ -12,7 +14,6 @@ INCLUDE BIOSSD  ; BIOS - SD card (N8VEM JuhaSD & MSX SDcard V1 schemes)
 INCLUDE BIOSIDE ; BIOS - IDE drives (8255 PPA scheme)
 INCLUDE BIOS0   ; BIOS - devices low level access routines
 INCLUDE BIOS1   ; BIOS - SYSTEM COLD STARTUP (memory test, config.sys)
-		; ENDCOLD:DEFS    801H+MMTEST-ENDCOLD
 INCLUDE CCP0    ; console command processor 
 INCLUDE CCP1    ; console command processor - extensions
 INCLUDE BIOS2   ; BDOS & BIOS wrapper, TTY, interbank (multiple memory pages) service routines

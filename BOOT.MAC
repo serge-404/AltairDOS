@@ -321,7 +321,7 @@ ASLDIR: LD      A,(HL)
         JP      NZ,ASLDIR
 ;
 	ld	hl, MSGCLR	; clrscr
-	call	MSGHEX
+	call	MSGHEX		; a=0
         XOR     A
         DEC     A
         JP      PO,IFZ80
@@ -358,10 +358,11 @@ ldcycle:push    bc
         ld      hl, (6)                 ; LBA offset high 16 bit
         adc     hl, de
         ld      (MsInfo+7), hl		; LBA=LBA+offset
+IF VERBOSE
 	ld	a,c
 	ld	hl, MSGSEC
 	call	MSGHEX
-					; (LBAbeg+9)=partition_hash from MBR ZBootLoader 
+ENDIF					; (LBAbeg+9)=partition_hash from MBR ZBootLoader 
 	ld      a, (LBAbeg+9)		; a=([d6:d5]=partition_N, [d4:d0]=drv_sign) 
 	and	17h			; remove partition N (D6:D5),  a = 0(Master) | 10h(slave) | 1 (SDC) | 3 (SDHC) | 4 (ROM)
 	ld	d,a
@@ -402,17 +403,26 @@ MSGHEX: push	af		; af = code for hexprint ; hl = msg
         OUT     (0F9H),A
         CALL    MONMSG
 	pop	af
+IF VERBOSE
 	call	MONHEX
+ELSE
+	or	a
+	call	nz,MONHEX
+ENDIF
 	ld	a,1
         OUT     (0F9H),A
 	ret
 ;
 NOZ80:  DB      'NO Z',0
 ERRERR: DB      ' ERROR ',0
-MSGCLR: DB	1Fh, 0
+IF VERBOSE
 MSGSEC: DB	13,'SECTOR ',0
+MSGCLR: DB	1Fh, 0
+ELSE
+MSGCLR: DB	1Fh
+MSGSEC: DB	0
+ENDIF
 EERR:
-
         .DEPHASE
 
         DS      0F8H-ENDBOOT-EERR+BERR
