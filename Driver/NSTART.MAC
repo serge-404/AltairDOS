@@ -112,6 +112,7 @@ TMNOW:  defb    10,13,'Please enter clock time <HH>:<MM>[:<SS>] $'
 DTNOW:  defb    10,13,'Please enter date <DD>:<MM>:<YY> $'
 ERRINP: defb    10,13,'Pardon ?',10,13,'$'
 VI1OKAY:defb    'Clock time OK',10,13,'$'
+RTCINFO:defb	'Press and hold a key while driver start to setup clock time.',13,10,'$'
 TIMEBF:
 DATEBF: defb    8,0
 	defs    10
@@ -368,6 +369,12 @@ NEXT1:	ld	a,(ORIONPRO)
        	EI
         ret
 RTCERR:	EI
+	ld	c,6
+	ld	e,0FFh
+	call	bdos
+	or	a
+	ld	de,RTCINFO
+	jp	z,MSG		; if not keypressed then message about how to set time
 	call    TMINPUT         ; ‏‏נה ‏פומוןך
 	jp      DTINPUT         ; ‏‏נה הגז‎
 
