@@ -192,7 +192,7 @@ msg_l:   db     "LBA=",'$'
 msg_ly:	 db	",  Access: LBA",'$'
 msg_ln:	 db	",  Access: CHS",'$'
 msg_ro:  db	", RO$"
-msg_hlp: db	13,10,13,10,"Usage: IDEBDOS [<device>:<param_list> [<device>:<param_list>]]"
+msg_hlp: db	13,10,13,10,"Usage: IDEBDOS [<drive>:<param_list> [<drive>:<param_list>]]"
 	 db	13,10,"       [Port:<hex_addr>] [Addr:<hex_bank>,<hex_addr>] [NOINT] [SD] [HELP] [?]",13,10
 	 db	13,10," where  Addr:<bank,addr> - driver resides at <bank,addr>(hex). (ACPM only)"
 	 db	13,10,"        Port:<addr>    - treat IDE/SD on port <addr>(hex).  Default F600/F762."
@@ -200,7 +200,7 @@ msg_hlp: db	13,10,13,10,"Usage: IDEBDOS [<device>:<param_list> [<device>:<param_
 	 db	13,10,"        NOINT        - pause interrupts during disk I/O"
 	 db	13,10,"        SD           - access SD-card instead of IDE, so IDE params ignored"
 	 db	13,10,"        <drive>      - 0=IDE-master, 1=IDE-slave, or 0=SD-card (in SD mode)"
-	 db	13,10,"        <param_list> - comma separated any list of IDE parameters:"
+	 db	13,10,"        <param_list> - comma separated any list of drive IDE parameters:"
 	 db	13,10,"                       RO    - use device in read-only mode (both IDE, SD)"
 	 db	13,10,"                       RW    - use device in read-write mode (default)"
 	 db	13,10,"                       CHS   - use CHS access mode instead of identified"
