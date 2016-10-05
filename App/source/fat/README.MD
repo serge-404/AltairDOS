@@ -3,7 +3,7 @@ where IDEBDOS driver exists). FAT can operating with two modes: CLI (OS command
 line) or like two-panel commander. Type `FAT HELP` to read about command systax,
 `FAT MENU` for panels commander.
 
-Syntax: FAT <command> [<filemask> [<filemask>]]
+Syntax: `FAT <command> [<filemask> [<filemask>]]`
 
 	where <command>: dir  <filemask> - show files list
         		type  <filemask> - type file content, KOI8r
@@ -27,7 +27,8 @@ FAT filemask:   0:/dir/dir2/file1.* - all files with `file1` name
 
 ORDOS filemask: @D:* - any files. Path allways starts with @
 
-Example: FAT copy 1:/test/aaa.bbb B3:cc.ddd
+Example: 
+	 FAT copy 1:/test/aaa.bbb B3:cc.ddd
          - copy FAT(MSDOS) file from slave drive first partition from
            dirrectory /test/ to CPM disk B user 3 with newname
 
