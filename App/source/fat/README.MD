@@ -18,14 +18,26 @@ Syntax: `FAT <command> [<filemask> [<filemask>]]`
 			chmod <filemask> - change file attributes
 
 <filemask> - file specification with full dirrectory path and(or) wildcards ?*
-		CP/M filemask: A0:*.ext - files with any names and extension
+		
+CP/M filemask: A0:*.ext - files with any names and extension
 		`ext` in user 0 of drive A. `0`-optional
 
-FAT filemask:   0:/dir/dir2/file1.* - all files with `file1` name
-		in `dir/dir2` catalog of master drive
-		catalog and drive names are optional
-
 ORDOS filemask: @D:* - any files. Path allways starts with @
+
+FAT filemask:   0:/dir/dir2/file1.* - all files with `file1` name in
+		`dir/dir2` catalog of logical drive 0 (phis.drive 0 = master,
+		1st partition), catalog and drive names are optional
+
+PARTITION Drives[] = {
+    {0, 0},     /* Logical drive 0 ==> Physical drive 0, 1st partition */
+    {1, 0},     /* Logical drive 1 ==> Physical drive 1, 1st partition */
+    {0, 1},     /* Logical drive 2 ==> Physical drive 0, 2nd partition */
+    {1, 1},     /* Logical drive 3 ==> Physical drive 1, 2nd partition */
+    {0, 2},     /* Logical drive 4 ==> Physical drive 0, 3rd partition */
+    {1, 2},     /* Logical drive 5 ==> Physical drive 1, 3rd partition */
+    {0, 3},     /* Logical drive 6 ==> Physical drive 0, 4th partition */
+    {1, 3}      /* Logical drive 7 ==> Physical drive 1, 4th partition */
+};
 
 Examples: 
 
