@@ -27,7 +27,8 @@ FAT filemask:   0:/dir/dir2/file1.* - all files with `file1` name
 
 ORDOS filemask: @D:* - any files. Path allways starts with @
 
-Example: 
+Examples: 
+
 	 FAT copy 1:/test/aaa.bbb B3:cc.ddd
          - copy FAT(MSDOS) file from slave drive first partition from
            dirrectory /test/ to CPM disk B user 3 with newname
@@ -38,4 +39,6 @@ Example:
 
 	 FAT atype 4:/asm/test.asm
          - view content of alternative codepage text file from FAT(MSDOS) vol
+
+FAT utility builded with Hitech C compiler v3.09 (CPM freeware)
 
