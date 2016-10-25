@@ -103,16 +103,17 @@ BEGIN:  XOR     A
         CALL    0F82DH		; unpack font
 	ld	a,80h
 	out	(PFB), a	; disable int, disable RAM dispatcher
+	IM	0
+	ld	de, (DSTPAGE)	
+	exx			; e' = destination bank
 	ld	hl, depack_beg
 	ld	de, depack_loop
-	ld	bc, depack_end-depack_beg+1
+	push	de
+	ld	bc, depack_end-depack_beg
 	ldir
-	ld	hl, PACKED+4	; +4 -> skip unpacked size DWORD
+;	ld	hl, PACKED+4	; +4 -> skip unpacked size DWORD
 	ld	de, (DSTADDR)
-	exx
-	ld	de, (DSTPAGE)	; e = destination bank
-	exx
-	jp	depack_loop
+	ret			; jp	depack_loop
 ;
 depack_beg:
 ;
@@ -192,6 +193,8 @@ get_value_end:
 	
 	jp	nc, depack1
 	ld	hl, (RUNADDR)
+	xor	a
+	out	(0FAh), a	; SCRREN 0 (C000..EFFF)
 	ld	a, (DSTPAGE)	; destination bank
 	out	(0F9h), a
 	jp	(hl)		; unpack completed. run unpacked code
@@ -220,11 +223,12 @@ depack1:
 	LDI_TO_DEST			;copy byte from compressed data to destination (literal byte)
 
 	jp	depack_loop
+;
+PACKED: defb	'DATA'			; marker - will be overwritten by packed data (PACKED - is the start address of packed data)
 ;	
 	.dephase
 ;
 depack_end:				; here compressed data begin
-PACKED: defb	'DATA  '		; marker - will be overwritten by packed data
 ;
 	end BEGIN
 

@@ -1,2 +1,2 @@
-for %%i in (*.com) do echo %%i & copy /b SCREEN.BIN + %%i %%i.tmp & pack %%i.tmp & copy /b DEPACK.BIN + %%i.tmp.pck .\ready\%%i & del %%i.tmp & del %%i.tmp.pck
+for %%i in (*.com) do echo %%i & pack %%i & copy /b DEPACK.BIN + %%i.pck .\ready\%%i & del %%i.tmp.pck
 
