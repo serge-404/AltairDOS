@@ -774,29 +774,31 @@ LL6:
 	ld	b, (hl)		; bc=buffer adress
 	push	bc		; 
 	ld	bc,buffer	; temporary buffer
+;	ld	a, d
+;	and	2		; check D1 bit for SDHC flag
+	inc	hl		; saves Z
+	ld	e, (hl)			; lba+0
 	inc	hl
-	ld	e, (hl)		; lba+0
-	inc	hl
-        ld      d, (hl)		; lba+1
+        ld      d, (hl)			; lba+1
 	inc     hl
-        ld      a, (hl)		; lba+2
+        ld      a, (hl)			; lba+2
 	inc	hl
-        ld      h, (hl)		; lba+3
+        ld      h, (hl)			; lba+3
         ld      l, a
+;	push	de			; d=drive_sign (1/3)
 	ex	de, hl
-	ld	a, (drv_sign)
-	dec     a		        ; check for SDHC flag (drv_sign=3) or SDC (drv_sign=1)
-	jr	nz, sd_read_block	; SDHC - skip LBA*512
+;	jr	nz, sd_read_block	; SDHC - skip LBA*512
 ;
 ; DEHL (D31..D00) * 512 = DEHL*2*256 
 ;
-	ld      a,e
 	add	hl,hl
-	adc	a,a	        ; AHL=EHL*2
-	ld	d,a
+	ex	de,hl
+	adc	hl,hl
+	ex	de,hl	; DEHL=DEHL*2
+	ld	d,e
 	ld	e,h
 	ld	h,l
-	ld	l,0	        ; DEHL=AHL*256
+	ld	l,0	; DEHL=DEHL*256
 sd_read_block:
 	ld	a, CMD17	; READ_SINGLE_BLOCK
 	call	sd_command	; dehl byteaddress, saves BC
@@ -819,15 +821,16 @@ RDLOOP:
 	call	sd_get  ; crcs are not used
 	xor	a	; zero, no carry
 sd_done1:
-	pop	hl	; hl=buffer address at destination page (prev.bc)
+;	pop	de
+	pop	hl	; hl=buffer address at destination page
 sd_done:			
+;	ld	c, d	; c=drive_sign (1=SDC, 3=SDHC)
 	push	af
 	call	sd_fini
 	ld	a, SD_PWR
 	ld	(DE), a	; de=SD_ADDR. Unselect: /CS=high, NVEM:clock,dout=low
-	ld	a,(drv_sign)
-        ld      c,a     ; 1=SDC, 3=SDHC
-sddone2:pop	af
+	pop	af
+	ld	c, 1	; only SDC allways
 	ret	nz	; fail
 	xor	a
 	jp	moveblk
@@ -873,16 +876,13 @@ L7:
 	call	sd_command_no_arg
 	ret	nz		; not ok   F900
 	call	sd_get
-	and	040h    	; NZ if SDHC,  Z if SDC
-	ld	a, 1	        ; 1=SDC
-        jr      z,sdini2
-        ld      a, 3            ; 3=SDHC
-sdini2:	ld      (drv_sign),a
+	push	af
 	call	sd_get
 	call	sd_get
 	call	sd_get
-        xor     a
-	jr	sd_done
+	pop	af
+	and	040h    	; NZ if SDHC  NZ=error : SDHC not supported
+	jr	sd_done		
 ;
 BOOTSD:
 	ld	hl, ReadSd
@@ -1017,7 +1017,7 @@ ReadIde:call 	GetMInfo
 	push	de
 @@33:   call    ide_wr_8                ; ask the drive to read it
 @@34:   call    ide_wait_drq            ; wait until it's got the data
-	pop	de			; d=drv_sign (57h,0,10h,1,3,4), e=ide_cmd
+	pop	de			; d=drv_sign (0,10h,1,3), e=ide_cmd
 	jr	z, get_err
         rrca
         jr      c, get_err
@@ -1050,7 +1050,7 @@ rdblk2: ld      a, c
         xor     a
         ld      (de), a                 ; deassert all control pins
         djnz    rdblk2
-	pop	bc			; b=0, c=drv_sign (57h,0,10h,1,3,4)
+	pop	bc			; b=0, c=drv_sign (57h,0,10h,1,3)
 moveblk_h:
 	pop	hl			; hl=buffer address at destination page
 ;
@@ -1105,7 +1105,7 @@ rdblk4:	LD	A,(DE)
 	INC	DE
 	INC	HL
 	DJNZ	rdblk4
-	pop	bc			; b=0, c=drv_sign (57h,0,10h,1,3,4)
+	pop	bc			; b=0, c=drv_sign (0,10h,1,3,4)
 	pop	de			; de=base PPA address
 	pop	af
         ret
@@ -1292,13 +1292,13 @@ ENDIF
 	ld 	h,a		; HL=BUFF
 ;	push	de
 	call    PRO_wait_drq            ; wait until it's got the data
-;	pop	de			; d=drv_sign (57h,0,10h,1,3,4), e=ide_cmd
+;	pop	de			; d=drv_sign (0,10h,1,3), e=ide_cmd
 	jr	z, PRO_err
         rrca
         jr      c, PRO_err
 	push	hl		; hl=buffer address at destination page
 	ld	hl,buffer	; temporary buffer
-	ld	bc,0057h        ; b=0, c=drv_sign (57h,0,10h,1,3,4)
+	ld	bc,0057h        ; b=0, c=drv_sign (0,10h,1,3)
 RDC0:	in	a,(PRO_DATAL)
 	ld	(hl),a
 	inc	hl
@@ -1401,7 +1401,7 @@ delayx: dec     de			; 6
         ret	z			; 5
         jr      delayx			; 12  total=31 tstates
 ;
-drv_sign:db	0	; 57h,0=IDEMASTER, 10h=IDESLAVE, 1=SDC, 3=SDHC, 4=ROMdisk, 5=ROM2PRO
+drv_sign:db	0	; 0=IDEMASTER, 10h=IDESLAVE, 1=SDC, 3=SDHC, 4=ROMdisk, 5=ROM2PRO
 msgZ80:	 db	'NO Z80 CPU'
 msgerr:  db	' - ERROR !'
 msgf4:	 db	0dh,0ah,'PRESS CTRL+C (F4) TO EXIT',0

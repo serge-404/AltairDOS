@@ -30,7 +30,7 @@ sd_fini:
 	jp	sd_fini_msx
 sd_put:
 	jp	sd_put_msx
-sd_get:
+sd_get:                         ; saves bc!
 	jp	sd_get_msx
 ;
 ; --------------------------
@@ -87,7 +87,7 @@ L3:	ld 	a, 6		; (SD_PWR+SD_CS)/2
 	pop	hl
 	ret			; af bc trashed
 ;
-sd_get_n8vem:
+sd_get_n8vem:                   ; saves bc!
 	push	hl             	; byte to a
 	ld	d, 8
 @@SD4:	ld	hl, SD_ADDR 
@@ -143,7 +143,7 @@ sd_put_msx:
 	ld	(bc), a		; 84 tstates
 	ret			; af bc trashed
 ;
-sd_get_msx:
+sd_get_msx:                     ; saves bc!
 @@SD7:	ld	de, SD_ADR2
 	ld	a, d		; A.D7=1
 	ld	(de), a
@@ -319,6 +319,7 @@ RDJNZ:	ld	(de), a
 ;  Output: DEHL=data position,   BC: buffer address 
 ;
 sd_setup:
+        push    de
 	call	sd_select	; saves HL
 sd_wait_busy:
 	ld bc, FTimeout	; XXX timeout XTAL dependent
@@ -328,6 +329,7 @@ L6:	call	sd_get	; 8 clocks. data output activates after 1 clock
 	dec	bc	; else busy or something
 	bit	7, b	; until HL wraps negative
 	jr	z, L6
+        pop     de
 	ret		; nz, timeout
 LL6:
 	ld	bc, 0FFFBh      ; -5
@@ -345,19 +347,21 @@ LL6:
         ld      h, (hl)		; lba+3
         ld      l, a
 	ex	de, hl
-;	jr	nz, skiplba	; SDHC - skip LBA*512
+        pop     af              ; 1=SDC, 3=SDHC
+        and     1Fh
+        sub     3
+	ret	z	        ; SDHC - skip LBA*512
 ;
-; DEHL (D31..D00) * 512 = DEHL*2*256 
+; DEHL (D31..D00) * 512 = DEHL*2*256
 ;
+	ld      a,e
 	add	hl,hl
-	ex	de,hl
-	adc	hl,hl
-	ex	de,hl	; DEHL=DEHL*2
-	ld	d,e
+	adc	a,a	        ; AHL=EHL*2
+	ld	d,a
 	ld	e,h
 	ld	h,l
-	ld	l,0	; DEHL=DEHL*256
-skiplba:xor	a
+        xor	a
+	ld	l,a	        ; DEHL=EHL*256
 	ret
 ;
 ;   Input: HL=DriveInfo_array+8,  d: 1=SDC, 3=SDHC
@@ -375,11 +379,12 @@ sd_read:
 ;
 sd_done:			; 02b1
 	push	af
+        push    bc
 	call	sd_fini		; return de=SD_ADDR
 	ld	a, SD_PWR
 	ld	(DE), a		; unselect : /CS high, clock and dout low
+	pop     bc              ; c=drive_sign(1=SDC, 3=SDHC)
 	pop	af
-	ld	c, 1		; only SDC allways
 	ret	nz		; rw_fail
 	xor	a
 	ret 
@@ -403,6 +408,7 @@ sdinit:	call	sd_wiggle	; power on, wiggle
 	jr	sd_done		
 ;
 ; z return if ok
+; output: C=(1=SDC, 3=SDHC)
 ; idle, ready, size, set block size
 
 sd_init_1:			; 02f0
@@ -449,12 +455,13 @@ L7:
 	call	sd_command_no_arg
 	ret	nz		; not ok
 	call	sd_get
-	push	af
+	and	040h    	; NZ if SDHC:  0 (SDC) or 40h (SDHC)
+        ld      c,1             ; 1=SDC
+        jr      z,sdini2
+        ld      c,3             ; 3=SDHC
+sdini2:	call	sd_get
+	call	sd_get          ; saves bc
 	call	sd_get
-	call	sd_get
-	call	sd_get
-	pop	af
-	and	040h    	; NZ if SDHC
-;	ld	(ISLBA0),a	; 0 (SCD-nonLBA) or 40h (SDHC-LBA) 
+        xor     a
 	ret
 

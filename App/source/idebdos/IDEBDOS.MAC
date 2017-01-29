@@ -1060,15 +1060,13 @@ L77:
 	call	sd_command_no_arg
 	ret	nz		; not ok
 	call	sd_get
-	push	af
-	call	sd_get
-	call	sd_get
-	call	sd_get
-	pop	af
 	and	040h    	; NZ if SDHC, Z if SDC
         ld      (ix),1          ; 1=SDC
-	ret     z
-        ld      (ix),3          ; 3=SDHC
+	jr      z,sdini2
+        ld      (ix),3          ; 3=SDHC, put it to MasterInfo[ix][0]
+sdini2:	call	sd_get
+	call	sd_get
+	call	sd_get
         xor     a               ; no error
         ret
 ;
@@ -3323,11 +3321,11 @@ LL6:
         ld      c, (hl)         ; bc=buffer adress
 	dec	hl
 	dec	hl
-	dec	hl
-        ld      a,(hl)
+	dec	hl              ; HL = MasterInfo
+        ld      a,(hl)          ; MasterInfo[0] - drive_sign
         pop     hl
-        dec     a               ; 0=IDEMaster, 16=IDESlave, 1=SDC, 3=SDHC
-	jr	nz, skiplba	; if SDHC then skip "LBA*512" procedure
+        sub     3               ; 0=IDEMaster, 16=IDESlave, 1=SDC, 3=SDHC
+	ret     z               ; if SDHC then skip "LBA*512" procedure
 ;
 ; DEHL (D31..D00) * 512 = DEHL*2*256 
 ;
@@ -3337,8 +3335,8 @@ LL6:
 	ld	d,a
 	ld	e,h
 	ld	h,l
-	ld	l,0	        ; DEHL=EHL*256
-skiplba:xor	a
+        xor	a
+	ld	l,a	        ; DEHL=EHL*256
 	ret
 ;
 sd_writesec:
