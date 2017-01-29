@@ -30,16 +30,6 @@ BMREAD  equ     12+BASE	; read D sectors(inp:D=count,E=dest_bank; out:A=0->ok)
 BMWRITE equ     13+BASE	; write sectors (inp:D=count,E=dest_bank; out:A=0->ok)
 BEND    equ     13+BASE	; end diapazon.
 ;
-; IDEBDOS v3 functions (FAT12/16/32):
-;
-BMOUNT  equ     14+BASE ; Mount a FAT partition
-BFOPEN  equ     15+BASE ; Open a File
-BFREAD  equ     16+BASE ; Read File
-BFWRITE equ     17+BASE ; Write File
-BFLSEEK equ     18+BASE ; Move read/write Pointer
-BDOPEN  equ     19+BASE ; Open a Directory
-BDREAD  equ     20+BASE ; Read a Directory Item
-;
 FBUF    equ     0F310h	; temporary buffer for routines processing 512b-blocks
 FBUFSZ	equ	20h	; size temporary routines (20h)
 FBUFCOD equ	FBUF
@@ -160,9 +150,9 @@ ELSE
 ENDIF
 	jp	BEGIN
 IF IDEPRO
-HEADER: db      13,10,'IDEBDOS V3.0.PRO (c) 2017 Serge.$'
+HEADER: db      13,10,'IDEBDOS V2.2.PRO (c) 2016 Serge.$'
 ELSE
-HEADER: db      13,10,'IDEBDOS V3.0.8255 (c) 2017 Serge.$'
+HEADER: db      13,10,'IDEBDOS V2.2.8255 (c) 2016 Serge.$'
 ENDIF
 HDRPORT:db	'  ?=HELP  Port: $'
 MERROR: db	'Out of XTPA memory or allready installed',13,10,'$'
@@ -203,16 +193,15 @@ msg_l:   db     "LBA=",'$'
 msg_ly:	 db	",  Access: LBA",'$'
 msg_ln:	 db	",  Access: CHS",'$'
 msg_ro:  db	", RO$"
-msg_hlp: db	13,10,"Usage: IDEBDOS [<drive>:<param_list> [<drive>:<params>|<drive>:<FATfunc>]"
-	 db	13,10,"       [Port:<hex_addr>] [Addr:<hex_bank>,<hex_addr>] [NOINT] [SD] [HELP] [?]"
+msg_hlp: db	13,10,13,10,"Usage: IDEBDOS [<drive>:<param_list> [<drive>:<param_list>]]"
+	 db	13,10,"       [Port:<hex_addr>] [Addr:<hex_bank>,<hex_addr>] [NOINT] [SD] [HELP] [?]",13,10
 	 db	13,10," where  Addr:<bank,addr> - driver resides at <bank,addr>(hex). (ACPM only)"
 	 db	13,10,"        Port:<addr>    - treat IDE/SD on port <addr>(hex).  Default F600/F762."
 	 db	13,10,"        HELP, ? (/?)  - show this help and exit"
-	 db	13,10,"        NOINT       - pause interrupts during disk I/O"
-	 db	13,10,"        SD        - access SD-card instead of IDE, so IDE params ignored"
-	 db	13,10,"        <drive>  - 0=IDE-master, 1=IDE-slave, or 0=SD-card (in SD mode)"
-	 db	13,10,"        <FATfunc>- MOUNT=<drv>=<file>,DIR=<mask>,TYPE|COPY=<infile>[=<outfile>]"
-	 db	13,10,"        <params> - comma separated any list of drive IDE parameters:"
+	 db	13,10,"        NOINT        - pause interrupts during disk I/O"
+	 db	13,10,"        SD           - access SD-card instead of IDE, so IDE params ignored"
+	 db	13,10,"        <drive>      - 0=IDE-master, 1=IDE-slave, or 0=SD-card (in SD mode)"
+	 db	13,10,"        <param_list> - comma separated any list of drive IDE parameters:"
 	 db	13,10,"                       RO    - use device in read-only mode (both IDE, SD)"
 	 db	13,10,"                       RW    - use device in read-write mode (default)"
 	 db	13,10,"                       CHS   - use CHS access mode instead of identified"
@@ -223,8 +212,7 @@ msg_hlp: db	13,10,"Usage: IDEBDOS [<drive>:<param_list> [<drive>:<params>|<drive
 	 db	13,10,"                     H=<num> - use <num>(decimal) heads instead of identified"
 	 db	13,10,"                     S=<num> - use <num>(decimal) sectors instead of identified"
 	 db	13,10,"Example:"
-	 db	13,10," idebdos 0:chs,c=1800,h=16,s=128,recal 1:sd,ro addr:0,8000 port:F600 noint",
-	 db	13,10," idebdos 0:sd,mount=F=\dir\disk.odi | idebdos 0:copy=\dir\fatfile.ext=D:cpmfile",13,10,"$"
+	 db	13,10," idebdos 0:ro,chs,c=1800,h=16,s=128,recal 1:rw,lba addr:0,8000 port:F600 noint",13,10,"$"
 ;
 intflag: db     0       ; 1 indicates what second interrupt begun
 intbank: ds     1
@@ -253,12 +241,6 @@ s_ques3:db	"-?",0
 s_help: db	"HELP",0
 s_sd:	db	"SD",0
 s_noint:db	"NOINT",0
-s_mount:db      "MOUNT",0
-s_dir:  db      "DIR",0
-s_run:  db      "RUN",0
-s_type: db      "TYPE",0
-s_atype:db      "ATYPE",0
-s_copy: db      "COPY",0
 ;
 par_tbl:dw	s_addr,  p_addr
 	dw	s_port,  p_port
@@ -279,15 +261,6 @@ par_tbl:dw	s_addr,  p_addr
 	dw	s_help,  p_help
 	dw	s_sd,	 p_sd
 	dw	s_noint, p_noint
-;
-; idebdos V3 functions
-;
-        dw      s_mount, p_mount
-        dw      s_dir,   p_dir
-        dw      s_run,   p_run
-        dw      s_type,  p_type
-        dw      s_atype, p_atype
-        dw      s_copy,  p_copy
 	dw	0
 ;
 port_tbl:
@@ -897,17 +870,6 @@ p_noint:xor	a		      ; 1=disable Ints wile IO
 	ld	(no_int+1), a
 	ret
 ;
-; idebdos V3 functions
-;
-p_mount:
-p_dir:
-p_run:
-p_type:
-p_atype:
-p_copy:
-         xor     a
-         ret
-;
 ;==================================================
 ;HL=HL*100
 HL100:   CALL HL10        ;HL=HL*100
@@ -1065,12 +1027,8 @@ L77:
 	call	sd_get
 	call	sd_get
 	pop	af
-	and	040h    	; NZ if SDHC, Z if SDC
-        ld      (ix),1          ; 1=SDC
-	ret     z
-        ld      (ix),3          ; 3=SDHC
-        xor     a               ; no error
-        ret
+	and	040h    	; NZ if SDHC
+	ret
 ;
 ;-------------------- SD-card cold init ------------------------------
 ;
@@ -3309,25 +3267,22 @@ L6:
 	jr	z, L6
 	ret		; nz, timeout
 LL6:
-	ld	d, (hl)         ; lba+3
-	dec	hl
-	ld	e, (hl)		; lba+2
-        dec	hl
-	ld	b, (hl)		; lba+1
-	dec	hl
-        ld      c, (hl)		; lba+0
-	dec     hl
-        push    bc
-        ld      b, (hl)
-	dec	hl
-        ld      c, (hl)         ; bc=buffer adress
-	dec	hl
-	dec	hl
-	dec	hl
-        ld      a,(hl)
-        pop     hl
-        dec     a               ; 0=IDEMaster, 16=IDESlave, 1=SDC, 3=SDHC
-	jr	nz, skiplba	; if SDHC then skip "LBA*512" procedure
+	ld	bc, 0FFFBh      ; -5
+	add	hl, bc
+	ld	c, (hl)
+	inc	hl
+	ld	b, (hl)		; bc=buffer adress
+        inc	hl	
+	ld	e, (hl)		; lba+0
+	inc	hl
+        ld      d, (hl)		; lba+1
+	inc     hl
+        ld      a, (hl)		; lba+2
+	inc	hl
+        ld      h, (hl)		; lba+3
+        ld      l, a
+	ex	de, hl
+;	jr	nz, skiplba	; SDHC - skip LBA*512
 ;
 ; DEHL (D31..D00) * 512 = DEHL*2*256 
 ;
