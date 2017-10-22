@@ -102,6 +102,7 @@ BADSYS: defb    10,13,'SORRY, ONLY FOR ALTAIR-DOS v3.x.',13,10,'$'
 NOMEM:  defb    10,13,'CAN NOT ALLOCATE MEMORY AT 0:C000..0:DFFF',13,10,'$' 
 ALREADY:defb    'Warning: console driver already installed'
 	defb    10,13,'$'
+CheckROM: defb  10,13,'WARNING: ROMBIOS F800 is not compatible with interruptable OS-es',10,13,'$'
 ;
 W8:     defb    27,'I',1,27,'I',0,27,'Q',8,' ',13,10,'$'
 PROMSG: defb    'Orion-PRO detected!',13,10,'$'
@@ -202,7 +203,40 @@ SKPALR: ld      (hl),VERS	; hl=DRVvers
         LD      (SCROFFS-BDRV+DRVR),A	; screen offset = 0  for 480pix scheme
 	LD      A,0F2h
 	LD      I,A
-        jr      O128
+        jp      O128
+;
+FFAREA  EQU     0F9FCh
+INTFF:  push    hl
+        push    bc
+        ld      a, (FFAREA-1)
+        cp      0C9h            ; must be RET at 0F9FBh
+	ld	de, CheckROM
+	call    nz, MSG
+        jr      nz, skpldr
+        ld      hl, FFAREA
+        ld      de, 0F910h
+        ld      bc, 5
+        ldir                    ; move 0F9FCh..0FA00h area to 0F910h..0F914h (not used string area)
+        ex      de, hl          ; hl=0F915h
+        ld      (hl), 0C3h      ; JP 0FA01h
+        inc     hl
+        ld      (hl), LOW (FFAREA+5)
+        inc     hl
+        ld      (hl), HIGH (FFAREA+5)
+        ld      hl, FFAREA
+        ld      (hl), 0C3h      ; place "JP 0F910h" at F9FCh
+        inc     hl
+        ld      (hl), 010h
+        inc     hl
+        ld      (hl), 0F9h
+        inc     hl
+	ld	de, (0F2FFh)
+        ld      (hl), e         ; (0F9FFh)=IntFF vector=0F2D0h(this ver)
+        inc     hl
+        ld      (hl), d
+skpldr: pop     bc
+        pop     hl
+        ret
 OPRO:
 	xor	a
 	ld	(TESTKBINT-BDRV+DRVR),a
@@ -219,13 +253,14 @@ OPRO:
 	ld	hl,0F800h
 	cpir
 	dec	hl
-PRO1:	ld	a,(MARKER)
+	ld	a,(MARKER)
 	out	(08h),a		; Orion-PRO memory pages port
 	in	a,(0Ah)		; Orion-PRO RAM/ROM dispatchers on/off config register
 	ld	c,a		; C=config port backup
 	ld	a,40h		; reset D7, set D6  (set Orion-PRO mode: F800...FFFF is RAM), all dispatchers is off (=0)
 	out	(0Ah),a
-	ld	de,0F90Fh
+        call    INTFF           ; prepare area for IntFF vector
+        ld	de,0F90Fh
 	ex	de,hl
 	ld	b,7
 loop1:	ld	(hl),d
