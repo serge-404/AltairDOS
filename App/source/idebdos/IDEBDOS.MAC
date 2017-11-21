@@ -224,7 +224,7 @@ msg_hlp: db	13,10,"Usage: IDEBDOS [<drive>:<param_list> [<drive>:<params>|<drive
 	 db	13,10,"                     S=<num> - use <num>(decimal) sectors instead of identified"
 	 db	13,10,"Example:"
 	 db	13,10," idebdos 0:chs,c=1800,h=16,s=128,recal 1:sd,ro addr:0,8000 port:F600 noint",
-	 db	13,10," idebdos 0:sd,mount=F=\dir\disk.odi | idebdos 0:copy=\dir\fatfile.ext=D:cpmfile",13,10,"$"
+	 db	13,10," idebdos 0:sd,mount=F=\dir\disk.odi | idebdos 1:copy=\dir\fatfile.ext=D:cpmfile",13,10,"$"
 ;
 intflag: db     0       ; 1 indicates what second interrupt begun
 intbank: ds     1
@@ -2738,6 +2738,8 @@ ENDIF
 ;
 XIOCTLTAB:
 @XX1:   dw      XGETPARAMS_A	; for future functional
+XIOCTLTABEND:
+XIOCTLTABSIZE equ XIOCTLTABEND-XIOCTLTAB
 
 XIOCTL: 
 @@72:   call	CheckDisk       ; l=lastdsk not (FF or FE) - continue chain
@@ -2748,7 +2750,11 @@ XIOCTL:
 @@@75:  ld      ix, MasterInfo  ; master descriptor
         jr      z, xioctl0
 @@@76:  ld      ix, SlaveInfo   ; slave descriptor
-xioctl0:ld	a,e
+xioctl0:ld	a,XIOCTLTABSIZE/2-1
+	cp	e
+	ld	a,4		; INVALID_PARAMETER
+	ret	c
+	ld	a,e
 @@77:   ld      hl,XIOCTLTAB
 	rlca			; a:=a*2
 	add	a,l

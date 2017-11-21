@@ -166,7 +166,8 @@ sd_command:		; command in a, dword arg in dehl
 	call	sd_put
 	ld	a, l	; arg lowest  (D07..D00) - Ylo
 	call	sd_put
-
+forCRCv:
+CRCValue equ forCRCv+1
 	ld	a, 095h	; crc7 only valid for initial CMD0
 	call	sd_put	; DOUT ends up idle because of the stopbit
 	ld hl,FTimeout	; XXX timeout XTAL dependent
@@ -457,3 +458,41 @@ sdini2:	ld	(device),a	; 0 (SCD-nonLBA) or 40h (SDHC-LBA)
         xor     a
 	ret
 
+; to initialize the SD card in SPI mode you should:
+;
+;    CMD0 arg: 0x0, CRC: 0x95 (response: 0x01) - note that in case of 0xFF or garbled response you should
+; simply repeat this step; see below for more info.
+;
+;    CMD8 arg: 0x000001AA, CRC: 0x87 (response: 0x01, followed by echo of arg, in this case 0x000001AA) - 
+; while it may seem that this command is optional, it's completely mandatory for newer cards. While 0x1AA
+; is a common arg value here, you may actually pass other values as well; see "Table 7-5: Card Operation 
+; for CMD8 in SPI Mode", p. 108 in spec for details. In short:
+;   send CMD8 with value (0x48,0x00,0x00,0x01,0xAA,0x87) when receive R7 response (0x01,0x00,0x00,0x01,0xAA)
+;
+;    3a. CMD55 arg: 0x0, CRC: any, 0x65 actually (response: 0x01; CMD55 being the prefix to every ACMD;
+;        if the response is 0x05, you've got an old card - repeat CMD1 with arg 0x0 [CRC 0xF9] instead
+;        of CMD55/ACMD41)
+;
+;    3b. ACMD41 , arg: 0x40000000, CRC: any, 0x77 actually (note that this argument assumes the card is
+;        a HCS one, which is usually the case; use 0x0 arg [CRC 0xE5] for older cards). If response is 0x0,
+;        you're OK; if it's 0x01, goto 3; if it's 0x05, see 3a. above; if it's neither, something's wrong
+;        with it (also see below).
+;
+; Most cards require steps 3a/3b (or CMD1 for old cards) to be repeated, usually at least once, even if you
+; wait some time between them; i.e. the actual sequence is CMD0/CMD8/CMD55/ACMD41/CMD55/ACMD41 (or 
+; CMD0/CMD8/CMD1/CMD1) - to be sure, try the CMD55/ACMD41 (or CMD1 if you got 0x05 from them) N times
+; (select N within your reason; it's actually quite common to have to wait a couple hundred ms if the device
+; is just after the power on, so aim for that), with small delays between the tries if you wish, and assume 
+; fail if response 0 doesn't appear (i.e. if the device stays in IDLE mode for some reason). Also, receiving
+; 0xFF from CMD0 is common if a device was in some "strange" state previously (e.g. hung up, got S?S?
+; deasserted [high], had over-/undervoltage on some pins etc.) - just give it some time, rinse and repeat N
+; times. A garbled response to CMD0 is quite OK sometimes - if you sent it a couple of times and the response
+; is still neither 0xFF nor 0x01, try to go forward with CMD8. If it works - you're good to go; if it doesn't
+; - it's probably broken.
+;
+; Besides, while the spec says that only CMD0 and CMD8 should have CRC in SPI mode, some SD cards (like
+; Transcend ones) seem to require proper CRC for CMD55/ACMD41 - if you want to be on the safe side, simply
+; use a precalculated value for them.
+;
+; http://www.electro-tech-online.com/threads/initialise-sd-sdhc-card.116467/
+;

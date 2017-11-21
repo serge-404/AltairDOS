@@ -1,5 +1,5 @@
 	.Z80
-	ORDOS	equ	1	; 0=compile for CPM, 1=compile for ORDOS
+	ORDOS	equ	0	; 0=compile for CPM, 1=compile for ORDOS
 ;
 	ASEG
 	ORG	100h
@@ -9,6 +9,8 @@ mon_out	equ	0f809h
 mon_in	equ	0f803h
 mon_svb	equ	0f839h
 mon_ldb equ	0f836h
+BLDB	equ	0F20Dh
+BSVB	equ	0F210h
 ;
 rdy_repeat   equ 400h	; repeat count in  ide_wait_ready
 ;
@@ -152,6 +154,7 @@ ENDIF
 	dw	plus
 	db	0
 ;
+IF ORDOS
 putbyte:LD	a,(de)
 	ld	c,a
 	LD	a,(bank0)		; memory page number
@@ -165,6 +168,43 @@ getbyte:LD	A,(bank0)		; memory page number
 	ld	a,c
 	ld	(de),a
 	jr	pb1
+;
+getbyt: LD	A,(bank0)		; memory page number
+	JP	mon_ldb			; get byte from other memory page
+ELSE
+; BLDB: 0F20Dh - загрузить в регистр В содержимое ячейки памяти из другого банка по
+;                адресу  A+HL
+; BSVB: 0F20Dh - записать содержимое регистра В в ячейку памяти в другом банке по
+;                адресу  A+HL
+putbyte:push	bc
+	push	de
+	LD	a,(de)
+	ld	b,a
+	LD	a,(bank0)		; memory page number
+	call	BSVB
+pb2:	pop	de
+	pop	bc
+pb1:	inc	hl
+	inc	de
+	ret
+;
+getbyte:push	bc
+	push	de
+	LD	a,(bank0)		; memory page number
+	call	BLDB
+	ld	a,b
+	ld	(de),a
+	jr	pb2
+;
+getbyt: 
+	LD	a,(bank0)		; memory page number
+	push	bc
+	call	BLDB
+	ld	a,b
+	pop	bc
+	ld	c,a
+	ret
+ENDIF
 ;
 plus:	ld	hl,Bank0
 	ld	a,(hl)
@@ -508,8 +548,7 @@ hd1:	push	bc
         call    cout
         call    space
         ld      b, 16           ; print 16 hex bytes per line
-hd2:    LD	A,(bank0)	; memory page number
-	CALL	mon_ldb		; get byte from other memory page
+hd2:    CALL	getbyt		; get byte in C from other memory page addressed by (bank0)
         inc     hl
 	call    phexc		;print each byte in hex
 IF ORDOS
@@ -522,8 +561,7 @@ ENDIF
         call    space
         pop     hl
         ld      b, 16           ; print 16 ascii bytes per line
-hd3:    LD	A,(bank0)	; memory page number
-	CALL	mon_ldb		; put byte into other memory page
+hd3:    CALL	getbyt		; get byte in C from other memory page addressed by (bank0)
 	ld	a,c
         inc     hl
         and     01111111b       ;only 7 bits for ascii
@@ -720,9 +758,9 @@ ENDIF
 	db     "SD/IDE TEST PROGRAM. Z80 ONLY.",0
 msg_n8v: db	"SD N8VEM",0
 msg_msx: db	"SD MSX",0
+msg_spi: db	"SD SPI",0
 msg_idem:db	"IDE 8255 M",0
 msg_ides:db	"IDE 8255 S",0
-msg_fdd: db    "FDD0 F720"
 msg_cye: db     "> ENTER ",0
 msg_cyp: db     "PAGE",0
 msg_cya: db     "ADDRESS", 0
@@ -741,8 +779,8 @@ msg_p:	 db	"P)AGE=",0
 msg_a:	 db	"H A)DDR=",0
 msg_l:   db     "H L)BA=",0
 msg_c:   db     "H C)OUNT=",0
-msg_d:	 db	"H)",13,10,"D)EVICE=",9,0
-msg_pmt: db     "R)EAD W)RITE H)EXDUMP Q)UIT",13,10,0
+msg_d:	 db	"H)",13,10,"D)EVICE=",0
+msg_pmt: db     9,"R)EAD W)RITE H)EXDUMP Q)UIT",13,10,0
 msg_mlba:db	"H (M)AX"
 ENDIF
 msg_cyl: db     "LBA ",0

@@ -4,7 +4,8 @@
 IF DEBUG
 	dw	0
 	dw	0
-        dw      wride
+	dw	FA
+        dw      DISKBUF	;wride
         dw      _wrhdd
 	dw	COLDINIT
 	dw	coldbeg
