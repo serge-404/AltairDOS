@@ -3,6 +3,8 @@
 ;============= SD-card procedures ====================================
 ;
 CMD0   equ 040h +  0 ; resets the card
+CMD1   equ 040h +  1 ; SEND_OP_CND  (MMC only)
+CMD8   equ 040h +  8 ; SEND_IF_COND
 CMD9   equ 040h +  9 ; read CSD
 CMD10  equ 040h + 10 ; read CID
 CMD16  equ 040h + 16 ; set R/W block
@@ -10,6 +12,7 @@ CMD17  equ 040h + 17 ; read block
 CMD24  equ 040h + 24 ; write block
 CMD55  equ 040h + 55 ; next command is ACMDxx
 CMD58  equ 040h + 58 ; READ_OCR
+CMD59  equ 040h + 59 ; CRC_ON_OFF
 ACMD41 equ 040h + 41 ; send host capacity support, init card
 ;
 SD_ADDR	equ	0F762h
@@ -386,8 +389,13 @@ del2:	dec	bc
 ;
 sd_init:xor	a
 	ld	(SD_ADDR), a	; power off
+;
+; TODO: select low speed
+;
 	ld	b, a
 	ld	c, a
+	inc	a
+	ld	(device),a	; old SDc
 delay0:	dec	bc		
 	ld	a, b
 	or	c
@@ -408,20 +416,37 @@ sd_init_1:			; 02f0
 	call	sd_command_no_arg
 	cp	001h
 	ret	nz		; not "idle"
-
+	ld	a, 087h
+	ld	(forCRCv), a
+	ld	a, CMD8		; SEND_IF_COND - check SD hardware
+	ld	hl,01AAh
+	call	sd_command_word_arg
+	dec	a
+	ld	a, 065h
+	ld	(forCRCv), a
+	jr	z, newcard
 sd_notready:
 	ld	a, CMD55	; APP_CMD
 	call	sd_command_no_arg
 	and	11111110b	; ~001h
 	ret	nz		; not "idle" nor "ok"
-
-	ld	a, ACMD41	; SD_SEND_OP_COND. arg 0x40000000 is HCS
+xACMD41:
+forACMD equ	xACMD41+1
+	ld	a, ACMD41	; SD_SEND_OP_COND. arg 0x00000000 is old SDs
 	call	sd_command_no_arg
-	cp	001h
+	cp	002h		; 005h returned for MMC cards; 001 for SDC
+forJR:	jr	c, ifSDC
+ifMMC:	ld	a, CMD01
+	ld	(forACMD),a
+	ld	a,18h		; jr
+	ld	(forJR),a
+ifSDC:	cp	001h
 	jr	z, sd_notready	; wait, while idle
 	or	a
 	ret	nz		; not ok
-
+getcsd:
+	ld	a, 095h
+	ld	(forCRCv), a
 	ld	a, CMD9		; SEND_CSD
 	call	sd_command_no_arg
 	ret	nz		; not ok
@@ -443,20 +468,48 @@ L7:
 ;
 ;=================================================
 ;
+	xor	a
+	ret
+;
+newcard:call	sd_get
+	call	sd_get
+	call	sd_get
+	call	sd_get		
+	cp	0AAh
+	ret	nz		; modern card with compliant HW normal response is (0x01,0x00,0x00,0x01,0xAA)
+
+	ld	a, CMD59	; CRC_ON_OFF
+	call	sd_command_no_arg
+
+	ld	a, CMD55	; APP_CMD	SURE ???
+	call	sd_command_no_arg
+	and	11111110b	; ~001h
+	ret	nz		; not "idle" nor "ok"
+
+sd_notready2:
+	ld	a, ACMD41	; SD_SEND_OP_COND. arg 0x40000000 is HCS
+	ld	de, 04000h
+	ld	h,e
+	ld	l,e
+	call	sd_command
+	dec	a		; cp	001h
+	jr	z, sd_notready2	; wait, while idle
+;
+; TODO: select full speed
+;
 	ld	a, CMD58	; READ_OCR
 	call	sd_command_no_arg
 	ret	nz		; not ok
 	call	sd_get
-	and	040h    	; NZ if SDHC
+	and	040h    	; NZ if SDHC  ; 0 (SCD-nonLBA) or 40h (SDHC-LBA)
         ld      a,1
         jr      z,sdini2
         ld      a,3
-sdini2:	ld	(device),a	; 0 (SCD-nonLBA) or 40h (SDHC-LBA)
+sdini2:	ld	(device),a	; 1=SDc; 3=SDHC
 	call	sd_get
 	call	sd_get
 	call	sd_get
-        xor     a
-	ret
+        jr	getcsd
 
 ; to initialize the SD card in SPI mode you should:
 ;
