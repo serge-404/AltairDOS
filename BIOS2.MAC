@@ -803,6 +803,7 @@ ENDIF
 ;-------------------- SD-card cold init ------------------------------
 ;
 cold_sd:
+IF      INITSD
 	DEBUGINIT 4
 	call	sd_init
 	jr	z, coldsd2	; if card present & MSX scheme
@@ -824,6 +825,7 @@ coldsd1:ld	hl, sd_tab2	;
 	ld	bc, sd_tab3-sd_tab2
 	ldir			; both tests fail -> back to MSX scheme (default scheme)
 coldsd2:
+ENDIF
 	DEBUGINIT 5
 ;
 ;---------------

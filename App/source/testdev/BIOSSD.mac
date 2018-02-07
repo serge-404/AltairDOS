@@ -1,19 +1,62 @@
 	N8VEM	equ	1	; 0=MSX scheme, 1=N8VEM scheme
+        DEBUG   equ     1
+
+IF DEBUG
+coutsp: push    af
+        push    bc
+        push    de
+        push    hl
+        call    space
+        ld      a, c
+        call    cout
+        call    space
+        pop     hl
+        pop     de
+        pop     bc
+        pop     af
+        ret
+hexp:   push    af
+        push    bc
+        push    de
+        push    hl
+;        cp      0ffh
+;        call    nz,phex
+        call    phex
+        call    const           ; for pause check
+        pop     hl
+        pop     de
+        pop     bc
+        pop     af
+        ret
+ENDIF
+
+DBGHEX  MACRO
+IF DEBUG
+        call    hexp
+ENDIF
+        ENDM
+
+DBGCH   MACRO  CH
+IF DEBUG
+        ld     c, CH
+        call   coutsp
+ENDIF
+        ENDM
 ;
 ;============= SD-card procedures ====================================
 ;
-CMD0   equ 040h +  0 ; resets the card
-CMD1   equ 040h +  1 ; SEND_OP_CND  (MMC only)
-CMD8   equ 040h +  8 ; SEND_IF_COND
-CMD9   equ 040h +  9 ; read CSD
-CMD10  equ 040h + 10 ; read CID
-CMD16  equ 040h + 16 ; set R/W block
-CMD17  equ 040h + 17 ; read block
-CMD24  equ 040h + 24 ; write block
-CMD55  equ 040h + 55 ; next command is ACMDxx
-CMD58  equ 040h + 58 ; READ_OCR
-CMD59  equ 040h + 59 ; CRC_ON_OFF
-ACMD41 equ 040h + 41 ; send host capacity support, init card
+CMD0   equ 40h +  0       ; resets the card
+CMD1   equ 40h +  1       ; SEND_OP_CND  (MMC only)
+CMD8   equ 40h +  8       ; SEND_IF_COND
+CMD9   equ 40h +  9       ; read CSD
+CMD10  equ 40h + 10       ; read CID
+CMD16  equ 40h + 16       ; set R/W block
+CMD17  equ 40h + 17       ; read block
+CMD24  equ 40h + 24       ; write block
+CMD55  equ 40h + 55       ; next command is ACMDxx
+CMD58  equ 40h + 58       ; READ_OCR
+CMD59  equ 40h + 59       ; CRC_ON_OFF
+ACMD41 equ 40h + 41       ; send host capacity support, init card
 ;
 SD_ADDR	equ	0F762h
 SD_ADR2	equ	0F763h
@@ -77,7 +120,7 @@ L3:	ld 	a, 6		; (SD_PWR+SD_CS)/2
 	pop	hl
 	ret			; af bc trashed
 ;
-sd_get_n8vem:
+sd_get_n8vem:                   ; saves BC !
 	push	hl             	; byte to a
 	ld	d, 8
 	ld	hl, SD_ADDR 
@@ -133,7 +176,7 @@ sd_put_msx:
 	ld	(bc), a		; 84 tstates
 	ret			; af bc trashed
 ;
-sd_get_msx:
+sd_get_msx:                     ; saves BC !
 	ld	de, SD_ADR2
 	ld	a, d		; A.D7=1
 	ld	(de), a
@@ -160,6 +203,7 @@ sd_command_word_arg:  ; fits in HL
 ;
 sd_command:		; command in a, dword arg in dehl
 	push	bc
+        push    af
 	call	sd_put	; command includes fixed 01 startbits
 	ld	a, d	; arg highest (D31..D24) - Xhi
 	call	sd_put
@@ -169,14 +213,22 @@ sd_command:		; command in a, dword arg in dehl
 	call	sd_put
 	ld	a, l	; arg lowest  (D07..D00) - Ylo
 	call	sd_put
-forCRCv:
-CRCValue equ forCRCv+1
-	ld	a, 095h	; crc7 only valid for initial CMD0
-	call	sd_put	; DOUT ends up idle because of the stopbit
+        pop     af
+        cp      CMD8
+        ld	l, 087h
+        jr      z,putCRC
+        cp      CMD0
+	ld	l, 095h	; this crc7 valid for initial CMD0
+        jr      z,putCRC
+        ld      l,1
+putCRC: ld      a,l
+       	call	sd_put	; DOUT ends up idle because of the stopbit
 	ld hl,FTimeout	; XXX timeout XTAL dependent
 	pop	bc
-L4:
-	call	sd_get	; R1 response, when msbit is clear
+L4:	call	sd_get	; R1 response, when msbit is clear
+
+        DBGHEX
+
 	or	a	; zero and sign valid
 	ret	p	; R1 in a. z if ok
 	dec	hl
@@ -315,6 +367,10 @@ sd_setup:
 sd_wait_busy:
 	ld bc, FTimeout	; XXX timeout XTAL dependent
 L6:	call	sd_get	; 8 clocks. data output activates after 1 clock
+
+        DBGHEX
+        DBGCH '|'
+
 	inc	a	; FF is not busy
 	jr	z, LL6	; z, ok. a=0
 	dec	bc	; else busy or something
@@ -338,7 +394,7 @@ LL6:
         ld      h, (hl)		; lba+3
         ld      l, a
 	ex	de, hl
-        pop     af
+        pop     af              ; a = 1=SDC, 3=SDHC
         sub     3
         ret	z	        ; SDHC - skip LBA*512
 ;
@@ -372,8 +428,9 @@ sd_done:			; 02b1
 	call	sd_fini		; return de=SD_ADDR
 	ld	a, SD_PWR
 	ld	(DE), a		; unselect : /CS high, clock and dout low
+	ld	a,(device)	; type of SDC/SDHC
+	ld	c,a
 	pop	af
-	ld	c, 1		; only SDC allways
 	ret	nz		; rw_fail
 	xor	a
 	ret 
@@ -390,7 +447,7 @@ del2:	dec	bc
 sd_init:xor	a
 	ld	(SD_ADDR), a	; power off
 ;
-; TODO: select low speed
+; TODO: select low speed XTAL
 ;
 	ld	b, a
 	ld	c, a
@@ -408,99 +465,104 @@ sdinit:	call	sd_wiggle	; power on, wiggle
 	call	sd_init_1
 	jr	sd_done		
 ;
+; High level card init for SDC(inp C=0)/SDHC(inp C=40h)
+;
+CMD55ACMD41:
+        ld      b,50            ; 50 tries
+sd_checkready:
+
+        DBGCH   '#'
+
+	ld	a, CMD55	; APP_CMD
+	call	sd_command_no_arg  ; saves BC
+	and	11111110b	; ~001h
+	ret	nz		; not "idle" nor "ok"
+
+        DBGCH   '~'
+
+        ld      d, c            ; d=SDHC flag (40h) or SDC v1.0 flag (0)
+        ld      e, a
+	ld	h, a            ; A=0
+	ld	l, a
+        ld	a, ACMD41	; SD_SEND_OP_COND (with parameter)
+	call	sd_command      ; saves BC
+        cp      001h
+	jr      nz,sd_idle
+        djnz    sd_checkready	; wait, while idle
+sd_idle:
+	or	a
+        ret
+;
 ; z return if ok
 ; idle, ready, size, set block size
-
-sd_init_1:			; 02f0
+sd_init_1:			;
 	ld	a, CMD0		; GO_IDLE_STATE
 	call	sd_command_no_arg
 	cp	001h
 	ret	nz		; not "idle"
-	ld	a, 087h
-	ld	(forCRCv), a
+
+        DBGCH   '*'
+
 	ld	a, CMD8		; SEND_IF_COND - check SD hardware
 	ld	hl,01AAh
 	call	sd_command_word_arg
+
+        DBGCH   '='
+        DBGHEX
+
 	dec	a
-	ld	a, 065h
-	ld	(forCRCv), a
 	jr	z, newcard
-sd_notready:
-	ld	a, CMD55	; APP_CMD
-	call	sd_command_no_arg
-	and	11111110b	; ~001h
-	ret	nz		; not "idle" nor "ok"
-xACMD41:
-forACMD equ	xACMD41+1
-	ld	a, ACMD41	; SD_SEND_OP_COND. arg 0x00000000 is old SDs
-	call	sd_command_no_arg
-	cp	002h		; 005h returned for MMC cards; 001 for SDC
-forJR:	jr	c, ifSDC
-ifMMC:	ld	a, CMD01
-	ld	(forACMD),a
-	ld	a,18h		; jr
-	ld	(forJR),a
-ifSDC:	cp	001h
-	jr	z, sd_notready	; wait, while idle
-	or	a
-	ret	nz		; not ok
-getcsd:
-	ld	a, 095h
-	ld	(forCRCv), a
-	ld	a, CMD9		; SEND_CSD
-	call	sd_command_no_arg
+        cp      4               ; RC was 5 = unknown CMD (4) + IDLE (1)
+        ld      a, CMD0         ; init card again
+        call    z,sd_command_no_arg
+        ld      c, 0            ; C=0 for SDC v1.0
+        call    CMD55ACMD41
 	ret	nz		; not ok
 
-	call	sd_wait_token	; packet start or FF if timed out
-	cp	0FEh
-	ret	nz		;  or error
+        DBGCH   '^'
 
-	ld	hl, csdbuf	; XXX
-	ld	b, 16+2         ; including crc16
-L7:
-	call	sd_get
-	ld	(hl), a		; temporary read CSD to /dev/null :)
-	inc	hl
-	djnz	L7		; do 16+2 bytes
-;
-; CSD in csdbuf. calculate something
-;
-;
-;=================================================
-;
-	xor	a
-	ret
+        ld      a, CMD16        ; set sector length
+	ld	hl,0200h
+	call	sd_command_word_arg
+        ret     nz
+        jr	getcsd
 ;
 newcard:call	sd_get
 	call	sd_get
 	call	sd_get
-	call	sd_get		
+
+        DBGCH   '='
+        DBGHEX
+
+	call	sd_get
+
+        DBGCH   '='
+        DBGHEX
+
 	cp	0AAh
 	ret	nz		; modern card with compliant HW normal response is (0x01,0x00,0x00,0x01,0xAA)
 
+        DBGCH   '('
+
 	ld	a, CMD59	; CRC_ON_OFF
 	call	sd_command_no_arg
-
-	ld	a, CMD55	; APP_CMD	SURE ???
-	call	sd_command_no_arg
-	and	11111110b	; ~001h
-	ret	nz		; not "idle" nor "ok"
-
-sd_notready2:
-	ld	a, ACMD41	; SD_SEND_OP_COND. arg 0x40000000 is HCS
-	ld	de, 04000h
-	ld	h,e
-	ld	l,e
-	call	sd_command
-	dec	a		; cp	001h
-	jr	z, sd_notready2	; wait, while idle
+        ld      c, 40h          ; C=40h for SDC v2.0 and SDHC
+        call    CMD55ACMD41
+	ret	nz		; not ok
 ;
-; TODO: select full speed
+; TODO: select full speed XTAL
 ;
+
+        DBGCH   ')'
+
 	ld	a, CMD58	; READ_OCR
 	call	sd_command_no_arg
 	ret	nz		; not ok
 	call	sd_get
+
+        DBGCH   '='
+        DBGHEX
+
 	and	040h    	; NZ if SDHC  ; 0 (SCD-nonLBA) or 40h (SDHC-LBA)
         ld      a,1
         jr      z,sdini2
@@ -509,8 +571,149 @@ sdini2:	ld	(device),a	; 1=SDc; 3=SDHC
 	call	sd_get
 	call	sd_get
 	call	sd_get
-        jr	getcsd
+getcsd:
 
+        DBGCH   '-'
+
+	ld	a, CMD9		; SEND_CSD
+	call	sd_command_no_arg
+	ret	nz		; not ok
+
+        DBGCH   '+'
+
+	call	sd_wait_token	; packet start or FF if timed out
+	cp	0FEh
+	ret	nz		;  or error
+
+        DBGCH   '/'
+
+	ld	hl, csdbuf	; XXX
+	ld	b, 16+2         ; including crc16
+L7:
+	call	sd_get
+	ld	(hl), a		; read CSD to csdbuf
+	inc	hl
+	djnz	L7		; do 16+2 bytes
+;
+; CSD in csdbuf. calculate something later
+;
+	xor	a
+	ret
+;
+; Calculate max LBA through CSD data
+;
+;0   CSD_Structure:     byte;       // D7=D6=Capacity{00=Standard,01=HighCapacity} D5:D0=reserved=00000
+;Standard (CSD v1.0):
+;1   TAAC:              byte;       // D7:D0=TAAC[7:0]
+;2   NSAC:              byte;       // D7:D0=NSAC[7:0]
+;3   TRAN_SPEED:        byte;       // D7:D0=TRAN_SPEED[7:0]
+;4   CCC:               byte;       // D7:D0=CCC[11:4]
+;5   CCC_READ_BL_LEN:   byte;       // D7:D4=CCC[3:0]  D3:D0=READ_BL_LEN[3:0]
+;6   BITFIELD1_CSIZE:   byte;       // D7=RD_BL_PARTIAL  D6=WR_BL_MISALIGN  D5=RD_BL_MISALIGN  D4=DSR_IMP  D3:D2=reserved=00  D1:D0=CSIZE[11:10]
+;7   CSIZE:             byte;       // D7:D0=C_SIZE[9:2]
+;8   CSIZE_VDD:         byte;       // D7:D6=C_SIZE[1:0]  D5:D3=VDD_R_CURR_MIN[2:0]  D2:D0=VDD_R_CURR_MAX[2:0]
+;9   VDD_CSIZE_MULT:    byte;       // D7:D5=VDD_W_CURR_MIN[2:0]  D4:D2=VDD_W_CURR_MAX[2:0]  D2:D0=C_SIZE_MULT[2:1]
+;10  CSIZE_MULT_SECSIZE:byte;       // D7=C_SIZE_MULT[0]  D6=ERASE_BLK_EN  D5:D0=SECTOR_SIZE[6:1]
+;11  SECSIZE_WPGRP_SIZE:byte;       // D7=SECTOR_SIZE[0]  D6:D0=WP_GRP_SIZE[6:0]
+;12  WPGRP_ENA_WRBL_LEN:byte;       // D7=WP_GRP_ENABLE   D6:D5=reserved=00  D4:D2=R2W_FACTOR[2:0]  D1:D0=WRITE_BL_LEN[3:2]
+;13  WRBL_LEN__ZERO:    byte;       // D7:D6=WRITE_BL_LEN[1:0]  D5=WRITE_BL_PARTIAL=0  D4:D0=reserved=00000
+;14  BITFIELD2:         byte;       // D7=FILE_FORMAT_GRP  D6=COPY  D5=PERM_WRITE_PROTECT  D4=TMP_WRITE_PROTECT  D3:D2=FILE_FORMAT[1:0]  D1:D0=reserved=00
+;15  CRC:               byte;       // D7:D1= CRC-7 checksum   D0=1
+;
+;High Capacity (CSD v2.0):
+;1   TAAC:              byte;       // D7:D0=TAAC[7:0]
+;    ... the same
+;6   BITFIELD1:         byte;       // D7=RD_BL_PARTIAL  D6=WR_BL_MISALIGN  D5=RD_BL_MISALIGN  D4=DSR_IMP  D3:D0=0000=reserved=0000
+;7   CSIZE_RES:         byte;       // D7:D6=00=reserved  D5:D0=CSIZE[21..16]
+;8   CSIZE_R01:         byte;       // D7:D0=CSIZE[15..8]
+;9   CSIZE_R02:         byte;       // D7:D0=CSIZE[7..0]
+;10  ERABLKLEN_SECSIZE: byte;       // D7=0=reserved  D6=ERASE_BLK_EN  D5:D0=SECTOR_SIZE[6:1]
+;    ... the same
+;
+;Standard (CSD v1.0):
+; Capacity (bytes) = ("C_SIZE"+1) * (2 ^ (CSIZE_MULT+2)) * (2^READ_BL_LEN) = ("C_SIZE"+1) * (2 ^ (CSIZE_MULT+2+READ_BL_LEN))
+; Capacity (512b sectors) = MaxLBA = ("C_SIZE"+1) * (2 ^ (CSIZE_MULT+READ_BL_LEN-7))
+;
+;High Capacity (CSD v2.0):
+; Capacity (bytes) = ("C_SIZE"+1) * 512 * 1024 = ("C_SIZE"+1) * 256 * 256 * 8
+; Capacity (512b sectors) = MaxLBA = ("C_SIZE"+1) * 256 * 4
+;   SDHC min C_SIZE = 1010h (2Gb+8.5Mb),  SDHC max C_SIZE = 0FF5Fh (32Gb-80Mb)
+;
+;Standard:
+; c_size = ix[8] + ix[7] * 256 + (ix[6] & 0x03) * 65536
+; c_size >>= 6   ( 12 bits )
+;
+CalcMaxLBA:
+	push	hl         ; first, try SDHC calculation
+	push	af
+	ld 	hl, csdbuf+9
+        ld      e, (hl)
+	dec	hl         ; HL=csdbuf+8
+        ld      d, (hl)	   
+	dec	hl
+	ld	a, (hl)	   ; A=(csdbuf+7)=HiWord("C_SIZE") {D5:D0}
+	and	3Fh        ; 
+	ld	hl, 1
+	add	hl, de	   ; HL=LoWord("C_SIZE")+1 , sets CY
+        ld      bc, 0A00h  ; B=10=*1024, C=0
+	adc	a, c       ; A=A+CY		
+	ld	e, a       ; EHL=("C_SIZE"+1)
+        ld	a,(device) ; 1=SDc; 3=SDHC
+        cp      3
+        jr      z, sl_dehl ; if SDHC goto EHL*1024
+;
+	ld 	hl, csdbuf+6
+	ld	a, (hl)    ; else SDC calculation
+	inc	hl
+	ld	d, (hl)
+	inc	hl
+	ld 	e, (hl)  
+	ex	de,hl      ; DE=csdbuf+8
+	and	3
+	add	hl, hl
+	rla
+	add	hl, hl
+	rla
+	ld	l, h
+	ld	h, a
+	inc	hl		; hl = c_size + 1
+;
+; c_size_mult = ix[10] + (ix[9] & 0x03) * 256
+; c_size_mult >>= 7    ( 3 bits )
+;
+	inc	de
+	inc	de
+	ld	a, (de)		; A=(csdbuf+10)
+	dec	de	
+	rla
+	ld	a, (de)		; A=(csdbuf+9)
+	rla
+	and	7
+	ld	b, a		; b = c_size_mult
+;
+; read_bl_len = ix[5] & 0x0F  ( 4 bits )
+;
+	ld	a, (csdbuf+5)
+	and	0Fh		; a = read_bl_len
+	add	a, b
+	sub	7		; a = c_size_mult + read_bl_len - 7
+	ld	de, 0
+;	jr	c, sderr	; ERROR - negative exponent
+	jr	z, skipsl	; exponent=0 -> no shift
+;
+; dehl <<= a,  A is 1...31
+;
+	ld	b, a
+sl_dehl:add	hl, hl
+	rl	e
+	rl	d
+	djnz	sl_dehl
+skipsl:	ld	(maxlba0),hl		; dehl = MaxLBA
+	ld	(maxlba0+2),de
+	pop	af
+        pop     hl
+        ret
+;
 ; to initialize the SD card in SPI mode you should:
 ;
 ;    CMD0 arg: 0x0, CRC: 0x95 (response: 0x01) - note that in case of 0xFF or garbled response you should

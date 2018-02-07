@@ -4,6 +4,7 @@
 IF DEBUG
 	dw	0
 	dw	0
+        dw      cold_sd
 	dw	FA
         dw      DISKBUF	;wride
         dw      _wrhdd

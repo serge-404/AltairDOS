@@ -5,6 +5,7 @@
 	ORG	100h
 ;
 BDOS	equ	5
+mon_st  equ     0f812h
 mon_out	equ	0f809h
 mon_in	equ	0f803h
 mon_svb	equ	0f839h
@@ -57,12 +58,12 @@ ELSE
 ;	CP/M	specific
 ;
         LD      HL,(1)
-        LD      DE,6
+        LD      DE,3
         ADD     HL,DE
+        ld      (CON2),hl       ; DOS-BIOS - CONST
+        add     hl,de
         LD      (CON1),HL       ; DOS-BIOS - CONIN
-	inc	hl
-	inc	hl
-	inc	hl
+        add     hl,de
         LD      (CON0),HL       ; DOS-BIOS - CONOUT
         LD      HL,(6)
         LD      (STACK),HL
@@ -470,6 +471,9 @@ cin:
 conin:  db      0C3h	; jp
 CON1:   dw      mon_in	; BIOS CONIN
 ;
+const:  db      0C3h	; jp
+CON2:   dw      mon_st	; BIOS CONST
+;
 upper:  AND     7FH
         CP      61H
         RET     C
@@ -652,82 +656,11 @@ device_sd:			; SDC=1 (Z), SDHC=3 (Z), MasterIDE=0 (NZ), SlaveIDE=10h (NZ)
 ;
 device_init:
 	call	device_sd
-	jr	z,inide
-	call	cold_sd
-	push	hl		; hl=device message string
-	push	af
-;
-; display CSD data
-;
-;0   ZERO:              byte;       // D7=D6=00  D5:D0=reserved=00000
-;1   TAAC:              byte;       // D7:D0=TAAC[7:0]
-;2   NSAC:              byte;       // D7:D0=NSAC[7:0]
-;3   TRAN_SPEED:        byte;       // D7:D0=TRAN_SPEED[7:0]
-;4   CCC:               byte;       // D7:D0=CCC[11:4]
-;5   CCC_READ_BL_LEN:   byte;       // D7:D4=CCC[3:0]  D3:D0=READ_BL_LEN[3:0]
-;6   BITFIELD1_CSIZE:   byte;       // D7=RD_BL_PARTIAL  D6=WR_BL_MISALIGN  D5=RD_BL_MISALIGN  D4=DSR_IMP  D3:D2=reserved=00  D1:D0=CSIZE[11:10]
-;7   CSIZE:             byte;       // D7:D0=C_SIZE[9:2]
-;8   CSIZE_VDD:         byte;       // D7:D6=C_SIZE[1:0]  D5:D3=VDD_R_CURR_MIN[2:0]  D2:D0=VDD_R_CURR_MAX[2:0]
-;9   VDD_CSIZE_MULT:    byte;       // D7:D5=VDD_W_CURR_MIN[2:0]  D4:D2=VDD_W_CURR_MAX[2:0]  D2:D0=C_SIZE_MULT[2:1]
-;10  CSIZE_MULT_SECSIZE:byte;       // D7=C_SIZE_MULT[0]  D6=ERASE_BLK_EN  D5:D0=SECTOR_SIZE[6:1]
-;11  SECSIZE_WPGRP_SIZE:byte;       // D7=SECTOR_SIZE[0]  D6:D0=WP_GRP_SIZE[6:0]
-;12  WPGRP_ENA_WRBL_LEN:byte;       // D7=WP_GRP_ENABLE   D6:D5=reserved=00  D4:D2=R2W_FACTOR[2:0]  D1:D0=WRITE_BL_LEN[3:2]
-;13  WRBL_LEN__ZERO:    byte;       // D7:D6=WRITE_BL_LEN[1:0]  D5=0  D4:D0=reserved=00000
-;14  BITFIELD2:         byte;       // D7=FILE_FORMAT_GRP  D6=COPY  D5=PERM_WRITE_PROTECT  D4=TMP_WRITE_PROTECT  D3:D2=FILE_FORMAT[1:0]  D1:D0=reserved=00
-;15  CRC:               byte;       // D7:D1= CRC-7 checksum   D0=1
-;
-; Capacity (bytes) = ("C_SIZE"+1) * (2 ^ (CSIZE_MULT+2)) * (2^READ_BL_LEN) = ("C_SIZE"+1) * (2 ^ (CSIZE_MULT+2+READ_BL_LEN))
-; Capacity (512b sectors) = MaxLBA = ("C_SIZE"+1) * (2 ^ (CSIZE_MULT+READ_BL_LEN-7))
-;
-; c_size = ix[8] + ix[7] * 256 + (ix[6] & 0x03) * 65536
-; c_size >>= 6   ( 12 bits )
-;
-	ld 	iy, csdbuf			
-	ld 	l, (iy+8)
-	ld	h, (iy+7)
-	ld	a, (iy+6)
-	and	3
-	add	hl, hl
-	rla
-	add	hl, hl
-	rla
-	ld	l, h
-	ld	h, a
-	inc	hl		; hl = c_size + 1
-;
-; c_size_mult = ix[10] + (ix[9] & 0x03) * 256
-; c_size_mult >>= 7    ( 3 bits )
-;
-	ld	a, (iy+10)	;d
-	rla
-	ld	a, (iy+9)	;e
-	rla
-	and	7			
-	ld	b, a		; b = c_size_mult
-;
-; read_bl_len = ix[5] & 0x0F  ( 4 bits )
-;
-	ld	a, (iy+5)
-	and	0Fh		; a = read_bl_len
-	add	a, b
-	sub	7		; a = c_size_mult + read_bl_len - 7
-	ld	de, 0
-;	jr	c, sderr	; ERROR - negative exponent
-	jr	z, skipsl	; exponent=0 -> no shift
-;
-; dehl <<= a,  A is 1...31
-;
-	ld	b, a
-sl_dehl:add	hl, hl
-	rl	e
-	rl	d
-	djnz	sl_dehl
-skipsl:	ld	(maxlba0),hl		; dehl = MaxLBA
-	ld	(maxlba0+2),de
-	pop	af
-	jr	retinit
+	jr	z,initide
+	call	cold_sd         ; hl=device message string
+        jp      CalcMaxLBA      ; AF
 ;				; IDE
-inide:	ld	hl, msg_idem
+initide:ld	hl, msg_idem
 	or	a
 	jr	z, inide2
 	ld	hl, msg_ides
@@ -745,7 +678,7 @@ inide2: push	hl
 	ld	c,4
 	ld	de, maxlba0
 	ldir			; capacity for LBA-supported IDEs
-retinit:pop	hl
+        pop	hl
 	ret
 inide3: dec	a		; set NZ = error
 	pop	hl
@@ -773,7 +706,7 @@ msg_c:   db     "H ",127,"C",127,"OUNT=",0
 msg_l:   db     "H ",127,"L",127,"BA=",0
 msg_d:	 db	"H)",13,10,127,"D",127,"EVICE=",0
 msg_pmt: db	9,127,"R",127,"EAD ",127,"W",127,"RITE ",127,"H",127,"EXDUMP",9,127,"Q",127,"UIT",13,10,0
-msg_mlba:db	"H (",127,"M",127,"AX"
+msg_mlba:db	"H (MAX"
 ELSE
 msg_p:	 db	"P)AGE=",0
 msg_a:	 db	"H A)DDR=",0
@@ -781,7 +714,7 @@ msg_l:   db     "H L)BA=",0
 msg_c:   db     "H C)OUNT=",0
 msg_d:	 db	"H)",13,10,"D)EVICE=",0
 msg_pmt: db     9,"R)EAD W)RITE H)EXDUMP Q)UIT",13,10,0
-msg_mlba:db	"H (M)AX"
+msg_mlba:db	"H (MAX"
 ENDIF
 msg_cyl: db     "LBA ",0
 msg_sure:db     "SURE (Y/N)?",13,10,0
@@ -793,7 +726,7 @@ msg_any: db     13,10,10,"PRESS ANY KEY (ESC=ABORT)"
 msg_nl:	 db	13,10,0
 ;
 sd_msg: dw      msg_msx
-device:	db	1	; SDC=1, MasterIDE=0, 10h=SlaveIDE
+device:	db	1	; SDC=1, SDHC=3, MasterIDE=0, 10h=SlaveIDE
 address:dw	0
 count:	db	120
 DriveInfo:
@@ -807,10 +740,16 @@ devicehl equ	lba0+4
 maxlba0	equ	devicehl+2
 csdbuf	equ	maxlba0+4	; buffer for sd card information
 buffer	equ	csdbuf+16	; a 512 byte buffer
-	.dephase
 ;
 IF ORDOS
+	.dephase
 	ds	codesize+codebeg-codend, 0FFh	; round to 16
+ELSE
+IF DEBUG
+        dw      0,0,0FFFFh,0,0
+        dw      device_init
+        dw      0,0
+ENDIF
 ENDIF
 ;
         END     begin
