@@ -529,8 +529,14 @@ void GotoXY(uchar x /* COL */, uchar y /* ROW */)		/* VT52 display */
 
 void ClearScreen()			/* VT52 display */
 {
-  if (! AltairDos)
+  if (! AltairDos) {
+    bios(NCONOUT, 27);			
+    bios(NCONOUT, '[');
+    bios(NCONOUT, '?');				/* Esc[?2l Set VT52 (versus ANSI) */
+    bios(NCONOUT, '2');
+    bios(NCONOUT, 'l');
     bios(NCONOUT, 26);				/* other VT52 displays - clear & home */ 
+  }
   kputch(27); kputch('E');			/* Only clear screen for Amstrad & ACPM */  
   kputch(27); kputch('H'); 			/* home cursor */  
   if ((AltairDos) && (!(*PIOBYTE & 3))) {	/* if console device = TTY: */
